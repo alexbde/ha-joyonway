@@ -63,7 +63,7 @@ class JoyonwayBinarySensor(CoordinatorEntity, BinarySensorEntity):
         """Initialize the binary sensor."""
         super().__init__(coordinator)
         self._key = description.key
-        self._attr_name = description.name
+        self._attr_translation_key = description.key
         self._attr_unique_id = f"{entry.entry_id}_{description.key}"
         self._attr_device_info = _device_info(entry)
         self._attr_entity_registry_enabled_default = description.enabled_by_default
@@ -92,7 +92,7 @@ class JoyonwayBridgeConnectivity(CoordinatorEntity, BinarySensorEntity):
 
     _attr_has_entity_name = True
     _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
-    _attr_name = "RS485 bridge connection"
+    _attr_translation_key = "bridge_connectivity"
     _attr_icon = "mdi:wifi-check"
 
     def __init__(

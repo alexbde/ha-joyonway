@@ -16,6 +16,23 @@
     "abort": {
       "already_configured": "Ce pont est déjà configuré."
     }
+  },
+  "entity": {
+    "sensor": {
+      "water_temperature": { "name": "Température de l'eau" },
+      "setpoint": { "name": "Consigne" },
+      "heater_state": { "name": "État du chauffage" },
+      "spa_datetime": { "name": "Horloge spa" },
+      "raw_pump_byte": { "name": "Octet pompe brut" },
+      "raw_heater_byte": { "name": "Octet chauffage brut" }
+    },
+    "binary_sensor": {
+      "pump_low": { "name": "Pompe basse (filtration)" },
+      "pump_high": { "name": "Pompe haute (jets)" },
+      "light": { "name": "Lumière" },
+      "heater_active": { "name": "Chauffage actif" },
+      "uv_lamp": { "name": "Ozone" },
+      "bridge_connectivity": { "name": "Connexion pont RS485" }
+    }
   }
 }
-

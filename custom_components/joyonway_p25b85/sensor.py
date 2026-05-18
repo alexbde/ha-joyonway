@@ -61,7 +61,7 @@ class JoyonwaySensor(CoordinatorEntity, SensorEntity):
         """Initialize the sensor."""
         super().__init__(coordinator)
         self._key = description.key
-        self._attr_name = description.name
+        self._attr_translation_key = description.key
         self._attr_unique_id = f"{entry.entry_id}_{description.key}"
         self._attr_device_info = _device_info(entry)
         self._attr_entity_registry_enabled_default = description.enabled_by_default
