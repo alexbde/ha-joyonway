@@ -74,7 +74,7 @@ python3 tools/frame_parser_38400.py --max-frames 5 captures/00_baseline_before.b
 ### 4. Run tests
 
 ```bash
-python3 -m pytest tests/test_frame_protocol.py -v
+python3 -m unittest discover -s tests -v
 ```
 
 ---

@@ -24,6 +24,7 @@ from frame_parser_38400 import (
     fahrenheit_to_celsius,
     is_broadcast,
     check_escape_positions,
+    annotate_p25b85,
     FRAME_START,
     FRAME_END,
     ESCAPE_BYTE,
@@ -248,6 +249,12 @@ class TestKDyGoldenSample(unittest.TestCase):
         # 0x43 & 0x20 = 0x00 → UV is off (0x43 has bits 0x40 + 0x02 + 0x01)
         self.assertTrue(bool(self.logical[29] & 0x40))
         self.assertFalse(bool(self.logical[29] & 0x20))
+
+    def test_byte_28_annotation_is_not_uv_specific(self):
+        annotations = annotate_p25b85(self.logical)
+        byte_28 = next(a for a in annotations if a["byte"] == 28)
+        self.assertEqual(byte_28["name"], "activity_flag")
+        self.assertIn("heating_or_uv", byte_28["decoded"])
 
     def test_escape_in_raw(self):
         """KDy sample has 0x1B 0x11 escape sequence (should unescape to 0x1A)."""

@@ -70,7 +70,7 @@ Broadcast at `0xFF` every cycle = main data source (~16 broadcasts per 10s).
 | 8 | Model ID (`0x03` = P25B85) | ✅ confirmed |
 | **9** | Water temperature (°F) | ✅ confirmed |
 | **12** | Pump status (`0x02`=low, `0x04`=high) | ✅ confirmed from captures |
-| 13 | Always `0x7D` — static, not pump data | ✅ confirmed static |
+| 13 | Local captures: `0x7D` — static/ignored, not pump data | ✅ confirmed not pump data |
 | **14** | Heater state (`0x40`/`0x50`/`0x55`/`0x41`) | ✅ confirmed (was 15) |
 | 15 | Always `0x00` — not heater state | ✅ confirmed static |
 | **16** | Setpoint (°F) | ✅ confirmed |
@@ -78,8 +78,8 @@ Broadcast at `0xFF` every cycle = main data source (~16 broadcasts per 10s).
 | 18 | Always `0x00` | ✅ confirmed static |
 | 19 | `0xCB` idle, `0x4B` during heating/UV | observed |
 | **27** | Pump mirror (same as byte 12) | ✅ confirmed |
-| **28** | Activity flag (`0x20` during heating AND UV) | ✅ confirmed (was 29) |
-| 29 | Always `0x4B` | ✅ confirmed static |
+| **28** | Activity flag (`0x20` during heating AND UV; not UV-specific) | ✅ confirmed (was 29) |
+| 29 | Local captures: `0x4B` — static/ignored | ✅ confirmed static locally |
 | 53–58 | Date/time | ✅ confirmed |
 
 ### Heater state values (byte 14, validated)
@@ -117,7 +117,9 @@ firmware revision or sub-state):
 - Both KDy and our values are accepted in the adapter.
 
 **Byte 28** fires during both heating and UV — not UV-specific. UV detection
-uses heater state byte 14 (`0x41` or `0xC1`) only.
+uses heater state byte 14 (`0x41` or `0xC1`) only. Bytes 13 and 29 are static
+in local captures but have different filler values in KDy's sample, so they
+should be treated as ignored/static fields rather than model constants.
 
 ### CRC safety
 

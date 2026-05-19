@@ -151,7 +151,7 @@ def annotate_p25b85(frame: bytes) -> list[dict]:
     add(16, "setpoint_F", lambda v: f"{v}°F = {fahrenheit_to_celsius(v)}°C")
     add(17, "light_flags", lambda v: f"light={'ON' if v & 0x01 else 'OFF'}, flag_0x80={'SET' if v & 0x80 else 'clear'}")
     add(27, "pump_mirror", lambda v: f"low={'ON' if v & 0x02 else 'off'}, high={'ON' if v & 0x04 else 'off'}")
-    add(28, "uv_ozone_flag", lambda v: f"UV={'ACTIVE' if v & 0x20 else 'off'}")
+    add(28, "activity_flag", lambda v: f"heating_or_uv={'SET' if v & 0x20 else 'off'}")
     if len(frame) > 58:
         dt = frame[53:59]
         try:
@@ -326,7 +326,7 @@ def print_diff_result(r: dict):
         print("\n  ✅ No differences found.")
         return
     p25_labels = {9: "water_temp", 12: "pump", 14: "heater",
-                   16: "setpoint", 17: "light", 27: "pump_mirror", 28: "uv"}
+                   16: "setpoint", 17: "light", 27: "pump_mirror", 28: "activity"}
     p23_labels = {9: "water_temp", 12: "pump1", 14: "pump2", 16: "setpoint", 17: "light"}
     labels = p25_labels if r["model"] == "P25B85" else p23_labels if r["model"] == "P23B32" else {}
     print(f"\n  {len(diffs)} byte position(s) differ:\n")

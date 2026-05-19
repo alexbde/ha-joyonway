@@ -10,20 +10,21 @@ consistent with our captures once the indexing is corrected:
   KDy "byte 15" → 0-based byte 14 (heater state)
   KDy "byte 18" → 0-based byte 17 (light flags)
   KDy "byte 28" → 0-based byte 27 (pump mirror)
-  KDy "byte 29" → 0-based byte 28 (UV/activity flag)
+  KDy "byte 29" → 0-based byte 28 (activity flag)
 
 Capture validation summary:
   - Byte 12: pump (0x02=low, 0x04=high) ✅ confirmed (matches KDy)
   - Byte 14: heater state ✅ confirmed (KDy's "byte 15", 1-based)
   - Byte 17: light flags ✅ confirmed (KDy's "byte 18", 1-based)
-  - Byte 28: UV/ozone flag ✅ confirmed (KDy's "byte 29", 1-based)
+  - Byte 28: activity flag ✅ confirmed (KDy's "byte 29", 1-based)
+    Set during both heating and UV/ozone, so it is not UV-specific.
   - Byte 27: mirrors byte 12 (pump), not used
-  - Byte 13: always 0x7D, static
-  - Byte 15: always 0x00, not heater state
+  - Byte 13: static in local captures, not pump data
+  - Byte 15: static in local captures, not heater state
 """
 from __future__ import annotations
 
-from .base import ModelAdapter, SpaEntityDescription
+from .base import SpaEntityDescription
 
 # Broadcast frame header signature for P25B85 (bytes 0-8)
 # byte[8] = 0x03 distinguishes P25B85 from P23B32 (0x02)
@@ -35,7 +36,9 @@ IDX_PUMP_BYTE = 12   # ✅ confirmed: 0x02=low, 0x04=high (KDy "byte 13")
 IDX_HEATER_STATE = 14  # ✅ confirmed (KDy "byte 15")
 IDX_SETPOINT = 16    # Fahrenheit
 IDX_LIGHT_FLAGS = 17   # ✅ confirmed (KDy "byte 18")
-IDX_UV_FLAG = 28       # ✅ confirmed (KDy "byte 29"); also set during heating
+IDX_ACTIVITY_FLAG = 28  # ✅ confirmed (KDy "byte 29"); set during heating and UV/ozone
+# Legacy alias kept for raw diagnostics/backward compatibility.
+IDX_UV_FLAG = IDX_ACTIVITY_FLAG
 IDX_DATETIME_START = 53  # bytes 53-58: year, month, day, hour, minute, second
 
 # Pump masks
@@ -45,8 +48,10 @@ MASK_PUMP_HIGH = 0x04  # massage jets ✅
 # Light
 MASK_LIGHT = 0x01  # ✅ bit 0 at byte 17
 
-# UV/Ozone
-MASK_UV = 0x20  # bit 5 at byte 28 (also set during heating — use heater byte for UV detection)
+# Activity flag at byte 28 (not UV-specific; use heater byte for UV detection)
+MASK_ACTIVITY = 0x20
+# Legacy alias kept for callers that imported the old name.
+MASK_UV = MASK_ACTIVITY
 
 # Heater state values (at byte 14)
 # KDy describes three heating stages: circulation → heating → cooldown
