@@ -12,7 +12,7 @@
 >
 > **Integration domain:** `joyonway_p25b85`
 > **Hardware:** P25B85 + PB554 + Elfin EW11
-> **Status:** Phase 3 complete, byte map fully validated from captures.
+> **Status:** Phase 4 write support implemented (light + pump). CRC not cracked.
 
 ---
 
@@ -58,6 +58,7 @@
 - Pseudo-escape: `0x1B XX` sequences (see escape table in code)
 - P25B85: full-frame unescape. P23B32: tail-only (bytes 55+).
 - Frame boundaries detected on raw bytes FIRST, then unescape applied.
+- **byte[3]** = payload length (unescaped bytes between delimiters, excluding 4-byte CRC)
 
 ### Bus cycle (~600ms total, 12 frames)
 
@@ -69,62 +70,58 @@ Broadcast at `0xFF` every cycle = main data source (~16 broadcasts per 10s).
 |------|---------|--------|
 | 8 | Model ID (`0x03` = P25B85) | ✅ confirmed |
 | **9** | Water temperature (°F) | ✅ confirmed |
-| **12** | Pump status (`0x02`=low, `0x04`=high) | ✅ confirmed from captures |
-| 13 | Local captures: `0x7D` — static/ignored, not pump data | ✅ confirmed not pump data |
-| **14** | Heater state (`0x40`/`0x50`/`0x55`/`0x41`) | ✅ confirmed (was 15) |
-| 15 | Always `0x00` — not heater state | ✅ confirmed static |
+| **12** | Pump status (`0x02`=low, `0x04`=high) | ✅ confirmed |
+| **14** | Heater state (`0x40`/`0x50`/`0x55`/`0x41`) | ✅ confirmed |
 | **16** | Setpoint (°F) | ✅ confirmed |
-| **17** | Light flags (bit 0 = light ON, bit 7 = cycle flag) | ✅ confirmed (was 18) |
-| 18 | Always `0x00` | ✅ confirmed static |
-| 19 | `0xCB` idle, `0x4B` during heating/UV | observed |
+| **17** | Light flags (bit 0 = light ON, bit 7 = cycle flag) | ✅ confirmed |
 | **27** | Pump mirror (same as byte 12) | ✅ confirmed |
-| **28** | Activity flag (`0x20` during heating AND UV; not UV-specific) | ✅ confirmed (was 29) |
-| 29 | Local captures: `0x4B` — static/ignored | ✅ confirmed static locally |
-| 53–58 | Date/time | ✅ confirmed |
+| **28** | Activity flag (`0x20` during heating AND UV) | ✅ confirmed |
+| 53–58 | Date/time (year, month, day, hour, minute, second) | ✅ confirmed |
 
-### Heater state values (byte 14, validated)
+### Command frame structure (22 bytes, captured from PB554 panel)
 
-KDy describes three heating stages: circulation → heating → cooldown
+```
+Offset  Size  Field
+------  ----  -----
+0       1     Frame start (0x1A)
+1       1     Destination (0x01 = controller)
+2-7     6     Header (0x20 0x10 0x3C 0xA1 0x10 0xA1) — fixed
+8       1     Pump byte 1 (encodes transition)
+9       1     Pump byte 2 (encodes transition)
+10      1     Button flag high (0x40=light, 0x80=temp, 0x00=pump)
+11      1     Button flag low  (same as byte 10)
+12-14   3     Fixed (0x00 0xC0 0x00)
+15      1     Setpoint temperature (°F) — current at time of capture
+16      1     Fixed (0x00)
+17-20   4     CRC (proprietary, not cracked)
+21      1     Frame end (0x1D)
+```
 
-| Value | State | Description | Source |
-|-------|-------|-------------|--------|
-| `0x40` | cooldown | Post-heating rest / heater idle | ✅ KDy + our captures |
-| `0x50` | circulation | Circulation pump running, pre-heat or monitoring | ✅ KDy + our captures |
-| `0x54` | heating | Heater element active | KDy (not seen in our captures) |
-| `0x55` | heating | Heater element active | ✅ our captures (bit 0 differs from KDy) |
-| `0x41` | uv_ozone | UV lamp / ozone cycle | ✅ our captures |
-| `0xC1` | uv_ozone | UV lamp / ozone cycle | KDy (bit 7 differs from ours) |
+### Captured command frames
 
-### Corrections from KDy reference
+| Action | Frame (hex) |
+|--------|-------------|
+| Light toggle | `1a0120103ca110a10000404000c00056003031eeb21d` |
+| Pump OFF→low | `1a0120103ca110a10202000000c00056007dd2146b1d` |
+| Pump low→high | `1a0120103ca110a10604000000c0005600fc1221c61d` |
+| Pump high→OFF | `1a0120103ca110a10400000000c0005600735738e91d` |
+| Temp set 87°F | `1a0120103ca110a10000808000c00057005aa3207f1d` |
+| Temp set 86°F | `1a0120103ca110a10000808000c0005600dd0ff87e1d` |
 
-KDy used **1-based byte numbering** in post #74. All positions are off by +1
-from 0-based indexing used in the code. KDy's raw data is fully consistent
-with our captures once this is corrected:
-
-| KDy (1-based) | 0-based | Field | Match? |
-|---|---|---|---|
-| byte 13 | byte 12 | pump | ✅ exact |
-| byte 15 | byte 14 | heater state | ✅ exact |
-| byte 18 | byte 17 | light flags | ✅ exact |
-| byte 28 | byte 27 | pump mirror | ✅ exact |
-| byte 29 | byte 28 | UV/activity flag | ✅ exact |
-
-Heater state values mostly match. Two values differ by 1 bit (possibly
-firmware revision or sub-state):
-- Heating: KDy `0x54` vs our `0x55` (bit 0 differs)
-- UV/ozone: KDy `0xC1` vs our `0x41` (bit 7 differs)
-- Cooldown `0x40` and circulation `0x50` match exactly.
-- Both KDy and our values are accepted in the adapter.
-
-**Byte 28** fires during both heating and UV — not UV-specific. UV detection
-uses heater state byte 14 (`0x41` or `0xC1`) only. Bytes 13 and 29 are static
-in local captures but have different filler values in KDy's sample, so they
-should be treated as ignored/static fields rather than model constants.
+Key findings:
+- Light ON and OFF use the **same frame** — it's a **toggle** command
+- Pump commands encode **state transitions** (must match current state)
+- Temp commands include **target °F in byte 15** + button flag 0x80
+- CRC is 4 bytes, algorithm is **proprietary** (not CRC-32, CRC-32C, Modbus,
+  or any standard variant tested)
 
 ### CRC safety
 
-- ❌ NEVER send frames with forged CRC (can activate heater)
+- ❌ NEVER send frames with forged CRC (can activate heater — KDy warning)
 - ✅ ONLY replay verbatim captured frames from physical panel
+- CRC algorithm not identified despite extensive testing (standard CRC-32 polys,
+  reflected/non-reflected, various init/xor combinations, Modbus CRC-16, checksums)
+- For arbitrary temperature setpoints, CRC must be cracked or frames captured
 
 ---
 
@@ -139,14 +136,16 @@ custom_components/joyonway_p25b85/
 ├── manifest.json        # HACS-compatible, v0.1.0
 ├── config_flow.py       # IP + port, TCP connection test
 ├── protocol.py          # find_frames, pseudo_unescape, validate_frame
-├── coordinator.py       # async TCP polling, frame parsing via adapter
+├── coordinator.py       # async TCP polling + async_send_command
 ├── sensor.py            # adapter-driven (translation_key based)
 ├── binary_sensor.py     # adapter-driven + bridge connectivity
+├── switch.py            # light toggle (on/off via replay)
+├── button.py            # pump cycle + pump off
 ├── strings.json         # entity translations (base)
 ├── adapters/
 │   ├── __init__.py      # registry: get_adapter("P25B85")
 │   ├── base.py          # ModelAdapter protocol + SpaEntityDescription
-│   └── p25b85.py        # byte map, parse_status(), entity list
+│   └── p25b85.py        # byte map, parse_status(), command frames, pump logic
 ├── brand/
 │   ├── icon.png         # 256×256
 │   └── icon@2x.png      # 512×512
@@ -156,97 +155,94 @@ custom_components/joyonway_p25b85/
     └── fr.json
 ```
 
+### Write support entities (Phase 4)
+
+| Entity | Platform | Type | Action |
+|--------|----------|------|--------|
+| Light | switch | on/off | Sends toggle when state needs changing |
+| Pump cycle | button | press | Advances pump: off→low→high→off |
+| Pump off | button | press | Turns pump off (handles low→high→off if needed) |
+
 ### Entity translations use `translation_key`
 
-Entity names are NOT hardcoded — they come from `translations/*.json` under
-the `entity.sensor.*` and `entity.binary_sensor.*` keys. The adapter's
-`SpaEntityDescription.key` maps to the translation key.
+Entity names come from `translations/*.json` under `entity.<platform>.*` keys.
 
-### Live-validated
+### Live-validated (Phase 2-3)
 
 - ✅ Integration installs via HACS custom repo
 - ✅ Config flow connects to EW11 and creates device
-- ✅ Water temperature reads correctly (33.9°C observed)
-- ✅ Setpoint reads correctly (37.8°C observed)
-- ✅ All entities appear in HA with correct names
+- ✅ All read sensors work (water temp, setpoint, pump, light, heater, UV)
 - ✅ German/English/French translations work
-- ✅ Bridge connectivity sensor works
 
-### Capture-validated
+### Write support — NOT YET LIVE TESTED
 
-- ✅ Pump low/high
-- ✅ Light on/off
-- ✅ Heater state transitions (circulation → heating → cooldown)
-- ✅ Ozone/UV activation
+- ⚠️ Light switch: implemented, needs live test at spa
+- ⚠️ Pump buttons: implemented, needs live test at spa
+- Temperature: blocked on CRC (only 86°F/87°F frames available)
 
 ---
 
-## 4. Capture Plan (next spa visit)
-
-Run: `python3 tools/guided_capture_38400.py` (default 10s per segment, all actions)
-
-**Priority actions (must do):**
-1. Pump LOW → press pump once, confirm which byte changes
-2. Pump HIGH → press pump again
-3. Light ON → any colour
-
-**Nice to have:**
-4. Heater → raise setpoint, wait for circulation/heating on display
-5. Ozone → if visible on panel (may run automatically)
-
-**Tips:**
-- Wait 2-3s after pressing button before starting capture
-- For heater: wait until panel shows heating symbol, then capture (may take 30-60s)
-- Total time: ~15 minutes for all actions
-
-**After capture:**
-```bash
-python3 tools/frame_parser_38400.py --diff captures/XX_baseline_before.bin captures/XX_pump_low_active.bin
-```
-Also drop xxd hex into https://knapthebuilder.github.io/joyonway-frame-analyzer/
-
----
-
-## 5. Phase Status
+## 4. Phase Status
 
 | Phase | Status | Notes |
 |-------|--------|-------|
 | 1. Capture tools | ✅ Done | `guided_capture_38400.py`, `frame_parser_38400.py` |
 | 2. Integration | ✅ Done | Deployed, reading live data, HACS install works |
-| 3. Validate byte map | ✅ Done | Captures analyzed, 3 byte positions corrected (KDy 1-based → 0-based) |
-| 4. Write commands | Planned | Only after Phase 3; replay-only, no synthetic frames |
-| 5. Polish & release | Planned | After Phase 4 |
+| 3. Validate byte map | ✅ Done | All byte positions confirmed from captures |
+| 4. Write commands | ✅ Implemented | Light + pump replay; temp blocked on CRC |
+| 5. Live test writes | **Next** | Test light switch and pump buttons at spa |
+| 6. Temperature control | Blocked | Need CRC algorithm or more captures |
+| 7. Polish & release | Planned | After Phase 5+6 |
 
 ---
 
-## 6. Next Steps
+## 5. Next Steps
 
-1. ~~**Go to spa**~~ ✅ Done — captured all actions
-2. ~~**Analyze**~~ ✅ Done — 3 byte positions corrected (light→17, heater→14, UV→28)
-3. ~~**Update adapter**~~ ✅ Done — all IDX values, heater state map, UV logic fixed
+1. **Live test write commands** — restart HA with new code, test light switch
+   and pump buttons. Verify state updates after commands.
+2. **Capture ALL temperature commands** — build a lookup table (50°F–104°F):
+   ```bash
+   python3 tools/capture_temp_commands.py --direction up   # 30 presses from 10°C
+   python3 tools/capture_temp_commands.py --direction down # 30 presses from 40°C
+   ```
+   - Script is fully automated: press Enter once, then press button on each prompt
+   - ~15s per step × 30 steps = ~8 minutes per direction
+   - Set spa to 10°C (50°F) before "up", 40°C (104°F) before "down"
+   - Captures saved to `captures_temp/temp_commands.json` (resumable)
+   - Also try some "jump" captures (e.g., multiple presses in one window)
+     to see if the panel sends the final target or each intermediate value
+3. **Implement temperature control** — once lookup table is complete, add a
+   `climate` entity (preferred for beautiful thermostat card in dashboards):
+   - `hvac_modes=[HEAT]` (spa always heats to setpoint)
+   - `current_temperature` → water temp sensor (byte 9)
+   - `target_temperature` → setpoint (byte 16), sends matching frame from lookup
+   - `min_temp=10`, `max_temp=40`, step 1°C
+   - Alternative: `water_heater` (better semantic fit, worse dashboard cards)
+   - Decision: go with `climate` for the visual UX (thermostat ring card)
 4. **PR to frame-analyzer** — add P25B85 preset to christopheknap's tool
-5. **Phase 4** — capture command frames from panel for write support
+5. **Polish** — version bump, README update, HACS release
 
 ---
 
-## 7. Technical Notes for Next Session
+## 6. Technical Notes for Next Session
 
 - **`.env` file** holds bridge IP (gitignored). Tools auto-load it.
-- **`.env.example`** has generic `192.168.1.100` placeholder.
-- **HACS** requires single integration per repo — that's why `joyonway_p23b32`
-  was removed (it caused HACS to install to wrong path).
+- **HACS** requires single integration per repo.
 - **Restart required** after any code change to the integration.
-- **Entity names** come from `translation_key` + translation files, not from
-  `_attr_name`. If adding entities, add keys to all 3 translation files +
-  `strings.json`.
-- **Ozone** — manual calls it "Ozonauslass". Entity named "Ozon" (DE) / "Ozone"
-  (EN/FR). It's a UV lamp plugged into the ozone port.
-- **Heater active vs heater state**: `heater_active` = binary (byte 14 in
-  `{0x54, 0x55}`), `heater_state` = text sensor showing full cycle stage.
-- **KDy byte numbering**: KDy used 1-based numbering in HA post #74.
-  All code uses 0-based. Subtract 1 from any KDy reference.
-- **Tests** run with `python3 -m unittest discover -s tests` (no pytest needed,
-  pure stdlib). 95 tests, <1ms.
-- **christopheknap's frame-analyzer**: https://github.com/KnapTheBuilder/joyonway-frame-analyzer
-  — browser tool, accepts xxd hex dumps. Open to P25B85 preset PR.
-  Also has `docs/PROTOCOL.md` as shared protocol reference.
+- **Entity names** come from `translation_key` + translation files.
+- **Tests** run with `python3 -m unittest discover -s tests` (96 tests, <1ms).
+- **CRC status**: Proprietary 4-byte integrity check. NOT CRC-32, CRC-32C,
+  CRC-16/Modbus, XOR, mod-256, or any standard variant. Tested exhaustively.
+  External "hints" claiming 1-byte checksum or Modbus CRC-16 were tested and
+  disproven against our captures. Replay-only is the correct approach.
+- **Temperature capture script** ready: `tools/capture_temp_commands.py`
+  - Automated: press Enter once, then press button on each prompt (15s windows)
+  - Resumable: saves to `captures_temp/temp_commands.json`
+  - Set spa to 10°C before UP run, 40°C before DOWN run
+  - ~8 min per direction, ~16 min total for full 50°F–104°F lookup table
+- **Command send pattern**: coordinator opens TCP, writes frame, closes.
+  Uses `asyncio.Lock` to prevent concurrent sends.
+- **Pump state machine**: must follow OFF→low→high→OFF cycle.
+  "Pump off" button handles low→high→off with 1s delay between frames.
+- **Light is a toggle**: same frame for on and off. Switch entity checks
+  current state before sending to avoid double-toggle.
