@@ -10,7 +10,6 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_HOST
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -18,6 +17,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .adapters.base import SpaEntityDescription
 from .const import DOMAIN
 from .coordinator import JoyonwayP25B85Coordinator
+from .entity import device_info
 
 
 async def async_setup_entry(
@@ -38,17 +38,6 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-def _device_info(entry: ConfigEntry) -> dict:
-    """Build device info dict."""
-    return {
-        "identifiers": {(DOMAIN, entry.entry_id)},
-        "name": "Joyonway P25B85",
-        "manufacturer": "Joyonway",
-        "model": "P25B85",
-        "configuration_url": f"http://{entry.data[CONF_HOST]}",
-    }
-
-
 class JoyonwayBinarySensor(CoordinatorEntity, BinarySensorEntity):
     """A binary sensor entity driven by the model adapter."""
 
@@ -65,7 +54,7 @@ class JoyonwayBinarySensor(CoordinatorEntity, BinarySensorEntity):
         self._key = description.key
         self._attr_translation_key = description.key
         self._attr_unique_id = f"{entry.entry_id}_{description.key}"
-        self._attr_device_info = _device_info(entry)
+        self._attr_device_info = device_info(entry)
         self._attr_entity_registry_enabled_default = description.enabled_by_default
 
         if description.icon:
@@ -103,7 +92,12 @@ class JoyonwayBridgeConnectivity(CoordinatorEntity, BinarySensorEntity):
         """Initialize the connectivity sensor."""
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry.entry_id}_bridge_connectivity"
-        self._attr_device_info = _device_info(entry)
+        self._attr_device_info = device_info(entry)
+
+    @property
+    def available(self) -> bool:
+        """Keep this health sensor available so it can report disconnected."""
+        return True
 
     @property
     def is_on(self) -> bool:
