@@ -160,21 +160,20 @@ class TestP25B85Adapter(unittest.TestCase):
         # byte[16] = 0x68 = 104°F = 40.0°C
         self.assertEqual(result["setpoint"], 40.0)
 
-    def test_heater_state_off(self):
+    def test_heater_state_cooldown(self):
         result = self.adapter.parse_status(self.logical)
-        # byte[15] = 0x00 → off
-        self.assertEqual(result["heater_state"], "off")
+        # KDy frame has byte[14] = 0x40 → cooldown
+        self.assertEqual(result["heater_state"], "cooldown")
         self.assertFalse(result["heater_active"])
 
-    def test_light_off(self):
+    def test_light_on(self):
         result = self.adapter.parse_status(self.logical)
-        # byte[18] = 0x00 → light off
-        self.assertFalse(result["light"])
+        # byte[17] = 0x01 → light on
+        self.assertTrue(result["light"])
 
     def test_uv_off(self):
         result = self.adapter.parse_status(self.logical)
-        # byte[29] = 0x43, 0x43 & 0x20 = 0 → UV off
-        # byte[15] = 0x00, not 0xC1 → UV off
+        # byte[14] = 0x40, not 0x41 → UV off
         self.assertFalse(result["uv_lamp"])
 
     def test_pump_values(self):
@@ -224,7 +223,13 @@ class TestP25B85Adapter(unittest.TestCase):
 
 
 class TestP25B85HeaterStates(unittest.TestCase):
-    """Test all heater state byte values."""
+    """Test all heater state byte values (at byte 14, validated from captures).
+
+    KDy used 1-based numbering ("byte 15") — 0-based is byte 14.
+    KDy describes three stages: circulation (0x50) → heating (0x54) → cooldown (0x40).
+    Our captures show 0x55 for heating and 0x41 for UV (1-bit variants of KDy's values).
+    Both sets are accepted.
+    """
 
     def setUp(self):
         self.adapter = P25B85Adapter()
@@ -235,9 +240,9 @@ class TestP25B85HeaterStates(unittest.TestCase):
         modified[IDX_HEATER_STATE] = value
         return bytes(modified)
 
-    def test_heater_off(self):
-        result = self.adapter.parse_status(self._with_heater_byte(HEATER_OFF))
-        self.assertEqual(result["heater_state"], "off")
+    def test_heater_cooldown(self):
+        result = self.adapter.parse_status(self._with_heater_byte(HEATER_COOLDOWN))
+        self.assertEqual(result["heater_state"], "cooldown")
         self.assertFalse(result["heater_active"])
 
     def test_heater_circulation(self):
@@ -250,13 +255,21 @@ class TestP25B85HeaterStates(unittest.TestCase):
         self.assertEqual(result["heater_state"], "heating")
         self.assertTrue(result["heater_active"])
 
-    def test_heater_cooldown(self):
-        result = self.adapter.parse_status(self._with_heater_byte(HEATER_COOLDOWN))
-        self.assertEqual(result["heater_state"], "cooldown")
-        self.assertFalse(result["heater_active"])
+    def test_heater_heating_kdy_variant(self):
+        """KDy reported 0x54 for heating (our captures show 0x55, bit 0 differs)."""
+        result = self.adapter.parse_status(self._with_heater_byte(0x54))
+        self.assertEqual(result["heater_state"], "heating")
+        self.assertTrue(result["heater_active"])
 
     def test_heater_uv_ozone(self):
         result = self.adapter.parse_status(self._with_heater_byte(HEATER_UV_OZONE))
+        self.assertEqual(result["heater_state"], "uv_ozone")
+        self.assertFalse(result["heater_active"])
+        self.assertTrue(result["uv_lamp"])
+
+    def test_heater_uv_ozone_kdy_variant(self):
+        """KDy reported 0xC1 for UV/ozone (our captures show 0x41, bit 7 differs)."""
+        result = self.adapter.parse_status(self._with_heater_byte(0xC1))
         self.assertEqual(result["heater_state"], "uv_ozone")
         self.assertFalse(result["heater_active"])
         self.assertTrue(result["uv_lamp"])

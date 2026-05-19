@@ -1,9 +1,25 @@
 """P25B85 model adapter — byte map and entity definitions.
 
-Byte positions from KDy's reverse engineering (HA community post #74).
-All indexes are logical-frame positions (after full-frame unescape).
+Byte positions validated against local RS485 captures.
+All indexes are 0-based logical-frame positions (after full-frame unescape).
 
-⚠️ Pump byte index (12 vs 13) is UNCONFIRMED — needs local capture validation.
+KDy's HA community post #74 used 1-based byte numbering, which caused an
+off-by-one when we originally transcribed the byte map. KDy's data is fully
+consistent with our captures once the indexing is corrected:
+  KDy "byte 13" → 0-based byte 12 (pump)
+  KDy "byte 15" → 0-based byte 14 (heater state)
+  KDy "byte 18" → 0-based byte 17 (light flags)
+  KDy "byte 28" → 0-based byte 27 (pump mirror)
+  KDy "byte 29" → 0-based byte 28 (UV/activity flag)
+
+Capture validation summary:
+  - Byte 12: pump (0x02=low, 0x04=high) ✅ confirmed (matches KDy)
+  - Byte 14: heater state ✅ confirmed (KDy's "byte 15", 1-based)
+  - Byte 17: light flags ✅ confirmed (KDy's "byte 18", 1-based)
+  - Byte 28: UV/ozone flag ✅ confirmed (KDy's "byte 29", 1-based)
+  - Byte 27: mirrors byte 12 (pump), not used
+  - Byte 13: always 0x7D, static
+  - Byte 15: always 0x00, not heater state
 """
 from __future__ import annotations
 
@@ -13,38 +29,46 @@ from .base import ModelAdapter, SpaEntityDescription
 # byte[8] = 0x03 distinguishes P25B85 from P23B32 (0x02)
 P25B85_SIGNATURE = bytes([0x1A, 0xFF, 0x01, 0x3C, 0xD2, 0xB4, 0xFF, 0x08, 0x03])
 
-# Byte positions in the logical (unescaped) broadcast frame
-IDX_WATER_TEMP = 9  # Fahrenheit
-IDX_PUMP_BYTE = 12  # ⚠️ UNCONFIRMED: could be 12 or 13. Using 12 as primary candidate.
-IDX_HEATER_STATE = 15
-IDX_SETPOINT = 16  # Fahrenheit
-IDX_LIGHT_FLAGS = 18
-IDX_UV_FLAG = 29
+# Byte positions in the logical (unescaped) broadcast frame (0-based)
+IDX_WATER_TEMP = 9   # Fahrenheit
+IDX_PUMP_BYTE = 12   # ✅ confirmed: 0x02=low, 0x04=high (KDy "byte 13")
+IDX_HEATER_STATE = 14  # ✅ confirmed (KDy "byte 15")
+IDX_SETPOINT = 16    # Fahrenheit
+IDX_LIGHT_FLAGS = 17   # ✅ confirmed (KDy "byte 18")
+IDX_UV_FLAG = 28       # ✅ confirmed (KDy "byte 29"); also set during heating
 IDX_DATETIME_START = 53  # bytes 53-58: year, month, day, hour, minute, second
 
-# Pump masks (from KDy status table)
-MASK_PUMP_LOW = 0x02  # filtration / circulation
-MASK_PUMP_HIGH = 0x04  # massage jets
+# Pump masks
+MASK_PUMP_LOW = 0x02   # filtration / circulation ✅
+MASK_PUMP_HIGH = 0x04  # massage jets ✅
 
 # Light
-MASK_LIGHT = 0x01
+MASK_LIGHT = 0x01  # ✅ bit 0 at byte 17
 
 # UV/Ozone
-MASK_UV = 0x20
+MASK_UV = 0x20  # bit 5 at byte 28 (also set during heating — use heater byte for UV detection)
 
-# Heater state values
-HEATER_OFF = 0x00
-HEATER_CIRCULATION = 0x50
-HEATER_HEATING = 0x54
-HEATER_COOLDOWN = 0x40
-HEATER_UV_OZONE = 0xC1
+# Heater state values (at byte 14)
+# KDy describes three heating stages: circulation → heating → cooldown
+# Our captures confirm 0x40 and 0x50; heating and UV differ by 1 bit
+# from KDy's values (firmware variant or sub-state). Both sets are mapped.
+HEATER_COOLDOWN = 0x40    # Post-heating cooldown / idle (KDy: "cooldown") ✅ confirmed
+HEATER_CIRCULATION = 0x50  # Circulation pump pre-heating (KDy: "circulation") ✅ confirmed
+HEATER_HEATING = 0x55     # Actively heating (our capture) ✅ confirmed
+HEATER_HEATING_ALT = 0x54  # Actively heating (KDy's value, differs by bit 0)
+HEATER_UV_OZONE = 0x41    # UV lamp / ozone cycle (our capture) ✅ confirmed
+HEATER_UV_OZONE_ALT = 0xC1  # UV lamp / ozone cycle (KDy's value, differs by bit 7)
+
+# Legacy alias
+HEATER_OFF = HEATER_COOLDOWN  # backward compat
 
 HEATER_STATE_MAP: dict[int, str] = {
-    HEATER_OFF: "off",
+    HEATER_COOLDOWN: "cooldown",
     HEATER_CIRCULATION: "circulation",
     HEATER_HEATING: "heating",
-    HEATER_COOLDOWN: "cooldown",
+    HEATER_HEATING_ALT: "heating",      # KDy variant
     HEATER_UV_OZONE: "uv_ozone",
+    HEATER_UV_OZONE_ALT: "uv_ozone",   # KDy variant
 }
 
 
@@ -89,9 +113,9 @@ class P25B85Adapter:
             "pump_low": bool(pump_byte & MASK_PUMP_LOW),
             "pump_high": bool(pump_byte & MASK_PUMP_HIGH),
             "light": bool(light_byte & MASK_LIGHT),
-            "heater_active": heater_byte == HEATER_HEATING,
+            "heater_active": heater_byte in (HEATER_HEATING, HEATER_HEATING_ALT),
             "heater_state": heater_state,
-            "uv_lamp": heater_byte == HEATER_UV_OZONE or bool(uv_byte & MASK_UV),
+            "uv_lamp": heater_byte in (HEATER_UV_OZONE, HEATER_UV_OZONE_ALT),
             # Raw diagnostic values
             "raw_pump_byte": pump_byte,
             "raw_heater_byte": heater_byte,
