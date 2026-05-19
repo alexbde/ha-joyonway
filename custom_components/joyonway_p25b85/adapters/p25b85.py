@@ -76,6 +76,31 @@ HEATER_STATE_MAP: dict[int, str] = {
     HEATER_UV_OZONE_ALT: "uv_ozone",   # KDy variant
 }
 
+# ──────────────────────────────────────────────────────────────
+# Command frames (captured from PB554 panel, replay-only)
+# CRC algorithm is proprietary; we ONLY replay verbatim frames.
+# ──────────────────────────────────────────────────────────────
+
+# Light toggle — same frame for ON and OFF (it's a toggle)
+CMD_LIGHT_TOGGLE = bytes.fromhex("1a0120103ca110a10000404000c00056003031eeb21d")
+
+# Pump transitions (must match current state → target state)
+CMD_PUMP_OFF_TO_LOW = bytes.fromhex("1a0120103ca110a10202000000c00056007dd2146b1d")
+CMD_PUMP_LOW_TO_HIGH = bytes.fromhex("1a0120103ca110a10604000000c0005600fc1221c61d")
+CMD_PUMP_HIGH_TO_OFF = bytes.fromhex("1a0120103ca110a10400000000c0005600735738e91d")
+
+# Temperature setpoints (only two captured values)
+# Byte 15 = target °F, but CRC is proprietary so we can't generate new values.
+CMD_TEMP_SET_87F = bytes.fromhex("1a0120103ca110a10000808000c00057005aa3207f1d")  # 30.6°C
+CMD_TEMP_SET_86F = bytes.fromhex("1a0120103ca110a10000808000c0005600dd0ff87e1d")  # 30.0°C
+
+# Pump state → next command mapping for cycling
+PUMP_CYCLE_MAP: dict[str, tuple[bytes, str]] = {
+    "off": (CMD_PUMP_OFF_TO_LOW, "low"),
+    "low": (CMD_PUMP_LOW_TO_HIGH, "high"),
+    "high": (CMD_PUMP_HIGH_TO_OFF, "off"),
+}
+
 
 def _fahrenheit_to_celsius(f: int) -> float | None:
     """Convert Fahrenheit to Celsius, return None for invalid values."""
@@ -85,12 +110,12 @@ def _fahrenheit_to_celsius(f: int) -> float | None:
 
 
 class P25B85Adapter:
-    """Adapter for the Joyonway P25B85 controller (read-only)."""
+    """Adapter for the Joyonway P25B85 controller."""
 
     model: str = "P25B85"
     broadcast_signature: bytes = P25B85_SIGNATURE
     unescape_full_frame: bool = True
-    supports_writes: bool = False
+    supports_writes: bool = True
 
     def parse_status(self, frame: bytes) -> dict | None:
         """Extract state dict from an unescaped broadcast frame.
@@ -148,6 +173,36 @@ class P25B85Adapter:
     def entity_descriptions(self) -> list[SpaEntityDescription]:
         """Return entity descriptions for P25B85."""
         return _P25B85_ENTITIES
+
+    def get_pump_state(self, data: dict) -> str:
+        """Return current pump state as 'off', 'low', or 'high'."""
+        if data.get("pump_high"):
+            return "high"
+        if data.get("pump_low"):
+            return "low"
+        return "off"
+
+    def get_pump_command(self, current_state: str, target_state: str) -> bytes | None:
+        """Return command frame to transition pump from current to target state.
+
+        Returns None if transition is not directly possible (need intermediate steps).
+        """
+        if current_state == target_state:
+            return None
+
+        # Direct transitions
+        transitions = {
+            ("off", "low"): CMD_PUMP_OFF_TO_LOW,
+            ("low", "high"): CMD_PUMP_LOW_TO_HIGH,
+            ("high", "off"): CMD_PUMP_HIGH_TO_OFF,
+        }
+        return transitions.get((current_state, target_state))
+
+    def get_pump_cycle_command(self, data: dict) -> bytes | None:
+        """Return command to advance pump to next state in cycle."""
+        current = self.get_pump_state(data)
+        entry = PUMP_CYCLE_MAP.get(current)
+        return entry[0] if entry else None
 
 
 _P25B85_ENTITIES: list[SpaEntityDescription] = [
@@ -234,4 +289,3 @@ _P25B85_ENTITIES: list[SpaEntityDescription] = [
         enabled_by_default=False,
     ),
 ]
-

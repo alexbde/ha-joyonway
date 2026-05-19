@@ -1,7 +1,8 @@
 """Data update coordinator for Joyonway P25B85 spa integration.
 
 Connects to the RS485 bridge via TCP, reads broadcast frames, and
-parses them through the model adapter.
+parses them through the model adapter. Also sends command frames for
+write support (light, pump).
 """
 from __future__ import annotations
 
@@ -18,6 +19,8 @@ from .protocol import find_frames, unescape_frame, is_broadcast, validate_frame
 
 _LOGGER = logging.getLogger(__name__)
 
+# Minimum time between commands to avoid flooding the bus
+COMMAND_COOLDOWN = 1.0
 
 class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
     """Coordinator that polls the RS485 bridge for broadcast frames."""
@@ -35,6 +38,7 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
         self.model = model
         self._adapter: ModelAdapter = get_adapter(model)
         self._available = False
+        self._command_lock = asyncio.Lock()
 
     @property
     def available(self) -> bool:
@@ -123,3 +127,35 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
 
         return None
 
+    async def async_send_command(self, frame: bytes) -> bool:
+        """Send a raw command frame to the RS485 bridge.
+
+        Opens a TCP connection, writes the frame, then closes.
+        Returns True on success, False on failure.
+        """
+        async with self._command_lock:
+            try:
+                reader, writer = await asyncio.wait_for(
+                    asyncio.open_connection(self.host, self.port),
+                    timeout=TCP_TIMEOUT,
+                )
+            except (OSError, asyncio.TimeoutError) as err:
+                _LOGGER.error("Failed to connect for command send: %s", err)
+                return False
+
+            try:
+                writer.write(frame)
+                await writer.drain()
+                # Brief pause to let the controller process
+                await asyncio.sleep(0.1)
+                _LOGGER.debug("Sent command frame: %s", frame.hex())
+                return True
+            except (OSError, asyncio.TimeoutError) as err:
+                _LOGGER.error("Failed to send command: %s", err)
+                return False
+            finally:
+                writer.close()
+                try:
+                    await writer.wait_closed()
+                except Exception:
+                    pass

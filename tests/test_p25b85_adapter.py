@@ -138,7 +138,7 @@ class TestP25B85Adapter(unittest.TestCase):
     def test_adapter_properties(self):
         self.assertEqual(self.adapter.model, "P25B85")
         self.assertTrue(self.adapter.unescape_full_frame)
-        self.assertFalse(self.adapter.supports_writes)
+        self.assertTrue(self.adapter.supports_writes)
 
     def test_signature_matches(self):
         self.assertEqual(

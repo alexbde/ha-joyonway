@@ -33,6 +33,13 @@
       "heater_active": { "name": "Chauffage actif" },
       "uv_lamp": { "name": "UV/ozone" },
       "bridge_connectivity": { "name": "Connexion pont RS485" }
+    },
+    "switch": {
+      "light": { "name": "Lumière" }
+    },
+    "button": {
+      "pump_cycle": { "name": "Cycle pompe" },
+      "pump_off": { "name": "Pompe arrêt" }
     }
   }
 }

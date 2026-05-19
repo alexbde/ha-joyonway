@@ -33,6 +33,13 @@
       "heater_active": { "name": "Heizung aktiv" },
       "uv_lamp": { "name": "UV/Ozon" },
       "bridge_connectivity": { "name": "Verbindung RS485-Bridge" }
+    },
+    "switch": {
+      "light": { "name": "Licht" }
+    },
+    "button": {
+      "pump_cycle": { "name": "Pumpe umschalten" },
+      "pump_off": { "name": "Pumpe aus" }
     }
   }
 }
