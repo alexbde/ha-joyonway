@@ -31,7 +31,7 @@
       "pump_high": { "name": "Pompe haute (jets)" },
       "light": { "name": "Lumière" },
       "heater_active": { "name": "Chauffage actif" },
-      "uv_lamp": { "name": "Ozone" },
+      "uv_lamp": { "name": "UV/ozone" },
       "bridge_connectivity": { "name": "Connexion pont RS485" }
     }
   }

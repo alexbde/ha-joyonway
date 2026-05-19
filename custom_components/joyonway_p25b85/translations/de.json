@@ -31,7 +31,7 @@
       "pump_high": { "name": "Pumpe hoch (Massage)" },
       "light": { "name": "Licht" },
       "heater_active": { "name": "Heizung aktiv" },
-      "uv_lamp": { "name": "Ozon" },
+      "uv_lamp": { "name": "UV/Ozon" },
       "bridge_connectivity": { "name": "Verbindung RS485-Bridge" }
     }
   }

@@ -18,9 +18,10 @@ This integration brings **read-only monitoring** of a **Joyonway P25B85** spa co
 
 The P25B85 controls spas like the **Home Deluxe White Marble** outdoor whirlpool and similar rigid/hardshell hot tubs with a PB554 colour touchpad.
 
-> **⚠️ Status: Early development** — the byte map is based on KDy's community
-> reverse engineering and needs validation against local captures. Write commands
-> are intentionally disabled (safety-first approach).
+> **Status: Read-only monitoring validated** — the P25B85 byte map has been
+> checked against local RS485 captures for temperature, setpoint, pump, light,
+> heater stages, and UV/ozone activity. Write commands remain intentionally
+> disabled until command frames are captured and verified safely.
 
 > **Discussion thread:** [JoyOnWay Spa Control — Home Assistant Community](https://community.home-assistant.io/t/joyonway-spa-control/582344)
 
@@ -38,7 +39,7 @@ The P25B85 controls spas like the **Home Deluxe White Marble** outdoor whirlpool
 | **Pump** | 1× dual-speed (low = filtration, high = massage jets) |
 | **Light** | RGB LED (9 colour states via button press) |
 | **Heater** | 2 kW resistive, thermostat-controlled |
-| **UV lamp** | Connected on ozonator port |
+| **UV/ozone** | UV lamp connected on ozonator port |
 
 ---
 
@@ -47,8 +48,8 @@ The P25B85 controls spas like the **Home Deluxe White Marble** outdoor whirlpool
 - **Water temperature** and **setpoint** monitoring (°C)
 - **Pump state** — low speed (filtration) and high speed (jets)
 - **Light** on/off status
-- **Heater state** — off / circulation / heating / cooldown / UV-ozone
-- **UV lamp** active indicator
+- **Heater state** — circulation / heating / cooldown / UV-ozone
+- **UV/ozone** active indicator
 - **Bridge connectivity** sensor
 - **Diagnostic sensors** for raw byte values (disabled by default)
 - Fully local, no cloud, no internet
@@ -60,7 +61,7 @@ The P25B85 controls spas like the **Home Deluxe White Marble** outdoor whirlpool
 - ❌ No setpoint control
 - ❌ No synthetic RS485 frame construction
 
-Write support requires capturing verified command frames from the physical touchpad — this is planned for a future phase after the byte map is validated.
+Write support requires capturing verified command frames from the physical touchpad and is planned for a future phase.
 
 ---
 
@@ -130,7 +131,7 @@ The integration performs a TCP connection test before saving.
 |--------|-------------|
 | Water temperature | Current water temp in °C |
 | Setpoint | Target temperature in °C |
-| Heater state | off / circulation / heating / cooldown / uv_ozone |
+| Heater state | circulation / heating / cooldown / uv_ozone |
 | Spa clock | Controller date/time (diagnostic, disabled by default) |
 | Raw pump byte | Diagnostic (disabled by default) |
 | Raw heater byte | Diagnostic (disabled by default) |
@@ -143,7 +144,7 @@ The integration performs a TCP connection test before saving.
 | Pump high (jets) | High-speed pump active |
 | Light | Light on/off |
 | Heater active | Heating element drawing power |
-| UV lamp | UV/ozone system active |
+| UV/ozone | UV/ozone system active |
 | RS485 bridge connection | TCP connectivity to bridge |
 
 ---
@@ -156,7 +157,7 @@ This integration is built in phases:
 |-------|--------|-------------|
 | 1. Capture tools | ✅ Done | CLI tools for guided RS485 capture and frame analysis |
 | 2. Integration skeleton | ✅ Done | HA integration with adapter architecture, protocol parser, entities |
-| 3. Capture & validate | 🔜 Next | Go to the spa, capture frames, validate byte map |
+| 3. Capture & validate | ✅ Done | Local captures validated the P25B85 byte map |
 | 4. Write commands | Planned | Replay verified panel frames for equipment control |
 | 5. Polish & release | Planned | HACS validation, community testing, documentation |
 

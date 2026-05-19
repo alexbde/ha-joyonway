@@ -213,7 +213,7 @@ _P25B85_ENTITIES: list[SpaEntityDescription] = [
     SpaEntityDescription(
         platform="binary_sensor",
         key="uv_lamp",
-        name="UV lamp",
+        name="UV/ozone",
         icon="mdi:lightbulb-fluorescent-tube",
     ),
     # Diagnostic raw values (disabled by default)
