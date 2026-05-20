@@ -97,7 +97,7 @@ Offset  Size  Field
 21      1     Frame end (0x1D)
 ```
 
-### Captured command frames
+### Captured command frames (light + pump, from Phase 4 captures)
 
 | Action | Frame (hex) |
 |--------|-------------|
@@ -105,8 +105,8 @@ Offset  Size  Field
 | Pump OFF→low | `1a0120103ca110a10202000000c00056007dd2146b1d` |
 | Pump low→high | `1a0120103ca110a10604000000c0005600fc1221c61d` |
 | Pump high→OFF | `1a0120103ca110a10400000000c0005600735738e91d` |
-| Temp set 87°F | `1a0120103ca110a10000808000c00057005aa3207f1d` |
-| Temp set 86°F | `1a0120103ca110a10000808000c0005600dd0ff87e1d` |
+
+Temperature frames: 31 frames in `tools/captures_temp/temp_commands.json` (10-40°C).
 
 Key findings:
 - Light ON and OFF use the **same frame** — it's a **toggle** command
@@ -119,8 +119,9 @@ Key findings:
 
 - ❌ NEVER send frames with forged CRC (can activate heater — KDy warning)
 - ✅ ONLY replay verbatim captured frames from physical panel
-- CRC algorithm is proprietary — not feasible to crack without firmware disassembly
+- CRC is linear (proven) but uses non-standard/session-dependent processing
 - All needed frames (light, pump, temperature 10-40°C) are captured
+- See `docs/crc_analysis.md` for full CRC analysis
 
 ---
 
@@ -219,11 +220,16 @@ Entity names come from `translations/*.json` under `entity.<platform>.*` keys.
 - **Restart required** after any code change to the integration.
 - **Entity names** come from `translation_key` + translation files.
 - **Tests** run with `python3 -m unittest discover -s tests` (96 tests, <1ms).
-- **CRC status**: Definitively NOT CRC-32 of any kind. Proved by exhaustive
-  brute-force of all 2^32 polynomials (reflected + normal, both endianness,
-  all byte ranges, all init/xor combinations). Also not CRC-16/Modbus,
-  XOR, or mod-256. Algorithm is proprietary — not crackable without firmware.
-  All needed frames captured via lookup table approach.
+- **CRC status** — see `docs/crc_analysis.md` for full analysis:
+  - NOT any standard CRC-32 (all 2^32 polynomials tested, all configs)
+  - IS linear (proven: XOR delta consistency, 171 pairs, 60 groups)
+  - Contributions follow doubling pattern: C[b]_LE = 0x01d8ac87 << b
+  - Can predict CRC for any byte[15] within same frame structure (19/19)
+  - GF(2) GCD = degree 40 (temp-only), but degree 0 when mixing sessions
+  - Conclusion: session-dependent state prevents cross-session polynomial extraction
+  - **To crack fully**: capture ALL command types in ONE session, re-run
+    `tools/crack_crc.py`. Or disassemble PB554 firmware.
+  - CRC analysis scripts: `tools/analyze_crc.py`, `tools/crack_crc.py`, `tools/debug_crc.py`
 - **Temperature lookup table**: `tools/captures_temp/temp_commands.json`
   - 31 frames covering 10°C (50°F) to 40°C (104°F) in 1°C steps
   - °F pattern: +1,+2,+2,+2,+2 repeating (1°C ≈ 1.8°F)
