@@ -12,7 +12,7 @@
 >
 > **Integration domain:** `joyonway_p25b85`
 > **Hardware:** P25B85 + PB554 + Elfin EW11
-> **Status:** Phase 4 write support implemented (light + pump). CRC not cracked.
+> **Status:** Phase 4 write support implemented (light + pump). Temperature lookup table complete (31 frames).
 
 ---
 
@@ -119,9 +119,8 @@ Key findings:
 
 - ❌ NEVER send frames with forged CRC (can activate heater — KDy warning)
 - ✅ ONLY replay verbatim captured frames from physical panel
-- CRC algorithm not identified despite extensive testing (standard CRC-32 polys,
-  reflected/non-reflected, various init/xor combinations, Modbus CRC-16, checksums)
-- For arbitrary temperature setpoints, CRC must be cracked or frames captured
+- CRC algorithm is proprietary — not feasible to crack without firmware disassembly
+- All needed frames (light, pump, temperature 10-40°C) are captured
 
 ---
 
@@ -178,7 +177,7 @@ Entity names come from `translations/*.json` under `entity.<platform>.*` keys.
 
 - ⚠️ Light switch: implemented, needs live test at spa
 - ⚠️ Pump buttons: implemented, needs live test at spa
-- Temperature: blocked on CRC (only 86°F/87°F frames available)
+- ⚠️ Temperature: lookup table complete (31 frames, 10-40°C), climate entity not yet built
 
 ---
 
@@ -189,9 +188,9 @@ Entity names come from `translations/*.json` under `entity.<platform>.*` keys.
 | 1. Capture tools | ✅ Done | `guided_capture_38400.py`, `frame_parser_38400.py` |
 | 2. Integration | ✅ Done | Deployed, reading live data, HACS install works |
 | 3. Validate byte map | ✅ Done | All byte positions confirmed from captures |
-| 4. Write commands | ✅ Implemented | Light + pump replay; temp blocked on CRC |
+| 4. Write commands | ✅ Implemented | Light + pump replay; temp lookup table complete |
 | 5. Live test writes | **Next** | Test light switch and pump buttons at spa |
-| 6. Temperature control | Blocked | Need CRC algorithm or more captures |
+| 6. Temperature control | **Next** | Lookup table done, implement climate entity |
 | 7. Polish & release | Planned | After Phase 5+6 |
 
 ---
@@ -200,27 +199,16 @@ Entity names come from `translations/*.json` under `entity.<platform>.*` keys.
 
 1. **Live test write commands** — restart HA with new code, test light switch
    and pump buttons. Verify state updates after commands.
-2. **Capture ALL temperature commands** — build a lookup table (30 frames):
-   ```bash
-   python3 tools/capture_temp_commands.py   # 30 presses UP from 10°C
-   ```
-   - Display steps in **1°C increments** (≈2°F per press), 30 presses total
-   - Script is fully automated: press Enter once, then press UP on each prompt
-   - ~15s per step × 30 steps = ~8 minutes
-   - Set spa to 10°C (50°F) before starting
-   - Captures saved to `captures_temp/temp_commands.json` (resumable)
-   - Command frames encode target °F in byte[15]; direction doesn't matter
-   - Only UP direction needed (frame is determined by target, not direction)
-3. **Implement temperature control** — once lookup table is complete, add a
-   `climate` entity (preferred for beautiful thermostat card in dashboards):
+2. **Implement temperature control** — lookup table is complete at
+   `tools/captures_temp/temp_commands.json` (31 frames, 10-40°C).
+   Add a `climate` entity:
    - `hvac_modes=[HEAT]` (spa always heats to setpoint)
    - `current_temperature` → water temp sensor (byte 9)
    - `target_temperature` → setpoint (byte 16), sends matching frame from lookup
    - `min_temp=10`, `max_temp=40`, step 1°C
-   - Alternative: `water_heater` (better semantic fit, worse dashboard cards)
    - Decision: go with `climate` for the visual UX (thermostat ring card)
-4. **PR to frame-analyzer** — add P25B85 preset to christopheknap's tool
-5. **Polish** — version bump, README update, HACS release
+3. **PR to frame-analyzer** — add P25B85 preset to christopheknap's tool
+4. **Polish** — version bump, README update, HACS release
 
 ---
 
@@ -234,14 +222,21 @@ Entity names come from `translations/*.json` under `entity.<platform>.*` keys.
 - **CRC status**: Definitively NOT CRC-32 of any kind. Proved by exhaustive
   brute-force of all 2^32 polynomials (reflected + normal, both endianness,
   all byte ranges, all init/xor combinations). Also not CRC-16/Modbus,
-  XOR, or mod-256. The algorithm is proprietary (custom hash or scramble).
-  **Cracking is not feasible without firmware disassembly.**
-  → Use lookup table approach (capture one frame per temperature).
-- **Temperature capture script** ready: `tools/capture_temp_commands.py`
-  - 1°C steps (≈2°F per press), 30 presses UP from 10°C to 40°C
-  - Only UP direction needed: command encodes target °F, not direction
-  - Resumable: saves to `captures_temp/temp_commands.json`
-  - ~8 min total for full lookup table
+  XOR, or mod-256. Algorithm is proprietary — not crackable without firmware.
+  All needed frames captured via lookup table approach.
+- **Temperature lookup table**: `tools/captures_temp/temp_commands.json`
+  - 31 frames covering 10°C (50°F) to 40°C (104°F) in 1°C steps
+  - °F pattern: +1,+2,+2,+2,+2 repeating (1°C ≈ 1.8°F)
+  - 73°F (23°C) frame has escaped byte in CRC (0x1B→0x1B0B on wire, 23 bytes raw)
+  - Byte 11 varies by capture session: 0x88, 0x98, 0x99 — likely encodes
+    system state at capture time (pump/heater). Needs live testing to confirm
+    whether replaying works regardless.
+  - Stored as raw wire hex; replay sends verbatim (including escapes)
+  - Keys are `"NNF"` (e.g. `"73F"`) → hex frame string
+- **Temperature capture script**: `tools/capture_temp_commands.py` (v2.1)
+  - Supports `--button up/down`, `--steps N`, shows missing temps on startup
+  - Handles pseudo-escaped frames (unescape before length check)
+  - Output dir defaults to `tools/captures_temp/` (relative to script)
 - **Command send pattern**: coordinator opens TCP, writes frame, closes.
   Uses `asyncio.Lock` to prevent concurrent sends.
 - **Pump state machine**: must follow OFF→low→high→OFF cycle.
