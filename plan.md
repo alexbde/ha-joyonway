@@ -200,17 +200,17 @@ Entity names come from `translations/*.json` under `entity.<platform>.*` keys.
 
 1. **Live test write commands** — restart HA with new code, test light switch
    and pump buttons. Verify state updates after commands.
-2. **Capture ALL temperature commands** — build a lookup table (50°F–104°F):
+2. **Capture ALL temperature commands** — build a lookup table (30 frames):
    ```bash
-   python3 tools/capture_temp_commands.py --direction up   # 30 presses from 10°C
-   python3 tools/capture_temp_commands.py --direction down # 30 presses from 40°C
+   python3 tools/capture_temp_commands.py   # 30 presses UP from 10°C
    ```
-   - Script is fully automated: press Enter once, then press button on each prompt
-   - ~15s per step × 30 steps = ~8 minutes per direction
-   - Set spa to 10°C (50°F) before "up", 40°C (104°F) before "down"
+   - Display steps in **1°C increments** (≈2°F per press), 30 presses total
+   - Script is fully automated: press Enter once, then press UP on each prompt
+   - ~15s per step × 30 steps = ~8 minutes
+   - Set spa to 10°C (50°F) before starting
    - Captures saved to `captures_temp/temp_commands.json` (resumable)
-   - Also try some "jump" captures (e.g., multiple presses in one window)
-     to see if the panel sends the final target or each intermediate value
+   - Command frames encode target °F in byte[15]; direction doesn't matter
+   - Only UP direction needed (frame is determined by target, not direction)
 3. **Implement temperature control** — once lookup table is complete, add a
    `climate` entity (preferred for beautiful thermostat card in dashboards):
    - `hvac_modes=[HEAT]` (spa always heats to setpoint)
@@ -238,10 +238,10 @@ Entity names come from `translations/*.json` under `entity.<platform>.*` keys.
   **Cracking is not feasible without firmware disassembly.**
   → Use lookup table approach (capture one frame per temperature).
 - **Temperature capture script** ready: `tools/capture_temp_commands.py`
-  - Automated: press Enter once, then press button on each prompt (15s windows)
+  - 1°C steps (≈2°F per press), 30 presses UP from 10°C to 40°C
+  - Only UP direction needed: command encodes target °F, not direction
   - Resumable: saves to `captures_temp/temp_commands.json`
-  - Set spa to 10°C before UP run, 40°C before DOWN run
-  - ~8 min per direction, ~16 min total for full 50°F–104°F lookup table
+  - ~8 min total for full lookup table
 - **Command send pattern**: coordinator opens TCP, writes frame, closes.
   Uses `asyncio.Lock` to prevent concurrent sends.
 - **Pump state machine**: must follow OFF→low→high→OFF cycle.

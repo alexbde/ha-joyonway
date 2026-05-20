@@ -2,24 +2,25 @@
 """
 Phase 4b — Temperature command frame capture (all setpoints).
 
-Captures one command frame per degree by having you press the UP or DOWN
+Captures one command frame per 1 degree C by having you press the UP
 button once per capture window. Fully automated timing — you only press
 Enter once to start, then follow the audio/visual prompts.
 
 Strategy:
-  1. Set spa to minimum (10°C / 50°F) manually before starting
-  2. Run UP sequence: 30 presses (10°C → 40°C), one per window
-  3. Run DOWN sequence: 30 presses (40°C → 10°C), one per window
+  1. Set spa to minimum (10 deg C / 50 deg F) manually before starting
+  2. Run UP sequence: 30 presses (10 deg C -> 40 deg C in 1 deg C steps)
 
 Each window: 15s capture. Press the button ~3s in. The script shows
 the captured command frame immediately so you can verify it's working.
+
+The command frame encodes the target temperature (byte[15] in deg F),
+not the direction. One direction is sufficient to build the lookup table.
 
 Abort with Ctrl-C at any time — progress is saved.
 """
 from __future__ import annotations
 
 import argparse
-import datetime
 import json
 import os
 import signal
@@ -27,7 +28,7 @@ import socket
 import sys
 import time
 
-__version__ = "1.0.0"
+__version__ = "2.0.0"
 
 # Load .env
 def _load_dotenv():
@@ -47,6 +48,11 @@ _DEFAULT_PORT = int(os.environ.get("SPA_BRIDGE_PORT", "8899"))
 
 FRAME_START = 0x1A
 FRAME_END = 0x1D
+
+# Temperature range: 10-40 deg C in 1 deg C steps = 31 values, 30 button presses
+TEMP_MIN_C = 10
+TEMP_MAX_C = 40
+TEMP_STEPS = TEMP_MAX_C - TEMP_MIN_C  # 30 presses
 
 
 def extract_command_frames(data: bytes, baseline_set: set[str]) -> list[bytes]:
@@ -117,24 +123,16 @@ def fahrenheit_to_celsius(f: int) -> float:
     return round((f - 32) * 5 / 9, 1)
 
 
-def celsius_to_fahrenheit(c: float) -> int:
-    return round(c * 9 / 5 + 32)
-
-
 def main():
     parser = argparse.ArgumentParser(
-        description="Capture temperature command frames for all setpoints (10-40°C)",
+        description="Capture temperature command frames (10-40 deg C, 1 deg C steps)",
     )
     parser.add_argument("--host", default=_DEFAULT_HOST)
     parser.add_argument("--port", type=int, default=_DEFAULT_PORT)
     parser.add_argument("--duration", type=float, default=15.0,
                         help="Capture duration per step (default: 15s)")
-    parser.add_argument("--direction", choices=["up", "down", "both"], default="both",
-                        help="Capture direction: up, down, or both (default: both)")
-    parser.add_argument("--start-temp-c", type=int, default=10,
-                        help="Starting temperature in °C (default: 10)")
-    parser.add_argument("--end-temp-c", type=int, default=40,
-                        help="Ending temperature in °C (default: 40)")
+    parser.add_argument("--steps", type=int, default=TEMP_STEPS,
+                        help=f"Number of button presses (default: {TEMP_STEPS})")
     parser.add_argument("--out-dir", default="./captures_temp",
                         help="Output directory (default: ./captures_temp)")
     parser.add_argument("--dry-run", action="store_true")
@@ -148,58 +146,48 @@ def main():
     if os.path.exists(results_file):
         with open(results_file) as f:
             existing = json.load(f)
-        print(f"Loaded {len(existing)} existing temperature commands.")
+        print(f"Loaded {len(existing)} existing entries.")
 
     print()
     print("=" * 66)
     print("  Joyonway P25B85 — Temperature Command Capture")
     print("=" * 66)
     print()
-    print("This captures one command frame per °C from 10°C to 40°C.")
+    print("This captures one command frame per 1 deg C step.")
+    print(f"  {args.steps} button presses (UP), one per capture window.")
     print()
     print("HOW IT WORKS:")
     print("  1. You press Enter ONCE to start")
     print(f"  2. Each step: {args.duration:.0f}s capture window")
-    print("  3. When you see '>>> PRESS NOW <<<', press the button ONCE")
+    print("  3. When you see '>>> PRESS NOW <<<', press UP ONCE")
     print("  4. Wait for the result, then get ready for the next one")
     print("  5. Ctrl-C to abort (progress is saved)")
     print()
     print("PREPARATION:")
-    print(f"  • Set spa to {args.start_temp_c}°C ({celsius_to_fahrenheit(args.start_temp_c)}°F) BEFORE starting")
-    print("  • Make sure no other client is connected to the EW11")
+    print(f"  - Set spa to {TEMP_MIN_C} deg C before starting")
+    print("  - Make sure no other client is connected to the EW11")
     print()
     print(f"  Bridge: {args.host}:{args.port}")
     print(f"  Output: {os.path.abspath(args.out_dir)}")
     print()
 
     if args.dry_run:
-        print("🧪 DRY-RUN MODE\n")
+        print("[DRY-RUN MODE]\n")
 
-    # Build the step sequences
-    steps: list[tuple[str, int]] = []  # (direction, target_temp_F)
+    # Determine how many steps remain
+    # We track by press number (1-based). The actual deg F value is read from byte[15].
+    done_presses = existing.get("_next_press", 1) - 1
+    remaining_start = done_presses + 1
+    remaining_count = args.steps - done_presses
 
-    start_f = celsius_to_fahrenheit(args.start_temp_c)
-    end_f = celsius_to_fahrenheit(args.end_temp_c)
-
-    if args.direction in ("up", "both"):
-        # UP: from start+1 to end (pressing UP each time)
-        for target_f in range(start_f + 1, end_f + 1):
-            steps.append(("up", target_f))
-
-    if args.direction in ("down", "both"):
-        # DOWN: from end-1 to start (pressing DOWN each time)
-        for target_f in range(end_f - 1, start_f - 1, -1):
-            steps.append(("down", target_f))
-
-    # Filter out already-captured temperatures
-    remaining = [(d, t) for d, t in steps if f"{t}F_{d}" not in existing]
-
-    if not remaining:
-        print("✅ All temperatures already captured!")
+    if remaining_count <= 0:
+        print(f"All {args.steps} presses already captured!")
+        _print_summary(existing)
         sys.exit(0)
 
-    total = len(remaining)
-    print(f"Steps to capture: {total} ({len(steps) - total} already done)")
+    print(f"Presses remaining: {remaining_count} (of {args.steps})")
+    if done_presses > 0:
+        print(f"  Resuming from press #{remaining_start}")
     print()
 
     try:
@@ -208,8 +196,8 @@ def main():
         print("\nAborted.")
         sys.exit(0)
 
-    # First, capture a baseline (no button press) to identify normal bus traffic
-    print("\n  ⏺  Capturing baseline (don't press anything)...", end="", flush=True)
+    # Capture baseline (no button press) to filter normal bus traffic
+    print("\n  Capturing baseline (don't press anything)...", end="", flush=True)
     if args.dry_run:
         baseline_data = b""
     else:
@@ -218,31 +206,30 @@ def main():
                          if len(f) > 1 and f[1] != 0xFF)
     print(f" done ({len(baseline_frames)} baseline frame types)")
 
-    # Set up Ctrl-C handler
+    # Ctrl-C handler
     interrupted = False
     def signal_handler(sig, frame):
         nonlocal interrupted
         interrupted = True
-        print("\n\n⚠️  Interrupted! Saving progress...")
+        print("\n\n  Interrupted! Saving progress...")
 
     signal.signal(signal.SIGINT, signal_handler)
 
     captured_count = 0
 
-    for step_idx, (direction, target_f) in enumerate(remaining):
+    for press_num in range(remaining_start, args.steps + 1):
         if interrupted:
             break
 
-        target_c = fahrenheit_to_celsius(target_f)
-        arrow = "⬆️ " if direction == "up" else "⬇️ "
-        button = "UP" if direction == "up" else "DOWN"
+        step_idx = press_num - remaining_start + 1
+        total_remaining = remaining_count
 
-        print(f"\n{'━' * 66}")
-        print(f"  Step {step_idx + 1}/{total}:  {arrow} Press {button}  →  "
-              f"Target: {target_f}°F ({target_c}°C)")
-        print(f"{'━' * 66}")
+        print(f"\n{'=' * 66}")
+        print(f"  Press #{press_num}/{args.steps}  (step {step_idx}/{total_remaining})")
+        print(f"  Press UP once when prompted")
+        print(f"{'=' * 66}")
 
-        # Countdown before capture
+        # Countdown
         print(f"  Get ready... capturing in: ", end="", flush=True)
         for i in range(3, 0, -1):
             if interrupted:
@@ -255,9 +242,9 @@ def main():
             break
 
         # Start capture
-        print(f"  ⏺  CAPTURING ({args.duration:.0f}s) — ", end="", flush=True)
-        time.sleep(2)  # 2 second delay before the prompt
-        print(">>> PRESS {button} NOW! <<<".format(button=button), end="", flush=True)
+        print(f"  CAPTURING ({args.duration:.0f}s) — ", end="", flush=True)
+        time.sleep(2)
+        print(">>> PRESS UP NOW! <<<", end="", flush=True)
 
         if args.dry_run:
             time.sleep(args.duration - 2)
@@ -269,40 +256,31 @@ def main():
 
         print(" done!")
 
-        # Analyze
-        # Look for 22-byte command frames addressed to 0x01 (our known command format)
+        # Look for 22-byte command frames addressed to 0x01
         cmd_frames = [f for f in new_frames if len(f) == 22 and f[1] == 0x01]
 
         if cmd_frames:
-            # Pick the first unique command frame
             frame = cmd_frames[0]
             hex_str = frame.hex()
-            # Extract the setpoint byte (position 15 in our known frame structure)
-            setpoint_byte = frame[15]
+            setpoint_f = frame[15]
+            setpoint_c = fahrenheit_to_celsius(setpoint_f)
 
-            print(f"  ✅ Command frame captured!")
+            print(f"  OK! Frame captured")
             print(f"     Frame: {hex_str}")
-            print(f"     Setpoint byte[15] = 0x{setpoint_byte:02X} ({setpoint_byte}°F = "
-                  f"{fahrenheit_to_celsius(setpoint_byte)}°C)")
+            print(f"     Setpoint: {setpoint_f} deg F = {setpoint_c} deg C")
 
-            if setpoint_byte != target_f:
-                print(f"     ⚠️  Expected {target_f}°F but got {setpoint_byte}°F in frame!")
-
-            # Save
-            key = f"{target_f}F_{direction}"
-            existing[key] = hex_str
+            # Store by actual deg F value from the frame
+            existing[f"{setpoint_f}F"] = hex_str
+            existing["_next_press"] = press_num + 1
             captured_count += 1
 
-            # Also save by temperature for easy lookup
-            existing[f"{target_f}F"] = hex_str
-
         elif new_frames:
-            print(f"  ⚠️  Found {len(new_frames)} non-broadcast frames but none match "
+            print(f"  Found {len(new_frames)} non-broadcast frames but none match "
                   f"22-byte command format:")
             for nf in new_frames[:3]:
                 print(f"     [{len(nf)}B] {nf.hex()}")
         else:
-            print(f"  ❌ No new command frame detected! (Did you press the button?)")
+            print(f"  No command frame detected! (Did you press the button?)")
             print(f"     Raw: {len(raw_data)} bytes captured")
 
         # Save progress after each step
@@ -310,23 +288,28 @@ def main():
             json.dump(existing, f, indent=2)
 
     # Final summary
-    print(f"\n\n{'━' * 66}")
-    print(f"  Session complete! Captured {captured_count} new temperature commands.")
-    print(f"  Total in library: {len([k for k in existing if k.endswith('F') and '_' not in k])}")
+    print(f"\n\n{'=' * 66}")
+    print(f"  Session complete! Captured {captured_count} new frames.")
+    _print_summary(existing)
     print(f"  Saved to: {results_file}")
-    print(f"{'━' * 66}")
-
-    # Show coverage
-    print("\n  Temperature coverage:")
-    for f_temp in range(start_f, end_f + 1):
-        key = f"{f_temp}F"
-        c_temp = fahrenheit_to_celsius(f_temp)
-        if key in existing:
-            print(f"    ✅ {f_temp}°F ({c_temp}°C)")
-        else:
-            print(f"    ❌ {f_temp}°F ({c_temp}°C)")
-
+    print(f"{'=' * 66}")
     print()
+
+
+def _print_summary(data: dict[str, str]) -> None:
+    """Print temperature coverage summary."""
+    temps = sorted(
+        int(k.rstrip("F"))
+        for k in data
+        if k.endswith("F") and not k.startswith("_")
+    )
+    if temps:
+        print(f"  Temperatures captured: {len(temps)}")
+        print(f"  Range: {min(temps)} deg F ({fahrenheit_to_celsius(min(temps))} deg C) "
+              f"to {max(temps)} deg F ({fahrenheit_to_celsius(max(temps))} deg C)")
+        print(f"  Values: {', '.join(str(t) for t in temps)}")
+    else:
+        print("  No temperatures captured yet.")
 
 
 if __name__ == "__main__":
