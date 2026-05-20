@@ -68,6 +68,8 @@ class JoyonwaySensor(CoordinatorEntity, SensorEntity):
             self._attr_device_class = SensorDeviceClass.ENUM
             if description.options:
                 self._attr_options = description.options
+        elif description.device_class == "timestamp":
+            self._attr_device_class = SensorDeviceClass.TIMESTAMP
         elif description.state_class == "measurement":
             self._attr_state_class = SensorStateClass.MEASUREMENT
 

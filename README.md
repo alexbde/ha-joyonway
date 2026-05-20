@@ -126,14 +126,14 @@ The integration performs a TCP connection test before saving.
 
 ### Sensors
 
-| Entity            | Description                                            |
-|-------------------|--------------------------------------------------------|
-| Water temperature | Current water temp in °C                               |
-| Setpoint          | Target temperature in °C                               |
-| Heater state      | off / circulation / heating / disinfection             |
-| Spa clock         | Controller date/time (diagnostic, disabled by default) |
-| Raw pump byte     | Diagnostic (disabled by default)                       |
-| Raw heater byte   | Diagnostic (disabled by default)                       |
+| Entity            | Description                                                                |
+|-------------------|----------------------------------------------------------------------------|
+| Water temperature | Current water temp in °C                                                   |
+| Setpoint          | Target temperature in °C                                                   |
+| Heater state      | off / circulation / heating / disinfection                                 |
+| Spa clock         | Controller date/time as timestamp sensor (diagnostic, disabled by default) |
+| Raw pump byte     | Diagnostic (disabled by default)                                           |
+| Raw heater byte   | Diagnostic (disabled by default)                                           |
 
 ### Binary sensors
 

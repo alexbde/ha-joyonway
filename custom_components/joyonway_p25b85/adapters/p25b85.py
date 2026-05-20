@@ -24,6 +24,8 @@ Capture validation summary:
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from .base import SpaEntityDescription
 
 # Broadcast frame header signature for P25B85 (bytes 0-8)
@@ -201,13 +203,20 @@ class P25B85Adapter:
             "raw_setpoint_f": setpoint_f,
         }
 
-        # Parse datetime if frame is long enough
+        # Parse datetime if frame is long enough.
+        # The controller clock has no explicit timezone; we publish UTC to match
+        # HA's timestamp sensor expectations.
         if len(frame) > IDX_DATETIME_START + 5:
             dt_bytes = frame[IDX_DATETIME_START : IDX_DATETIME_START + 6]
             try:
-                result["spa_datetime"] = (
-                    f"20{dt_bytes[0]:02d}-{dt_bytes[1]:02d}-{dt_bytes[2]:02d} "
-                    f"{dt_bytes[3]:02d}:{dt_bytes[4]:02d}:{dt_bytes[5]:02d}"
+                result["spa_datetime"] = datetime(
+                    year=2000 + dt_bytes[0],
+                    month=dt_bytes[1],
+                    day=dt_bytes[2],
+                    hour=dt_bytes[3],
+                    minute=dt_bytes[4],
+                    second=dt_bytes[5],
+                    tzinfo=timezone.utc,
                 )
             except (ValueError, IndexError):
                 result["spa_datetime"] = None
@@ -290,6 +299,7 @@ _P25B85_ENTITIES: list[SpaEntityDescription] = [
         key="spa_datetime",
         name="Spa clock",
         icon="mdi:clock-outline",
+        device_class="timestamp",
         entity_category="diagnostic",
         enabled_by_default=False,
     ),

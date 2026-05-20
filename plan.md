@@ -132,7 +132,7 @@ custom_components/joyonway_p25b85/
 | **Heater state** | sensor | Enum: off / circulation / heating / disinfection / unknown (translated) |
 | **Pump state** | sensor | Enum: off / low / high (translated) |
 | **RS485 bridge** | binary_sensor | TCP connectivity |
-| Spa clock | sensor | Diagnostic (disabled by default) |
+| Spa clock | sensor | Diagnostic timestamp sensor (device_class=`timestamp`, disabled by default) |
 | Raw pump byte | sensor | Diagnostic (disabled by default) |
 | Raw heater byte | sensor | Diagnostic (disabled by default) |
 
@@ -155,8 +155,12 @@ custom_components/joyonway_p25b85/
 - **Temperatures as integers** — spa only shows whole °C
 - **Climate hvac_action**: heating→HEATING, circulation→PREHEATING, off/disinfection→IDLE
 - **Pump state machine**: OFF→low→high→OFF cycle; fan entity handles multi-step transitions
-- **Light toggle**: same frame for on/off; switch checks state to avoid double-toggle
+- **Light toggle safety**: same frame for on/off; switch refuses toggle when state is unknown
 - **Climate debounce**: 1.5s coalescing for slider drags
+- **Coordinator write pacing**: global 1.0s command cooldown enforced in `async_send_command`
+- **Pump multi-step writes**: second step is sent only after refresh confirms intermediate state
+- **Terminology cleanup**: canonical naming is now `off` / `disinfection` (legacy aliases removed)
+- **Spa clock format**: parsed as timezone-aware `datetime` (UTC) for HA timestamp rendering
 
 ---
 
@@ -188,14 +192,14 @@ custom_components/joyonway_p25b85/
 
 - **`.env` file** holds bridge IP (gitignored). Tools auto-load it.
 - **Restart required** after any code change to the integration.
-- **Tests** run with `python3 -m unittest discover -s tests` (96 tests, <1ms).
+- **Tests** run with `python3 -m unittest discover -s tests` (97 tests, <1ms).
 - **Temperature lookup table**: `TEMP_COMMAND_TABLE` in `adapters/p25b85.py`
   - 31 frames covering 10°C (50°F) to 40°C (104°F)
   - 73°F (23°C) frame has escaped byte in CRC (23 bytes raw vs 22 normal)
   - Byte 11 varies by capture session (0x88/0x98/0x99) — needs live test
   - Stored as raw wire hex; replay sends verbatim (including escapes)
 - **Command send pattern**: coordinator opens TCP, writes frame, closes.
-  Uses `asyncio.Lock` to prevent concurrent sends.
+  Uses `asyncio.Lock` + global 1.0s cooldown to prevent concurrent/burst sends.
 - **CRC** — see `docs/crc_analysis.md`. Linear but session-dependent.
   To crack: capture ALL command types in ONE session, or disassemble PB554 firmware.
 - **Manual reference files** in `.local/` — `home-deluxe-white-marble.md` (product manual),

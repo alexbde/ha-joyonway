@@ -8,6 +8,7 @@ from __future__ import annotations
 import sys
 import os
 import unittest
+from datetime import datetime, timezone
 
 # Add custom_components/joyonway_p25b85 to path directly (avoids importing __init__.py
 # which requires homeassistant). We import protocol and adapters as standalone modules.
@@ -52,6 +53,7 @@ IDX_HEATER_STATE = adapters_p25b85.IDX_HEATER_STATE
 IDX_LIGHT_FLAGS = adapters_p25b85.IDX_LIGHT_FLAGS
 IDX_PUMP_BYTE = adapters_p25b85.IDX_PUMP_BYTE
 IDX_UV_FLAG = adapters_p25b85.IDX_UV_FLAG
+IDX_DATETIME_START = adapters_p25b85.IDX_DATETIME_START
 HEATER_OFF = adapters_p25b85.HEATER_OFF
 HEATER_HEATING = adapters_p25b85.HEATER_HEATING
 HEATER_CIRCULATION = adapters_p25b85.HEATER_CIRCULATION
@@ -188,6 +190,13 @@ class TestP25B85Adapter(unittest.TestCase):
         self.assertIn("raw_heater_byte", result)
         self.assertEqual(result["raw_water_temp_f"], 0x5E)
         self.assertEqual(result["raw_setpoint_f"], 0x68)
+
+    def test_spa_datetime_is_timestamp(self):
+        modified = bytearray(self.logical)
+        modified[IDX_DATETIME_START : IDX_DATETIME_START + 6] = bytes([24, 5, 20, 14, 30, 45])
+        result = self.adapter.parse_status(bytes(modified))
+        self.assertIsInstance(result["spa_datetime"], datetime)
+        self.assertEqual(result["spa_datetime"].tzinfo, timezone.utc)
 
     def test_rejects_wrong_signature(self):
         # Change byte[8] from 0x03 to 0x02 (P23B32 signature)
