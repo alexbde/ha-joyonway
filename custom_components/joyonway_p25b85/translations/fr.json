@@ -20,24 +20,18 @@
   "entity": {
     "sensor": {
       "water_temperature": { "name": "Température de l'eau" },
-      "heater_state": { "name": "État du chauffage" },
       "spa_datetime": { "name": "Horloge spa" },
       "raw_pump_byte": { "name": "Octet pompe brut" },
       "raw_heater_byte": { "name": "Octet chauffage brut" }
     },
     "binary_sensor": {
-      "pump_low": { "name": "Pompe basse (filtration)" },
-      "pump_high": { "name": "Pompe haute (jets)" },
-      "light": { "name": "Lumière" },
-      "uv_lamp": { "name": "UV/ozone" },
       "bridge_connectivity": { "name": "Pont RS485" }
     },
     "switch": {
       "light": { "name": "Lumière" }
     },
-    "button": {
-      "pump_cycle": { "name": "Cycle pompe" },
-      "pump_off": { "name": "Pompe arrêt" }
+    "fan": {
+      "pump": { "name": "Pompe" }
     },
     "climate": {
       "thermostat": { "name": "Thermostat" }

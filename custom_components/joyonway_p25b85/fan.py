@@ -1,0 +1,145 @@
+"""Fan platform for Joyonway P25B85 — pump speed control.
+
+The spa has a single dual-speed pump (off / low / high).
+Exposed as a fan entity with preset modes for natural HA integration.
+
+Uses replay-only command frames captured from the PB554 panel.
+No CRC computation — only verbatim captured frames are sent.
+"""
+from __future__ import annotations
+
+import asyncio
+import logging
+
+from homeassistant.components.fan import FanEntity, FanEntityFeature
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
+
+from .adapters.p25b85 import (
+    CMD_PUMP_HIGH_TO_OFF,
+    CMD_PUMP_LOW_TO_HIGH,
+    CMD_PUMP_OFF_TO_LOW,
+)
+from .const import DOMAIN
+from .coordinator import JoyonwayP25B85Coordinator
+from .entity import device_info
+
+_LOGGER = logging.getLogger(__name__)
+
+PRESET_LOW = "low"
+PRESET_HIGH = "high"
+PRESET_MODES = [PRESET_LOW, PRESET_HIGH]
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up fan entities from a config entry."""
+    coordinator: JoyonwayP25B85Coordinator = hass.data[DOMAIN][entry.entry_id]
+    async_add_entities([SpaPumpFan(coordinator, entry)])
+
+
+class SpaPumpFan(CoordinatorEntity, FanEntity):
+    """Fan entity representing the spa pump (off / low / high)."""
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "pump"
+    _attr_icon = "mdi:pump"
+    _attr_preset_modes = PRESET_MODES
+    _attr_supported_features = FanEntityFeature.PRESET_MODE
+    _attr_speed_count = 2
+
+    def __init__(
+        self,
+        coordinator: JoyonwayP25B85Coordinator,
+        entry: ConfigEntry,
+    ) -> None:
+        """Initialize the pump fan."""
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_pump"
+        self._attr_device_info = device_info(entry)
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return True if pump is running (any speed)."""
+        if self.coordinator.data is None:
+            return None
+        return (
+            self.coordinator.data.get("pump_low", False)
+            or self.coordinator.data.get("pump_high", False)
+        )
+
+    @property
+    def preset_mode(self) -> str | None:
+        """Return current preset mode (low/high) or None if off."""
+        if self.coordinator.data is None:
+            return None
+        if self.coordinator.data.get("pump_high"):
+            return PRESET_HIGH
+        if self.coordinator.data.get("pump_low"):
+            return PRESET_LOW
+        return None
+
+    async def async_turn_on(self, preset_mode: str | None = None, **kwargs) -> None:
+        """Turn pump on. Default to low if no preset specified."""
+        target = preset_mode or PRESET_LOW
+        await self._set_pump(target)
+
+    async def async_turn_off(self, **kwargs) -> None:
+        """Turn pump off from any state."""
+        coordinator: JoyonwayP25B85Coordinator = self.coordinator
+        adapter = coordinator.adapter
+        current = adapter.get_pump_state(coordinator.data or {})
+
+        if current == "off":
+            return
+
+        if current == "high":
+            await coordinator.async_send_command(CMD_PUMP_HIGH_TO_OFF)
+        elif current == "low":
+            # Must go low→high→off (no direct low→off command)
+            success = await coordinator.async_send_command(CMD_PUMP_LOW_TO_HIGH)
+            if success:
+                await asyncio.sleep(1.0)
+                await coordinator.async_send_command(CMD_PUMP_HIGH_TO_OFF)
+
+        await coordinator.async_request_refresh()
+
+    async def async_set_preset_mode(self, preset_mode: str) -> None:
+        """Set pump to a specific preset mode."""
+        await self._set_pump(preset_mode)
+
+    async def _set_pump(self, target: str) -> None:
+        """Transition pump to the target state (low or high)."""
+        coordinator: JoyonwayP25B85Coordinator = self.coordinator
+        adapter = coordinator.adapter
+        current = adapter.get_pump_state(coordinator.data or {})
+
+        if current == target:
+            return
+
+        if target == PRESET_LOW:
+            if current == "off":
+                await coordinator.async_send_command(CMD_PUMP_OFF_TO_LOW)
+            elif current == "high":
+                # high→off→low (two steps)
+                success = await coordinator.async_send_command(CMD_PUMP_HIGH_TO_OFF)
+                if success:
+                    await asyncio.sleep(1.0)
+                    await coordinator.async_send_command(CMD_PUMP_OFF_TO_LOW)
+        elif target == PRESET_HIGH:
+            if current == "off":
+                # off→low→high (two steps)
+                success = await coordinator.async_send_command(CMD_PUMP_OFF_TO_LOW)
+                if success:
+                    await asyncio.sleep(1.0)
+                    await coordinator.async_send_command(CMD_PUMP_LOW_TO_HIGH)
+            elif current == "low":
+                await coordinator.async_send_command(CMD_PUMP_LOW_TO_HIGH)
+
+        await coordinator.async_request_refresh()
+

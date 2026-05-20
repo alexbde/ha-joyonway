@@ -265,42 +265,11 @@ _P25B85_ENTITIES: list[SpaEntityDescription] = [
     ),
     SpaEntityDescription(
         platform="sensor",
-        key="heater_state",
-        name="Heater state",
-        icon="mdi:fire",
-    ),
-    SpaEntityDescription(
-        platform="sensor",
         key="spa_datetime",
         name="Spa clock",
         icon="mdi:clock-outline",
         entity_category="diagnostic",
         enabled_by_default=False,
-    ),
-    # Binary sensors
-    SpaEntityDescription(
-        platform="binary_sensor",
-        key="pump_low",
-        name="Pump low (filtration)",
-        icon="mdi:pump",
-    ),
-    SpaEntityDescription(
-        platform="binary_sensor",
-        key="pump_high",
-        name="Pump high (jets)",
-        icon="mdi:pump",
-    ),
-    SpaEntityDescription(
-        platform="binary_sensor",
-        key="light",
-        name="Light",
-        icon="mdi:lightbulb",
-    ),
-    SpaEntityDescription(
-        platform="binary_sensor",
-        key="uv_lamp",
-        name="UV/ozone",
-        icon="mdi:lightbulb-fluorescent-tube",
     ),
     # Diagnostic raw values (disabled by default)
     SpaEntityDescription(

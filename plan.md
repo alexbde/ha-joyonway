@@ -5,14 +5,11 @@
 >
 > **Repo:** `alexbde/ha-joyonway-p25b85` — independent from upstream
 > **Upstream:** christopheknap keeps `ha-joyonway-p23b32` P23B32-only.
-> We removed `joyonway_p23b32` from our repo (HACS requires single
-> integration per repo). His code remains at
-> https://github.com/KnapTheBuilder/ha-joyonway-p23b32 for reference.
-> Multi-model umbrella revisit in ~6 months.
+> His code remains at https://github.com/KnapTheBuilder/ha-joyonway-p23b32.
 >
 > **Integration domain:** `joyonway_p25b85`
 > **Hardware:** P25B85 + PB554 + Elfin EW11
-> **Status:** Phase 6 complete — all write entities implemented (light, pump, climate). Needs live testing.
+> **Status:** All entities implemented. Needs live testing at spa.
 
 ---
 
@@ -45,7 +42,8 @@
 - **Pump:** ONE dual-speed (low = filtration, high = massage jets, 20-min auto-off)
 - **Light:** RGB LED, 9 states cycling via button
 - **Heater:** 2 kW resistive, thermostat-controlled
-- **Ozone:** UV lamp on ozonator connector (manual calls it "Ozonauslass")
+- **Ozone port:** Connector exists on PCB ("Ozonauslass"), but byte 14=0x41
+  is actually a **scheduled filtration cycle** state (not a separate UV device)
 - **Blower:** connector exists but NOT wired
 
 ---
@@ -58,46 +56,20 @@
 - Pseudo-escape: `0x1B XX` sequences (see escape table in code)
 - P25B85: full-frame unescape. P23B32: tail-only (bytes 55+).
 - Frame boundaries detected on raw bytes FIRST, then unescape applied.
-- **byte[3]** = payload length (unescaped bytes between delimiters, excluding 4-byte CRC)
-
-### Bus cycle (~600ms total, 12 frames)
-
-Broadcast at `0xFF` every cycle = main data source (~16 broadcasts per 10s).
 
 ### Broadcast byte map (P25B85, logical frame after unescape)
 
-| Byte | Content | Status |
-|------|---------|--------|
-| 8 | Model ID (`0x03` = P25B85) | ✅ confirmed |
-| **9** | Water temperature (°F) | ✅ confirmed |
-| **12** | Pump status (`0x02`=low, `0x04`=high) | ✅ confirmed |
-| **14** | Heater state (`0x40`/`0x50`/`0x55`/`0x41`) | ✅ confirmed |
-| **16** | Setpoint (°F) | ✅ confirmed |
-| **17** | Light flags (bit 0 = light ON, bit 7 = cycle flag) | ✅ confirmed |
-| **27** | Pump mirror (same as byte 12) | ✅ confirmed |
-| **28** | Activity flag (`0x20` during heating AND UV) | ✅ confirmed |
-| 53–58 | Date/time (year, month, day, hour, minute, second) | ✅ confirmed |
+| Byte | Content |
+|------|---------|
+| 8 | Model ID (`0x03` = P25B85) |
+| **9** | Water temperature (°F) |
+| **12** | Pump status (`0x02`=low, `0x04`=high) |
+| **14** | Heater state (`0x40`=cooldown, `0x50`=circulation, `0x55`=heating, `0x41`=filtration cycle) |
+| **16** | Setpoint (°F) |
+| **17** | Light flags (bit 0 = light ON) |
+| 53–58 | Date/time (year, month, day, hour, minute, second) |
 
-### Command frame structure (22 bytes, captured from PB554 panel)
-
-```
-Offset  Size  Field
-------  ----  -----
-0       1     Frame start (0x1A)
-1       1     Destination (0x01 = controller)
-2-7     6     Header (0x20 0x10 0x3C 0xA1 0x10 0xA1) — fixed
-8       1     Pump byte 1 (encodes transition)
-9       1     Pump byte 2 (encodes transition)
-10      1     Button flag high (0x40=light, 0x80=temp, 0x00=pump)
-11      1     Button flag low  (same as byte 10)
-12-14   3     Fixed (0x00 0xC0 0x00)
-15      1     Setpoint temperature (°F) — current at time of capture
-16      1     Fixed (0x00)
-17-20   4     CRC (proprietary, not cracked)
-21      1     Frame end (0x1D)
-```
-
-### Captured command frames (light + pump, from Phase 4 captures)
+### Captured command frames
 
 | Action | Frame (hex) |
 |--------|-------------|
@@ -106,22 +78,13 @@ Offset  Size  Field
 | Pump low→high | `1a0120103ca110a10604000000c0005600fc1221c61d` |
 | Pump high→OFF | `1a0120103ca110a10400000000c0005600735738e91d` |
 
-Temperature frames: 31 frames in `tools/captures_temp/temp_commands.json` (10-40°C).
-
-Key findings:
-- Light ON and OFF use the **same frame** — it's a **toggle** command
-- Pump commands encode **state transitions** (must match current state)
-- Temp commands include **target °F in byte 15** + button flag 0x80
-- CRC is 4 bytes, algorithm is **proprietary** (not CRC-32, CRC-32C, Modbus,
-  or any standard variant tested)
+Temperature: 31 frames in `TEMP_COMMAND_TABLE` (adapters/p25b85.py), 10-40°C.
 
 ### CRC safety
 
 - ❌ NEVER send frames with forged CRC (can activate heater — KDy warning)
 - ✅ ONLY replay verbatim captured frames from physical panel
-- CRC is linear (proven) but uses non-standard/session-dependent processing
-- All needed frames (light, pump, temperature 10-40°C) are captured
-- See `docs/crc_analysis.md` for full CRC analysis
+- See `docs/crc_analysis.md` for full analysis
 
 ---
 
@@ -132,21 +95,21 @@ Key findings:
 ```
 custom_components/joyonway_p25b85/
 ├── __init__.py          # entry setup, coordinator creation
-├── const.py             # domain, config keys, defaults
+├── const.py             # domain, config keys, PLATFORMS
 ├── manifest.json        # HACS-compatible, v0.1.0
 ├── config_flow.py       # IP + port, TCP connection test
 ├── protocol.py          # find_frames, pseudo_unescape, validate_frame
 ├── coordinator.py       # async TCP polling + async_send_command
-├── sensor.py            # adapter-driven (translation_key based)
-├── binary_sensor.py     # adapter-driven + bridge connectivity
+├── sensor.py            # adapter-driven (water temp + diagnostics)
+├── binary_sensor.py     # bridge connectivity only
 ├── switch.py            # light toggle (on/off via replay)
-├── button.py            # pump cycle + pump off
-├── climate.py           # thermostat (setpoint via replay lookup table)
+├── fan.py               # pump (off/low/high via preset_modes)
+├── climate.py           # thermostat with debounced slider
 ├── strings.json         # entity translations (base)
 ├── adapters/
 │   ├── __init__.py      # registry: get_adapter("P25B85")
 │   ├── base.py          # ModelAdapter protocol + SpaEntityDescription
-│   └── p25b85.py        # byte map, parse_status(), command frames, pump + temp logic
+│   └── p25b85.py        # byte map, parse_status(), command frames, temp table
 ├── brand/
 │   ├── icon.png         # 256×256
 │   └── icon@2x.png      # 512×512
@@ -156,49 +119,36 @@ custom_components/joyonway_p25b85/
     └── fr.json
 ```
 
-### Entities
+### Entities (final, clean)
 
-| Entity | Platform | Type | Action |
-|--------|----------|------|--------|
-| Light | switch | on/off | Sends toggle when state needs changing |
-| Pump cycle | button | press | Advances pump: off→low→high→off |
-| Pump off | button | press | Turns pump off (handles low→high→off if needed) |
-| Thermostat | climate | heat | Shows water temp + setpoint + heater activity; sets target temp via lookup table (10-40°C, 1°C steps) |
-| Water temperature | sensor | °C | Current water temp (integer, no false decimal precision) |
-| Heater state | sensor | text | cooldown / circulation / heating / uv_ozone |
-| Pump low | binary_sensor | on/off | Filtration pump running |
-| Pump high | binary_sensor | on/off | Massage jets running |
-| Light | binary_sensor | on/off | Light state (read-only mirror) |
-| UV/ozone | binary_sensor | on/off | UV lamp / ozone cycle active |
-| RS485 bridge | binary_sensor | connectivity | Bridge reachable |
-| Spa clock | sensor | diagnostic | Controller date/time (disabled by default) |
-| Raw pump byte | sensor | diagnostic | Raw byte 12 value (disabled by default) |
-| Raw heater byte | sensor | diagnostic | Raw byte 14 value (disabled by default) |
+| Entity | Platform | What it does |
+|--------|----------|--------------|
+| **Thermostat** | climate | Water temp + setpoint + heater state (HEATING/PREHEATING/IDLE); slider with 1.5s debounce; extra attribute `heater_state` |
+| **Light** | switch | On/off via toggle replay |
+| **Pump** | fan | Off/low/high via preset_modes; handles multi-step transitions |
+| **Water temperature** | sensor | Integer °C for history/graphs |
+| **RS485 bridge** | binary_sensor | TCP connectivity |
+| Spa clock | sensor | Diagnostic (disabled by default) |
+| Raw pump byte | sensor | Diagnostic (disabled by default) |
+| Raw heater byte | sensor | Diagnostic (disabled by default) |
 
-### Design decisions (this session)
+### PLATFORMS in const.py
 
-- **Removed `setpoint` sensor** — redundant with climate entity's target temperature
-- **Removed `heater_active` binary sensor** — redundant with climate entity's `hvac_action` (HEATING/IDLE)
-- **Removed old `CMD_TEMP_SET_87F`/`CMD_TEMP_SET_86F`** — superseded by full `TEMP_COMMAND_TABLE`
-- **Temperatures rounded to integer °C** — spa panel only shows whole degrees; the °F→°C conversion created false precision (e.g. 37.2°C when spa means 37°C). `_fahrenheit_to_celsius()` now returns `int`.
-- **Climate entity** uses `HVACMode.HEAT` only (spa always heats to setpoint), `hvac_action` shows HEATING vs IDLE based on `heater_active` data key.
+`["sensor", "binary_sensor", "switch", "fan", "climate"]`
 
-### Entity translations use `translation_key`
+### Key design decisions
 
-Entity names come from `translations/*.json` under `entity.<platform>.*` keys.
-
-### Live-validated (Phase 2-3)
-
-- ✅ Integration installs via HACS custom repo
-- ✅ Config flow connects to EW11 and creates device
-- ✅ All read sensors work (water temp, pump, light, heater, UV)
-- ✅ German/English/French translations work
-
-### Write support — NOT YET LIVE TESTED
-
-- ⚠️ Light switch: implemented, needs live test at spa
-- ⚠️ Pump buttons: implemented, needs live test at spa
-- ⚠️ Climate/thermostat: implemented (lookup table, 10-40°C), needs live test at spa
+- **No `button.py`** — pump control is now the fan entity (deleted button.py)
+- **No UV/ozone binary sensor** — byte 14=0x41 is "scheduled filtration cycle",
+  not a separate device. Info available via climate's `heater_state` extra attribute.
+- **No light binary sensor** — redundant with light switch (switch shows state)
+- **No pump binary sensors** — redundant with fan entity's preset_mode
+- **No heater_state sensor** — integrated into climate's hvac_action + extra attribute
+- **No setpoint sensor** — shown by climate entity's target_temperature
+- **Temperatures as integers** — spa only displays whole °C; `_fahrenheit_to_celsius()` returns `int`
+- **Climate slider debounce** — 1.5s delay before sending; prevents RS485 flooding when dragging slider
+- **Climate hvac_action mapping**: heating→HEATING, circulation→PREHEATING, cooldown/filtration→IDLE
+- **Fan preset_modes**: "low" (filtration), "high" (jets); handles all state transitions including multi-step
 
 ---
 
@@ -211,43 +161,36 @@ Entity names come from `translations/*.json` under `entity.<platform>.*` keys.
 | 3. Validate byte map | ✅ Done | All byte positions confirmed from captures |
 | 4. Write commands | ✅ Done | Light + pump replay frames captured |
 | 5. Live test writes | **Next** | Test all write entities at spa |
-| 6. Temperature control | ✅ Done | Climate entity with 31-frame lookup table |
+| 6. Temperature control | ✅ Done | Climate with debounced slider, 31-frame lookup |
 | 7. Polish & release | Planned | After Phase 5 live test |
 
 ---
 
 ## 5. Next Steps
 
-1. **Live test write commands** — restart HA with new code, test light switch,
-   pump buttons, and thermostat. Verify state updates after commands.
-2. **PR to frame-analyzer** — add P25B85 preset to christopheknap's tool
-3. **Polish** — version bump, README update, HACS release
+1. **Live test at spa** — restart HA, test light switch, pump fan, thermostat slider
+2. **Polish** — version bump, README update, HACS release
+3. **PR to frame-analyzer** — add P25B85 preset to christopheknap's tool
 
 ---
 
 ## 6. Technical Notes for Next Session
 
 - **`.env` file** holds bridge IP (gitignored). Tools auto-load it.
-- **HACS** requires single integration per repo.
 - **Restart required** after any code change to the integration.
-- **Entity names** come from `translation_key` + translation files.
 - **Tests** run with `python3 -m unittest discover -s tests` (96 tests, <1ms).
-- **CRC status** — see `docs/crc_analysis.md` for full analysis:
-  - NOT any standard CRC-32 (all 2^32 polynomials tested, all configs)
-  - IS linear (proven: XOR delta consistency, 171 pairs, 60 groups)
-  - Session-dependent state prevents cross-session polynomial extraction
-  - **To crack fully**: capture ALL command types in ONE session, re-run
-    `tools/crack_crc.py`. Or disassemble PB554 firmware.
 - **Temperature lookup table**: `TEMP_COMMAND_TABLE` in `adapters/p25b85.py`
-  - 31 frames covering 10°C (50°F) to 40°C (104°F) in 1°C steps
-  - Original capture data also at `tools/captures_temp/temp_commands.json`
+  - 31 frames covering 10°C (50°F) to 40°C (104°F)
   - 73°F (23°C) frame has escaped byte in CRC (23 bytes raw vs 22 normal)
-  - Byte 11 varies by capture session: 0x88, 0x98, 0x99 — likely encodes
-    system state at capture time. Needs live testing to confirm replay works.
+  - Byte 11 varies by capture session (0x88/0x98/0x99) — needs live test
   - Stored as raw wire hex; replay sends verbatim (including escapes)
 - **Command send pattern**: coordinator opens TCP, writes frame, closes.
   Uses `asyncio.Lock` to prevent concurrent sends.
 - **Pump state machine**: must follow OFF→low→high→OFF cycle.
-  "Pump off" button handles low→high→off with 1s delay between frames.
+  Fan entity handles multi-step transitions (e.g., low→off requires low→high then high→off with 1s delay).
 - **Light is a toggle**: same frame for on and off. Switch entity checks
   current state before sending to avoid double-toggle.
+- **Climate debounce**: `TEMP_DEBOUNCE_SECONDS = 1.5` — slider calls are
+  coalesced; only the final value is sent after the slider settles.
+- **CRC** — see `docs/crc_analysis.md`. Linear but session-dependent.
+  To crack: capture ALL command types in ONE session, or disassemble PB554 firmware.

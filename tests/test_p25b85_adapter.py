@@ -205,19 +205,13 @@ class TestP25B85Adapter(unittest.TestCase):
         descs = self.adapter.entity_descriptions()
         self.assertGreater(len(descs), 0)
 
-        # Check we have sensors and binary_sensors
+        # Check we have sensors
         platforms = {d.platform for d in descs}
         self.assertIn("sensor", platforms)
-        self.assertIn("binary_sensor", platforms)
 
         # Check key entities exist
         keys = {d.key for d in descs}
         self.assertIn("water_temperature", keys)
-        self.assertIn("pump_low", keys)
-        self.assertIn("pump_high", keys)
-        self.assertIn("light", keys)
-        self.assertIn("uv_lamp", keys)
-        self.assertIn("heater_state", keys)
 
 
 class TestP25B85HeaterStates(unittest.TestCase):

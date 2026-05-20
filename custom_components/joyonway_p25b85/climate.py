@@ -3,9 +3,14 @@
 Uses replay-only command frames captured from the PB554 panel.
 No CRC computation — only verbatim captured frames are sent.
 Supports setpoint temperatures from 10°C to 40°C in 1°C steps.
+
+Includes debouncing for the temperature slider: rapid successive
+set_temperature calls (e.g., from dragging the slider) are coalesced
+into a single command sent after the slider settles.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from homeassistant.components.climate import (
@@ -26,6 +31,10 @@ from .coordinator import JoyonwayP25B85Coordinator
 from .entity import device_info
 
 _LOGGER = logging.getLogger(__name__)
+
+# Debounce delay for temperature slider (seconds).
+# Waits this long after the last set_temperature call before sending.
+TEMP_DEBOUNCE_SECONDS = 1.5
 
 
 async def async_setup_entry(
@@ -61,6 +70,8 @@ class SpaClimate(CoordinatorEntity, ClimateEntity):
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry.entry_id}_climate"
         self._attr_device_info = device_info(entry)
+        self._debounce_task: asyncio.Task | None = None
+        self._pending_temp: int | None = None
 
     @property
     def current_temperature(self) -> float | None:
@@ -83,25 +94,69 @@ class SpaClimate(CoordinatorEntity, ClimateEntity):
 
     @property
     def hvac_action(self) -> HVACAction | None:
-        """Return current HVAC action based on heater state."""
+        """Return current HVAC action based on heater state.
+
+        Maps controller heater states to HA actions:
+          - heating → HEATING (actively heating water)
+          - circulation → PREHEATING (pump running pre-heat)
+          - cooldown / uv_ozone / unknown → IDLE
+        """
         if self.coordinator.data is None:
             return None
-        if self.coordinator.data.get("heater_active"):
+        heater_state = self.coordinator.data.get("heater_state")
+        if heater_state == "heating":
             return HVACAction.HEATING
+        if heater_state == "circulation":
+            return HVACAction.PREHEATING
         return HVACAction.IDLE
+
+    @property
+    def extra_state_attributes(self) -> dict | None:
+        """Expose detailed heater state as an extra attribute."""
+        if self.coordinator.data is None:
+            return None
+        return {
+            "heater_state": self.coordinator.data.get("heater_state"),
+        }
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         """Set HVAC mode — only HEAT is supported (no-op)."""
         # Spa is always heating to setpoint; nothing to do.
 
     async def async_set_temperature(self, **kwargs) -> None:
-        """Set the target temperature using a captured command frame."""
+        """Set target temperature with debouncing for slider support.
+
+        When the slider is dragged, this gets called many times rapidly.
+        We debounce: wait TEMP_DEBOUNCE_SECONDS after the last call, then
+        send only the final value. This prevents flooding the RS485 bus.
+        """
         temperature = kwargs.get(ATTR_TEMPERATURE)
         if temperature is None:
             return
 
         target_c = int(round(temperature))
         target_c = max(TEMP_MIN_C, min(TEMP_MAX_C, target_c))
+        self._pending_temp = target_c
+
+        # Cancel any existing debounce timer
+        if self._debounce_task is not None:
+            self._debounce_task.cancel()
+
+        # Start a new debounce timer
+        self._debounce_task = asyncio.ensure_future(
+            self._debounced_send(target_c)
+        )
+
+    async def _debounced_send(self, target_c: int) -> None:
+        """Wait for debounce period, then send the temperature command."""
+        try:
+            await asyncio.sleep(TEMP_DEBOUNCE_SECONDS)
+        except asyncio.CancelledError:
+            return
+
+        # Only send if this is still the latest requested temperature
+        if self._pending_temp != target_c:
+            return
 
         coordinator: JoyonwayP25B85Coordinator = self.coordinator
         adapter = coordinator.adapter
@@ -120,4 +175,6 @@ class SpaClimate(CoordinatorEntity, ClimateEntity):
             await coordinator.async_request_refresh()
         else:
             _LOGGER.error("Failed to send temperature command for %d°C", target_c)
+
+
 
