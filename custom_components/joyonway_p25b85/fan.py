@@ -47,7 +47,7 @@ class SpaPumpFan(CoordinatorEntity, FanEntity):
     """Fan entity representing the spa pump (off / low / high)."""
 
     _attr_has_entity_name = True
-    _attr_translation_key = "pump"
+    _attr_translation_key = "jets"
     _attr_icon = "mdi:pump"
     _attr_preset_modes = PRESET_MODES
     _attr_supported_features = FanEntityFeature.PRESET_MODE
@@ -60,7 +60,7 @@ class SpaPumpFan(CoordinatorEntity, FanEntity):
     ) -> None:
         """Initialize the pump fan."""
         super().__init__(coordinator)
-        self._attr_unique_id = f"{entry.entry_id}_pump"
+        self._attr_unique_id = f"{entry.entry_id}_jets"
         self._attr_device_info = device_info(entry)
 
     @property

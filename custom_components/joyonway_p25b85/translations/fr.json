@@ -20,6 +20,24 @@
   "entity": {
     "sensor": {
       "water_temperature": { "name": "Température de l'eau" },
+      "heater_state": {
+        "name": "État du chauffage",
+        "state": {
+          "off": "Arrêt",
+          "circulation": "Circulation",
+          "heating": "Chauffage",
+          "disinfection": "Désinfection",
+          "unknown": "Inconnu"
+        }
+      },
+      "pump_state": {
+        "name": "État de la pompe",
+        "state": {
+          "off": "Arrêt",
+          "low": "Faible",
+          "high": "Fort"
+        }
+      },
       "spa_datetime": { "name": "Horloge spa" },
       "raw_pump_byte": { "name": "Octet pompe brut" },
       "raw_heater_byte": { "name": "Octet chauffage brut" }
@@ -31,7 +49,17 @@
       "light": { "name": "Lumière" }
     },
     "fan": {
-      "pump": { "name": "Pompe" }
+      "jets": {
+        "name": "Jets",
+        "state_attributes": {
+          "preset_mode": {
+            "state": {
+              "low": "Faible",
+              "high": "Fort"
+            }
+          }
+        }
+      }
     },
     "climate": {
       "thermostat": { "name": "Thermostat" }

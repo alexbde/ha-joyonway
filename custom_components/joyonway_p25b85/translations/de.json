@@ -20,6 +20,24 @@
   "entity": {
     "sensor": {
       "water_temperature": { "name": "Wassertemperatur" },
+      "heater_state": {
+        "name": "Heizstatus",
+        "state": {
+          "off": "Aus",
+          "circulation": "Zirkulation",
+          "heating": "Heizen",
+          "disinfection": "Desinfektion",
+          "unknown": "Unbekannt"
+        }
+      },
+      "pump_state": {
+        "name": "Pumpenstatus",
+        "state": {
+          "off": "Aus",
+          "low": "Leicht",
+          "high": "Stark"
+        }
+      },
       "spa_datetime": { "name": "Spa-Uhr" },
       "raw_pump_byte": { "name": "Pumpenbyte-Rohdaten" },
       "raw_heater_byte": { "name": "Heizungsbyte-Rohdaten" }
@@ -31,7 +49,17 @@
       "light": { "name": "Licht" }
     },
     "fan": {
-      "pump": { "name": "Pumpe" }
+      "jets": {
+        "name": "Düsen",
+        "state_attributes": {
+          "preset_mode": {
+            "state": {
+              "low": "Leicht",
+              "high": "Stark"
+            }
+          }
+        }
+      }
     },
     "climate": {
       "thermostat": { "name": "Thermostat" }

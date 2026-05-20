@@ -99,7 +99,7 @@ class SpaClimate(CoordinatorEntity, ClimateEntity):
         Maps controller heater states to HA actions:
           - heating → HEATING (actively heating water)
           - circulation → PREHEATING (pump running pre-heat)
-          - cooldown / uv_ozone / unknown → IDLE
+          - off / disinfection / unknown → IDLE
         """
         if self.coordinator.data is None:
             return None

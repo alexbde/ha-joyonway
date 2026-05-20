@@ -162,8 +162,8 @@ class TestP25B85Adapter(unittest.TestCase):
 
     def test_heater_state_cooldown(self):
         result = self.adapter.parse_status(self.logical)
-        # KDy frame has byte[14] = 0x40 → cooldown
-        self.assertEqual(result["heater_state"], "cooldown")
+        # KDy frame has byte[14] = 0x40 → off (heater idle)
+        self.assertEqual(result["heater_state"], "off")
         self.assertFalse(result["heater_active"])
 
     def test_light_on(self):
@@ -234,7 +234,7 @@ class TestP25B85HeaterStates(unittest.TestCase):
 
     def test_heater_cooldown(self):
         result = self.adapter.parse_status(self._with_heater_byte(HEATER_COOLDOWN))
-        self.assertEqual(result["heater_state"], "cooldown")
+        self.assertEqual(result["heater_state"], "off")
         self.assertFalse(result["heater_active"])
 
     def test_heater_circulation(self):
@@ -255,14 +255,14 @@ class TestP25B85HeaterStates(unittest.TestCase):
 
     def test_heater_uv_ozone(self):
         result = self.adapter.parse_status(self._with_heater_byte(HEATER_UV_OZONE))
-        self.assertEqual(result["heater_state"], "uv_ozone")
+        self.assertEqual(result["heater_state"], "disinfection")
         self.assertFalse(result["heater_active"])
         self.assertTrue(result["uv_lamp"])
 
     def test_heater_uv_ozone_kdy_variant(self):
         """KDy reported 0xC1 for UV/ozone (our captures show 0x41, bit 7 differs)."""
         result = self.adapter.parse_status(self._with_heater_byte(0xC1))
-        self.assertEqual(result["heater_state"], "uv_ozone")
+        self.assertEqual(result["heater_state"], "disinfection")
         self.assertFalse(result["heater_active"])
         self.assertTrue(result["uv_lamp"])
 

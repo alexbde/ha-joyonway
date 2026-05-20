@@ -68,12 +68,12 @@ HEATER_UV_OZONE_ALT = 0xC1  # UV lamp / ozone cycle (KDy's value, differs by bit
 HEATER_OFF = HEATER_COOLDOWN  # backward compat
 
 HEATER_STATE_MAP: dict[int, str] = {
-    HEATER_COOLDOWN: "cooldown",
+    HEATER_COOLDOWN: "off",
     HEATER_CIRCULATION: "circulation",
     HEATER_HEATING: "heating",
     HEATER_HEATING_ALT: "heating",      # KDy variant
-    HEATER_UV_OZONE: "uv_ozone",
-    HEATER_UV_OZONE_ALT: "uv_ozone",   # KDy variant
+    HEATER_UV_OZONE: "disinfection",
+    HEATER_UV_OZONE_ALT: "disinfection",   # KDy variant
 }
 
 # ──────────────────────────────────────────────────────────────
@@ -177,11 +177,20 @@ class P25B85Adapter:
 
         heater_state = HEATER_STATE_MAP.get(heater_byte, "unknown")
 
+        # Derive pump state string
+        if pump_byte & MASK_PUMP_HIGH:
+            pump_state = "high"
+        elif pump_byte & MASK_PUMP_LOW:
+            pump_state = "low"
+        else:
+            pump_state = "off"
+
         result: dict = {
             "water_temperature": _fahrenheit_to_celsius(water_temp_f),
             "setpoint": _fahrenheit_to_celsius(setpoint_f),
             "pump_low": bool(pump_byte & MASK_PUMP_LOW),
             "pump_high": bool(pump_byte & MASK_PUMP_HIGH),
+            "pump_state": pump_state,
             "light": bool(light_byte & MASK_LIGHT),
             "heater_active": heater_byte in (HEATER_HEATING, HEATER_HEATING_ALT),
             "heater_state": heater_state,
@@ -262,6 +271,22 @@ _P25B85_ENTITIES: list[SpaEntityDescription] = [
         device_class="temperature",
         state_class="measurement",
         native_unit="°C",
+    ),
+    SpaEntityDescription(
+        platform="sensor",
+        key="heater_state",
+        name="Heater state",
+        icon="mdi:fire",
+        device_class="enum",
+        options=["off", "circulation", "heating", "disinfection", "unknown"],
+    ),
+    SpaEntityDescription(
+        platform="sensor",
+        key="pump_state",
+        name="Pump state",
+        icon="mdi:pump",
+        device_class="enum",
+        options=["off", "low", "high"],
     ),
     SpaEntityDescription(
         platform="sensor",

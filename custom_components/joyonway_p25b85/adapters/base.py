@@ -18,6 +18,7 @@ class SpaEntityDescription:
     native_unit: str | None = None
     entity_category: str | None = None  # "diagnostic" or None
     enabled_by_default: bool = True
+    options: list[str] | None = None  # for device_class="enum"
 
 
 class ModelAdapter(Protocol):

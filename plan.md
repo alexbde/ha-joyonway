@@ -42,8 +42,8 @@
 - **Pump:** ONE dual-speed (low = filtration, high = massage jets, 20-min auto-off)
 - **Light:** RGB LED, 9 states cycling via button
 - **Heater:** 2 kW resistive, thermostat-controlled
-- **Ozone port:** Connector exists on PCB ("Ozonauslass"), but byte 14=0x41
-  is actually a **scheduled filtration cycle** state (not a separate UV device)
+- **Ozone port:** Connector on PCB ("Ozonauslass"), byte 14=0x41 is a
+  **scheduled disinfection cycle** state (not a separate UV device)
 - **Blower:** connector exists but NOT wired
 
 ---
@@ -64,7 +64,7 @@
 | 8 | Model ID (`0x03` = P25B85) |
 | **9** | Water temperature (°F) |
 | **12** | Pump status (`0x02`=low, `0x04`=high) |
-| **14** | Heater state (`0x40`=cooldown, `0x50`=circulation, `0x55`=heating, `0x41`=filtration cycle) |
+| **14** | Heater state (`0x40`=off, `0x50`=circulation, `0x55`=heating, `0x41`=disinfection) |
 | **16** | Setpoint (°F) |
 | **17** | Light flags (bit 0 = light ON) |
 | 53–58 | Date/time (year, month, day, hour, minute, second) |
@@ -100,15 +100,15 @@ custom_components/joyonway_p25b85/
 ├── config_flow.py       # IP + port, TCP connection test
 ├── protocol.py          # find_frames, pseudo_unescape, validate_frame
 ├── coordinator.py       # async TCP polling + async_send_command
-├── sensor.py            # adapter-driven (water temp + diagnostics)
+├── sensor.py            # adapter-driven (water temp, heater/pump state, diagnostics)
 ├── binary_sensor.py     # bridge connectivity only
 ├── switch.py            # light toggle (on/off via replay)
-├── fan.py               # pump (off/low/high via preset_modes)
+├── fan.py               # jets (off/low/high via preset_modes)
 ├── climate.py           # thermostat with debounced slider
 ├── strings.json         # entity translations (base)
 ├── adapters/
 │   ├── __init__.py      # registry: get_adapter("P25B85")
-│   ├── base.py          # ModelAdapter protocol + SpaEntityDescription
+│   ├── base.py          # ModelAdapter protocol + SpaEntityDescription (incl. options for enums)
 │   └── p25b85.py        # byte map, parse_status(), command frames, temp table
 ├── brand/
 │   ├── icon.png         # 256×256
@@ -119,14 +119,16 @@ custom_components/joyonway_p25b85/
     └── fr.json
 ```
 
-### Entities (final, clean)
+### Entities
 
 | Entity | Platform | What it does |
 |--------|----------|--------------|
 | **Thermostat** | climate | Water temp + setpoint + heater state (HEATING/PREHEATING/IDLE); slider with 1.5s debounce; extra attribute `heater_state` |
 | **Light** | switch | On/off via toggle replay |
-| **Pump** | fan | Off/low/high via preset_modes; handles multi-step transitions |
+| **Jets** (Düsen) | fan | Off/low/high via preset_modes; handles multi-step transitions |
 | **Water temperature** | sensor | Integer °C for history/graphs |
+| **Heater state** | sensor | Enum: off / circulation / heating / disinfection / unknown (translated) |
+| **Pump state** | sensor | Enum: off / low / high (translated) |
 | **RS485 bridge** | binary_sensor | TCP connectivity |
 | Spa clock | sensor | Diagnostic (disabled by default) |
 | Raw pump byte | sensor | Diagnostic (disabled by default) |
@@ -138,17 +140,21 @@ custom_components/joyonway_p25b85/
 
 ### Key design decisions
 
-- **No `button.py`** — pump control is now the fan entity (deleted button.py)
-- **No UV/ozone binary sensor** — byte 14=0x41 is "scheduled filtration cycle",
-  not a separate device. Info available via climate's `heater_state` extra attribute.
-- **No light binary sensor** — redundant with light switch (switch shows state)
-- **No pump binary sensors** — redundant with fan entity's preset_mode
-- **No heater_state sensor** — integrated into climate's hvac_action + extra attribute
-- **No setpoint sensor** — shown by climate entity's target_temperature
-- **Temperatures as integers** — spa only displays whole °C; `_fahrenheit_to_celsius()` returns `int`
-- **Climate slider debounce** — 1.5s delay before sending; prevents RS485 flooding when dragging slider
-- **Climate hvac_action mapping**: heating→HEATING, circulation→PREHEATING, cooldown/filtration→IDLE
-- **Fan preset_modes**: "low" (filtration), "high" (jets); handles all state transitions including multi-step
+- **Fan = "Jets" / "Düsen"** — matches spa manual terminology; translation_key `"jets"`
+- **Enum sensors with translated states** — `heater_state` and `pump_state` use
+  `device_class="enum"` with `options` list → HA translates state values in UI
+- **Fan preset_mode translations** — low→Leicht / high→Stark (DE), Faible/Fort (FR)
+- **Heater state "off"** — byte 0x40, previously called "cooldown", renamed to "off"
+- **Disinfection** — byte 0x41, previously called "uv_ozone", renamed to "disinfection"
+  (matches manual: "Ozonauslass" = scheduled disinfection cycle)
+- **No separate spa_status sensor** — consolidated into heater_state enum
+- **No button.py / UV binary sensor / light binary sensor / pump binary sensors / setpoint sensor**
+  — all redundant with existing entities
+- **Temperatures as integers** — spa only shows whole °C
+- **Climate hvac_action**: heating→HEATING, circulation→PREHEATING, off/disinfection→IDLE
+- **Pump state machine**: OFF→low→high→OFF cycle; fan entity handles multi-step transitions
+- **Light toggle**: same frame for on/off; switch checks state to avoid double-toggle
+- **Climate debounce**: 1.5s coalescing for slider drags
 
 ---
 
@@ -168,9 +174,11 @@ custom_components/joyonway_p25b85/
 
 ## 5. Next Steps
 
-1. **Live test at spa** — restart HA, test light switch, pump fan, thermostat slider
-2. **Polish** — version bump, README update, HACS release
-3. **PR to frame-analyzer** — add P25B85 preset to christopheknap's tool
+1. **Live test at spa** — restart HA, test light switch, jets fan, thermostat slider
+2. **Capture heater manual on/off** — the PB554 display has an option to manually
+   enable/disable the heater. Command frames not yet captured. Add to capture list.
+3. **Polish** — version bump, README update, HACS release
+4. **PR to frame-analyzer** — add P25B85 preset to christopheknap's tool
 
 ---
 
@@ -186,11 +194,9 @@ custom_components/joyonway_p25b85/
   - Stored as raw wire hex; replay sends verbatim (including escapes)
 - **Command send pattern**: coordinator opens TCP, writes frame, closes.
   Uses `asyncio.Lock` to prevent concurrent sends.
-- **Pump state machine**: must follow OFF→low→high→OFF cycle.
-  Fan entity handles multi-step transitions (e.g., low→off requires low→high then high→off with 1s delay).
-- **Light is a toggle**: same frame for on and off. Switch entity checks
-  current state before sending to avoid double-toggle.
-- **Climate debounce**: `TEMP_DEBOUNCE_SECONDS = 1.5` — slider calls are
-  coalesced; only the final value is sent after the slider settles.
 - **CRC** — see `docs/crc_analysis.md`. Linear but session-dependent.
   To crack: capture ALL command types in ONE session, or disassemble PB554 firmware.
+- **Manual reference files** in `.local/` — `home-deluxe-white-marble.md` (product manual),
+  HA community thread (protocol reverse-engineering discussion). Useful for terminology.
+- **Entity unique_id for fan** changed from `_pump` to `_jets` — existing HA installs
+  may need entity re-registration after update (or manual rename in entity registry).
