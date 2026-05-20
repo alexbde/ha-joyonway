@@ -231,10 +231,12 @@ Entity names come from `translations/*.json` under `entity.<platform>.*` keys.
 - **Restart required** after any code change to the integration.
 - **Entity names** come from `translation_key` + translation files.
 - **Tests** run with `python3 -m unittest discover -s tests` (96 tests, <1ms).
-- **CRC status**: Proprietary 4-byte integrity check. NOT CRC-32, CRC-32C,
-  CRC-16/Modbus, XOR, mod-256, or any standard variant. Tested exhaustively.
-  External "hints" claiming 1-byte checksum or Modbus CRC-16 were tested and
-  disproven against our captures. Replay-only is the correct approach.
+- **CRC status**: Definitively NOT CRC-32 of any kind. Proved by exhaustive
+  brute-force of all 2^32 polynomials (reflected + normal, both endianness,
+  all byte ranges, all init/xor combinations). Also not CRC-16/Modbus,
+  XOR, or mod-256. The algorithm is proprietary (custom hash or scramble).
+  **Cracking is not feasible without firmware disassembly.**
+  → Use lookup table approach (capture one frame per temperature).
 - **Temperature capture script** ready: `tools/capture_temp_commands.py`
   - Automated: press Enter once, then press button on each prompt (15s windows)
   - Resumable: saves to `captures_temp/temp_commands.json`
