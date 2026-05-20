@@ -89,11 +89,6 @@ CMD_PUMP_OFF_TO_LOW = bytes.fromhex("1a0120103ca110a10202000000c00056007dd2146b1
 CMD_PUMP_LOW_TO_HIGH = bytes.fromhex("1a0120103ca110a10604000000c0005600fc1221c61d")
 CMD_PUMP_HIGH_TO_OFF = bytes.fromhex("1a0120103ca110a10400000000c0005600735738e91d")
 
-# Temperature setpoints (only two captured values)
-# Byte 15 = target °F, but CRC is proprietary so we can't generate new values.
-CMD_TEMP_SET_87F = bytes.fromhex("1a0120103ca110a10000808000c00057005aa3207f1d")  # 30.6°C
-CMD_TEMP_SET_86F = bytes.fromhex("1a0120103ca110a10000808000c0005600dd0ff87e1d")  # 30.0°C
-
 # Pump state → next command mapping for cycling
 PUMP_CYCLE_MAP: dict[str, tuple[bytes, str]] = {
     "off": (CMD_PUMP_OFF_TO_LOW, "low"),
@@ -101,12 +96,57 @@ PUMP_CYCLE_MAP: dict[str, tuple[bytes, str]] = {
     "high": (CMD_PUMP_HIGH_TO_OFF, "off"),
 }
 
+# Temperature setpoint command frames (captured from PB554 panel).
+# Keys are target °C; values are raw wire-format hex frames (replay verbatim).
+# 31 frames covering 10°C (50°F) to 40°C (104°F) in 1°C steps.
+# The °C→°F mapping follows the panel's +1,+2,+2,+2,+2 repeating pattern.
+TEMP_COMMAND_TABLE: dict[int, bytes] = {
+    10: bytes.fromhex("1a0120103ca110a10000809800c0003200cb80efa11d"),   # 50°F
+    11: bytes.fromhex("1a0120103ca110a10000808800c000330080db45461d"),   # 51°F
+    12: bytes.fromhex("1a0120103ca110a10000808800c0003500923096421d"),   # 53°F
+    13: bytes.fromhex("1a0120103ca110a10000808800c00037009c6927411d"),   # 55°F
+    14: bytes.fromhex("1a0120103ca110a10000808800c0003900b6e6314b1d"),   # 57°F
+    15: bytes.fromhex("1a0120103ca110a10000808800c0003b00b8bf80481d"),   # 59°F
+    16: bytes.fromhex("1a0120103ca110a10000808800c0003c002df88b4d1d"),   # 60°F
+    17: bytes.fromhex("1a0120103ca110a10000808800c0003e0023a13a4e1d"),   # 62°F
+    18: bytes.fromhex("1a0120103ca110a10000808800c0004000595798141d"),   # 64°F
+    19: bytes.fromhex("1a0120103ca110a10000808800c0004200570e29171d"),   # 66°F
+    20: bytes.fromhex("1a0120103ca110a10000808800c000440045e5fa131d"),   # 68°F
+    21: bytes.fromhex("1a0120103ca110a10000808800c0004500c24922121d"),   # 69°F
+    22: bytes.fromhex("1a0120103ca110a10000808800c0004700cc1093111d"),   # 71°F
+    23: bytes.fromhex("1a0120103ca110a10000808800c0004900e69f851b0b1d"),  # 73°F (escaped CRC)
+    24: bytes.fromhex("1a0120103ca110a10000808800c0004b00e8c634181d"),   # 75°F
+    25: bytes.fromhex("1a0120103ca110a10000809800c0004d0036da95fa1d"),   # 77°F
+    26: bytes.fromhex("1a0120103ca110a10000809800c0004e00bf2ffcf81d"),   # 78°F
+    27: bytes.fromhex("1a0120103ca110a10000808800c0005000299f12091d"),   # 80°F
+    28: bytes.fromhex("1a0120103ca110a10000808800c000520027c6a30a1d"),   # 82°F
+    29: bytes.fromhex("1a0120103ca110a10000808800c0005400352d700e1d"),   # 84°F
+    30: bytes.fromhex("1a0120103ca110a10000808800c00056003b74c10d1d"),   # 86°F
+    31: bytes.fromhex("1a0120103ca110a10000808800c0005700bcd8190c1d"),   # 87°F
+    32: bytes.fromhex("1a0120103ca110a10000809900c00059004bc82aaf1d"),   # 89°F
+    33: bytes.fromhex("1a0120103ca110a10000809900c0005b0045919bac1d"),   # 91°F
+    34: bytes.fromhex("1a0120103ca110a10000809900c0005d00577a48a81d"),   # 93°F
+    35: bytes.fromhex("1a0120103ca110a10000809900c0005f005923f9ab1d"),   # 95°F
+    36: bytes.fromhex("1a0120103ca110a10000809900c00060006458a8861d"),   # 96°F
+    37: bytes.fromhex("1a0120103ca110a10000809900c00062006a0119851d"),   # 98°F
+    38: bytes.fromhex("1a0120103ca110a10000809900c000640078eaca811d"),   # 100°F
+    39: bytes.fromhex("1a0120103ca110a10000809900c000660076b37b821d"),   # 102°F
+    40: bytes.fromhex("1a0120103ca110a10000809900c00068005c3c6d881d"),   # 104°F
+}
 
-def _fahrenheit_to_celsius(f: int) -> float | None:
-    """Convert Fahrenheit to Celsius, return None for invalid values."""
+TEMP_MIN_C = 10
+TEMP_MAX_C = 40
+
+
+def _fahrenheit_to_celsius(f: int) -> int | None:
+    """Convert Fahrenheit to Celsius, return None for invalid values.
+
+    Returns an integer because the spa panel only displays whole-degree
+    values; the extra decimal from °F→°C conversion is false precision.
+    """
     if f == 0 or f > 200:
         return None
-    return round((f - 32) * 5 / 9, 1)
+    return round((f - 32) * 5 / 9)
 
 
 class P25B85Adapter:
@@ -204,6 +244,13 @@ class P25B85Adapter:
         entry = PUMP_CYCLE_MAP.get(current)
         return entry[0] if entry else None
 
+    def get_temp_command(self, target_celsius: int) -> bytes | None:
+        """Return the command frame for a target temperature in °C.
+
+        Returns None if the temperature is out of range (10-40°C).
+        """
+        return TEMP_COMMAND_TABLE.get(target_celsius)
+
 
 _P25B85_ENTITIES: list[SpaEntityDescription] = [
     # Sensors
@@ -212,15 +259,6 @@ _P25B85_ENTITIES: list[SpaEntityDescription] = [
         key="water_temperature",
         name="Water temperature",
         icon="mdi:thermometer-water",
-        device_class="temperature",
-        state_class="measurement",
-        native_unit="°C",
-    ),
-    SpaEntityDescription(
-        platform="sensor",
-        key="setpoint",
-        name="Setpoint",
-        icon="mdi:thermometer-chevron-up",
         device_class="temperature",
         state_class="measurement",
         native_unit="°C",
@@ -257,13 +295,6 @@ _P25B85_ENTITIES: list[SpaEntityDescription] = [
         key="light",
         name="Light",
         icon="mdi:lightbulb",
-    ),
-    SpaEntityDescription(
-        platform="binary_sensor",
-        key="heater_active",
-        name="Heater active",
-        icon="mdi:fire",
-        device_class="heat",
     ),
     SpaEntityDescription(
         platform="binary_sensor",

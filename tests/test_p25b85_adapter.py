@@ -152,13 +152,13 @@ class TestP25B85Adapter(unittest.TestCase):
 
     def test_water_temperature(self):
         result = self.adapter.parse_status(self.logical)
-        # byte[9] = 0x5E = 94°F = 34.4°C
-        self.assertEqual(result["water_temperature"], 34.4)
+        # byte[9] = 0x5E = 94°F ≈ 34°C (rounded to integer)
+        self.assertEqual(result["water_temperature"], 34)
 
     def test_setpoint(self):
         result = self.adapter.parse_status(self.logical)
-        # byte[16] = 0x68 = 104°F = 40.0°C
-        self.assertEqual(result["setpoint"], 40.0)
+        # byte[16] = 0x68 = 104°F = 40°C (rounded to integer)
+        self.assertEqual(result["setpoint"], 40)
 
     def test_heater_state_cooldown(self):
         result = self.adapter.parse_status(self.logical)
@@ -213,11 +213,9 @@ class TestP25B85Adapter(unittest.TestCase):
         # Check key entities exist
         keys = {d.key for d in descs}
         self.assertIn("water_temperature", keys)
-        self.assertIn("setpoint", keys)
         self.assertIn("pump_low", keys)
         self.assertIn("pump_high", keys)
         self.assertIn("light", keys)
-        self.assertIn("heater_active", keys)
         self.assertIn("uv_lamp", keys)
         self.assertIn("heater_state", keys)
 
@@ -298,9 +296,9 @@ class TestFahrenheitConversion(unittest.TestCase):
     """Test temperature conversion edge cases."""
 
     def test_normal_values(self):
-        self.assertEqual(_fahrenheit_to_celsius(94), 34.4)
-        self.assertEqual(_fahrenheit_to_celsius(104), 40.0)
-        self.assertEqual(_fahrenheit_to_celsius(32), 0.0)
+        self.assertEqual(_fahrenheit_to_celsius(94), 34)
+        self.assertEqual(_fahrenheit_to_celsius(104), 40)
+        self.assertEqual(_fahrenheit_to_celsius(32), 0)
 
     def test_zero_invalid(self):
         self.assertIsNone(_fahrenheit_to_celsius(0))

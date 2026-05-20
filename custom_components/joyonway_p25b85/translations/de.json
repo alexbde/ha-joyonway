@@ -20,7 +20,6 @@
   "entity": {
     "sensor": {
       "water_temperature": { "name": "Wassertemperatur" },
-      "setpoint": { "name": "Solltemperatur" },
       "heater_state": { "name": "Heizungsstatus" },
       "spa_datetime": { "name": "Spa-Uhr" },
       "raw_pump_byte": { "name": "Pumpenbyte-Rohdaten" },
@@ -30,9 +29,8 @@
       "pump_low": { "name": "Pumpe niedrig (Filtration)" },
       "pump_high": { "name": "Pumpe hoch (Massage)" },
       "light": { "name": "Licht" },
-      "heater_active": { "name": "Heizung aktiv" },
       "uv_lamp": { "name": "UV/Ozon" },
-      "bridge_connectivity": { "name": "Verbindung RS485-Bridge" }
+      "bridge_connectivity": { "name": "RS485-Bridge" }
     },
     "switch": {
       "light": { "name": "Licht" }
@@ -40,6 +38,9 @@
     "button": {
       "pump_cycle": { "name": "Pumpe umschalten" },
       "pump_off": { "name": "Pumpe aus" }
+    },
+    "climate": {
+      "thermostat": { "name": "Thermostat" }
     }
   }
 }

@@ -12,7 +12,7 @@
 >
 > **Integration domain:** `joyonway_p25b85`
 > **Hardware:** P25B85 + PB554 + Elfin EW11
-> **Status:** Phase 4 write support implemented (light + pump). Temperature lookup table complete (31 frames).
+> **Status:** Phase 6 complete — all write entities implemented (light, pump, climate). Needs live testing.
 
 ---
 
@@ -141,11 +141,12 @@ custom_components/joyonway_p25b85/
 ├── binary_sensor.py     # adapter-driven + bridge connectivity
 ├── switch.py            # light toggle (on/off via replay)
 ├── button.py            # pump cycle + pump off
+├── climate.py           # thermostat (setpoint via replay lookup table)
 ├── strings.json         # entity translations (base)
 ├── adapters/
 │   ├── __init__.py      # registry: get_adapter("P25B85")
 │   ├── base.py          # ModelAdapter protocol + SpaEntityDescription
-│   └── p25b85.py        # byte map, parse_status(), command frames, pump logic
+│   └── p25b85.py        # byte map, parse_status(), command frames, pump + temp logic
 ├── brand/
 │   ├── icon.png         # 256×256
 │   └── icon@2x.png      # 512×512
@@ -155,13 +156,32 @@ custom_components/joyonway_p25b85/
     └── fr.json
 ```
 
-### Write support entities (Phase 4)
+### Entities
 
 | Entity | Platform | Type | Action |
 |--------|----------|------|--------|
 | Light | switch | on/off | Sends toggle when state needs changing |
 | Pump cycle | button | press | Advances pump: off→low→high→off |
 | Pump off | button | press | Turns pump off (handles low→high→off if needed) |
+| Thermostat | climate | heat | Shows water temp + setpoint + heater activity; sets target temp via lookup table (10-40°C, 1°C steps) |
+| Water temperature | sensor | °C | Current water temp (integer, no false decimal precision) |
+| Heater state | sensor | text | cooldown / circulation / heating / uv_ozone |
+| Pump low | binary_sensor | on/off | Filtration pump running |
+| Pump high | binary_sensor | on/off | Massage jets running |
+| Light | binary_sensor | on/off | Light state (read-only mirror) |
+| UV/ozone | binary_sensor | on/off | UV lamp / ozone cycle active |
+| RS485 bridge | binary_sensor | connectivity | Bridge reachable |
+| Spa clock | sensor | diagnostic | Controller date/time (disabled by default) |
+| Raw pump byte | sensor | diagnostic | Raw byte 12 value (disabled by default) |
+| Raw heater byte | sensor | diagnostic | Raw byte 14 value (disabled by default) |
+
+### Design decisions (this session)
+
+- **Removed `setpoint` sensor** — redundant with climate entity's target temperature
+- **Removed `heater_active` binary sensor** — redundant with climate entity's `hvac_action` (HEATING/IDLE)
+- **Removed old `CMD_TEMP_SET_87F`/`CMD_TEMP_SET_86F`** — superseded by full `TEMP_COMMAND_TABLE`
+- **Temperatures rounded to integer °C** — spa panel only shows whole degrees; the °F→°C conversion created false precision (e.g. 37.2°C when spa means 37°C). `_fahrenheit_to_celsius()` now returns `int`.
+- **Climate entity** uses `HVACMode.HEAT` only (spa always heats to setpoint), `hvac_action` shows HEATING vs IDLE based on `heater_active` data key.
 
 ### Entity translations use `translation_key`
 
@@ -171,14 +191,14 @@ Entity names come from `translations/*.json` under `entity.<platform>.*` keys.
 
 - ✅ Integration installs via HACS custom repo
 - ✅ Config flow connects to EW11 and creates device
-- ✅ All read sensors work (water temp, setpoint, pump, light, heater, UV)
+- ✅ All read sensors work (water temp, pump, light, heater, UV)
 - ✅ German/English/French translations work
 
 ### Write support — NOT YET LIVE TESTED
 
 - ⚠️ Light switch: implemented, needs live test at spa
 - ⚠️ Pump buttons: implemented, needs live test at spa
-- ⚠️ Temperature: lookup table complete (31 frames, 10-40°C), climate entity not yet built
+- ⚠️ Climate/thermostat: implemented (lookup table, 10-40°C), needs live test at spa
 
 ---
 
@@ -189,27 +209,19 @@ Entity names come from `translations/*.json` under `entity.<platform>.*` keys.
 | 1. Capture tools | ✅ Done | `guided_capture_38400.py`, `frame_parser_38400.py` |
 | 2. Integration | ✅ Done | Deployed, reading live data, HACS install works |
 | 3. Validate byte map | ✅ Done | All byte positions confirmed from captures |
-| 4. Write commands | ✅ Implemented | Light + pump replay; temp lookup table complete |
-| 5. Live test writes | **Next** | Test light switch and pump buttons at spa |
-| 6. Temperature control | **Next** | Lookup table done, implement climate entity |
-| 7. Polish & release | Planned | After Phase 5+6 |
+| 4. Write commands | ✅ Done | Light + pump replay frames captured |
+| 5. Live test writes | **Next** | Test all write entities at spa |
+| 6. Temperature control | ✅ Done | Climate entity with 31-frame lookup table |
+| 7. Polish & release | Planned | After Phase 5 live test |
 
 ---
 
 ## 5. Next Steps
 
-1. **Live test write commands** — restart HA with new code, test light switch
-   and pump buttons. Verify state updates after commands.
-2. **Implement temperature control** — lookup table is complete at
-   `tools/captures_temp/temp_commands.json` (31 frames, 10-40°C).
-   Add a `climate` entity:
-   - `hvac_modes=[HEAT]` (spa always heats to setpoint)
-   - `current_temperature` → water temp sensor (byte 9)
-   - `target_temperature` → setpoint (byte 16), sends matching frame from lookup
-   - `min_temp=10`, `max_temp=40`, step 1°C
-   - Decision: go with `climate` for the visual UX (thermostat ring card)
-3. **PR to frame-analyzer** — add P25B85 preset to christopheknap's tool
-4. **Polish** — version bump, README update, HACS release
+1. **Live test write commands** — restart HA with new code, test light switch,
+   pump buttons, and thermostat. Verify state updates after commands.
+2. **PR to frame-analyzer** — add P25B85 preset to christopheknap's tool
+3. **Polish** — version bump, README update, HACS release
 
 ---
 
@@ -223,26 +235,16 @@ Entity names come from `translations/*.json` under `entity.<platform>.*` keys.
 - **CRC status** — see `docs/crc_analysis.md` for full analysis:
   - NOT any standard CRC-32 (all 2^32 polynomials tested, all configs)
   - IS linear (proven: XOR delta consistency, 171 pairs, 60 groups)
-  - Contributions follow doubling pattern: C[b]_LE = 0x01d8ac87 << b
-  - Can predict CRC for any byte[15] within same frame structure (19/19)
-  - GF(2) GCD = degree 40 (temp-only), but degree 0 when mixing sessions
-  - Conclusion: session-dependent state prevents cross-session polynomial extraction
+  - Session-dependent state prevents cross-session polynomial extraction
   - **To crack fully**: capture ALL command types in ONE session, re-run
     `tools/crack_crc.py`. Or disassemble PB554 firmware.
-  - CRC analysis scripts: `tools/analyze_crc.py`, `tools/crack_crc.py`, `tools/debug_crc.py`
-- **Temperature lookup table**: `tools/captures_temp/temp_commands.json`
+- **Temperature lookup table**: `TEMP_COMMAND_TABLE` in `adapters/p25b85.py`
   - 31 frames covering 10°C (50°F) to 40°C (104°F) in 1°C steps
-  - °F pattern: +1,+2,+2,+2,+2 repeating (1°C ≈ 1.8°F)
-  - 73°F (23°C) frame has escaped byte in CRC (0x1B→0x1B0B on wire, 23 bytes raw)
+  - Original capture data also at `tools/captures_temp/temp_commands.json`
+  - 73°F (23°C) frame has escaped byte in CRC (23 bytes raw vs 22 normal)
   - Byte 11 varies by capture session: 0x88, 0x98, 0x99 — likely encodes
-    system state at capture time (pump/heater). Needs live testing to confirm
-    whether replaying works regardless.
+    system state at capture time. Needs live testing to confirm replay works.
   - Stored as raw wire hex; replay sends verbatim (including escapes)
-  - Keys are `"NNF"` (e.g. `"73F"`) → hex frame string
-- **Temperature capture script**: `tools/capture_temp_commands.py` (v2.1)
-  - Supports `--button up/down`, `--steps N`, shows missing temps on startup
-  - Handles pseudo-escaped frames (unescape before length check)
-  - Output dir defaults to `tools/captures_temp/` (relative to script)
 - **Command send pattern**: coordinator opens TCP, writes frame, closes.
   Uses `asyncio.Lock` to prevent concurrent sends.
 - **Pump state machine**: must follow OFF→low→high→OFF cycle.
