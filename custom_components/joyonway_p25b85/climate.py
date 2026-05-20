@@ -143,19 +143,17 @@ class SpaClimate(CoordinatorEntity, ClimateEntity):
             self._debounce_task.cancel()
 
         # Start a new debounce timer
-        self._debounce_task = asyncio.ensure_future(
-            self._debounced_send(target_c)
-        )
+        self._debounce_task = self.hass.async_create_task(self._debounced_send())
 
-    async def _debounced_send(self, target_c: int) -> None:
+    async def _debounced_send(self) -> None:
         """Wait for debounce period, then send the temperature command."""
         try:
             await asyncio.sleep(TEMP_DEBOUNCE_SECONDS)
         except asyncio.CancelledError:
             return
 
-        # Only send if this is still the latest requested temperature
-        if self._pending_temp != target_c:
+        target_c = self._pending_temp
+        if target_c is None:
             return
 
         coordinator: JoyonwayP25B85Coordinator = self.coordinator
@@ -175,6 +173,13 @@ class SpaClimate(CoordinatorEntity, ClimateEntity):
             await coordinator.async_request_refresh()
         else:
             _LOGGER.error("Failed to send temperature command for %d°C", target_c)
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Cancel any pending debounce task before entity removal."""
+        await super().async_will_remove_from_hass()
+        if self._debounce_task is not None:
+            self._debounce_task.cancel()
+            self._debounce_task = None
 
 
 

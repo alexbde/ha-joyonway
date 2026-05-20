@@ -55,8 +55,7 @@ IDX_UV_FLAG = adapters_p25b85.IDX_UV_FLAG
 HEATER_OFF = adapters_p25b85.HEATER_OFF
 HEATER_HEATING = adapters_p25b85.HEATER_HEATING
 HEATER_CIRCULATION = adapters_p25b85.HEATER_CIRCULATION
-HEATER_COOLDOWN = adapters_p25b85.HEATER_COOLDOWN
-HEATER_UV_OZONE = adapters_p25b85.HEATER_UV_OZONE
+HEATER_DISINFECTION = adapters_p25b85.HEATER_DISINFECTION
 _fahrenheit_to_celsius = adapters_p25b85._fahrenheit_to_celsius
 
 get_adapter = adapters_pkg.get_adapter
@@ -160,7 +159,7 @@ class TestP25B85Adapter(unittest.TestCase):
         # byte[16] = 0x68 = 104°F = 40°C (rounded to integer)
         self.assertEqual(result["setpoint"], 40)
 
-    def test_heater_state_cooldown(self):
+    def test_heater_state_off(self):
         result = self.adapter.parse_status(self.logical)
         # KDy frame has byte[14] = 0x40 → off (heater idle)
         self.assertEqual(result["heater_state"], "off")
@@ -171,10 +170,10 @@ class TestP25B85Adapter(unittest.TestCase):
         # byte[17] = 0x01 → light on
         self.assertTrue(result["light"])
 
-    def test_uv_off(self):
+    def test_disinfection_off(self):
         result = self.adapter.parse_status(self.logical)
         # byte[14] = 0x40, not 0x41 → UV off
-        self.assertFalse(result["uv_lamp"])
+        self.assertFalse(result["disinfection_active"])
 
     def test_pump_values(self):
         result = self.adapter.parse_status(self.logical)
@@ -232,8 +231,8 @@ class TestP25B85HeaterStates(unittest.TestCase):
         modified[IDX_HEATER_STATE] = value
         return bytes(modified)
 
-    def test_heater_cooldown(self):
-        result = self.adapter.parse_status(self._with_heater_byte(HEATER_COOLDOWN))
+    def test_heater_off(self):
+        result = self.adapter.parse_status(self._with_heater_byte(HEATER_OFF))
         self.assertEqual(result["heater_state"], "off")
         self.assertFalse(result["heater_active"])
 
@@ -253,18 +252,18 @@ class TestP25B85HeaterStates(unittest.TestCase):
         self.assertEqual(result["heater_state"], "heating")
         self.assertTrue(result["heater_active"])
 
-    def test_heater_uv_ozone(self):
-        result = self.adapter.parse_status(self._with_heater_byte(HEATER_UV_OZONE))
+    def test_heater_disinfection(self):
+        result = self.adapter.parse_status(self._with_heater_byte(HEATER_DISINFECTION))
         self.assertEqual(result["heater_state"], "disinfection")
         self.assertFalse(result["heater_active"])
-        self.assertTrue(result["uv_lamp"])
+        self.assertTrue(result["disinfection_active"])
 
-    def test_heater_uv_ozone_kdy_variant(self):
+    def test_heater_disinfection_kdy_variant(self):
         """KDy reported 0xC1 for UV/ozone (our captures show 0x41, bit 7 differs)."""
         result = self.adapter.parse_status(self._with_heater_byte(0xC1))
         self.assertEqual(result["heater_state"], "disinfection")
         self.assertFalse(result["heater_active"])
-        self.assertTrue(result["uv_lamp"])
+        self.assertTrue(result["disinfection_active"])
 
     def test_heater_unknown(self):
         result = self.adapter.parse_status(self._with_heater_byte(0x99))

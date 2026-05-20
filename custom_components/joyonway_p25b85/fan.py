@@ -8,7 +8,6 @@ No CRC computation — only verbatim captured frames are sent.
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 
 from homeassistant.components.fan import FanEntity, FanEntityFeature
@@ -104,8 +103,10 @@ class SpaPumpFan(CoordinatorEntity, FanEntity):
             # Must go low→high→off (no direct low→off command)
             success = await coordinator.async_send_command(CMD_PUMP_LOW_TO_HIGH)
             if success:
-                await asyncio.sleep(1.0)
-                await coordinator.async_send_command(CMD_PUMP_HIGH_TO_OFF)
+                if await self._refresh_and_get_pump_state() == "high":
+                    await coordinator.async_send_command(CMD_PUMP_HIGH_TO_OFF)
+                else:
+                    _LOGGER.warning("Pump transition low->high not confirmed; aborting high->off step")
 
         await coordinator.async_request_refresh()
 
@@ -115,6 +116,10 @@ class SpaPumpFan(CoordinatorEntity, FanEntity):
 
     async def _set_pump(self, target: str) -> None:
         """Transition pump to the target state (low or high)."""
+        if target not in (PRESET_LOW, PRESET_HIGH):
+            _LOGGER.warning("Unsupported preset_mode '%s'", target)
+            return
+
         coordinator: JoyonwayP25B85Coordinator = self.coordinator
         adapter = coordinator.adapter
         current = adapter.get_pump_state(coordinator.data or {})
@@ -129,17 +134,27 @@ class SpaPumpFan(CoordinatorEntity, FanEntity):
                 # high→off→low (two steps)
                 success = await coordinator.async_send_command(CMD_PUMP_HIGH_TO_OFF)
                 if success:
-                    await asyncio.sleep(1.0)
-                    await coordinator.async_send_command(CMD_PUMP_OFF_TO_LOW)
+                    if await self._refresh_and_get_pump_state() == "off":
+                        await coordinator.async_send_command(CMD_PUMP_OFF_TO_LOW)
+                    else:
+                        _LOGGER.warning("Pump transition high->off not confirmed; aborting off->low step")
         elif target == PRESET_HIGH:
             if current == "off":
                 # off→low→high (two steps)
                 success = await coordinator.async_send_command(CMD_PUMP_OFF_TO_LOW)
                 if success:
-                    await asyncio.sleep(1.0)
-                    await coordinator.async_send_command(CMD_PUMP_LOW_TO_HIGH)
+                    if await self._refresh_and_get_pump_state() == "low":
+                        await coordinator.async_send_command(CMD_PUMP_LOW_TO_HIGH)
+                    else:
+                        _LOGGER.warning("Pump transition off->low not confirmed; aborting low->high step")
             elif current == "low":
                 await coordinator.async_send_command(CMD_PUMP_LOW_TO_HIGH)
 
         await coordinator.async_request_refresh()
+
+    async def _refresh_and_get_pump_state(self) -> str:
+        """Refresh coordinator data and return the current pump state."""
+        coordinator: JoyonwayP25B85Coordinator = self.coordinator
+        await coordinator.async_request_refresh()
+        return coordinator.adapter.get_pump_state(coordinator.data or {})
 

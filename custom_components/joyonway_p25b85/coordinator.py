@@ -39,6 +39,7 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
         self._adapter: ModelAdapter = get_adapter(model)
         self._available = False
         self._command_lock = asyncio.Lock()
+        self._last_command_ts = 0.0
 
     @property
     def available(self) -> bool:
@@ -134,8 +135,13 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
         Returns True on success, False on failure.
         """
         async with self._command_lock:
+            loop = asyncio.get_running_loop()
+            elapsed = loop.time() - self._last_command_ts
+            if elapsed < COMMAND_COOLDOWN:
+                await asyncio.sleep(COMMAND_COOLDOWN - elapsed)
+
             try:
-                reader, writer = await asyncio.wait_for(
+                _reader, writer = await asyncio.wait_for(
                     asyncio.open_connection(self.host, self.port),
                     timeout=TCP_TIMEOUT,
                 )
@@ -149,6 +155,7 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
                 # Brief pause to let the controller process
                 await asyncio.sleep(0.1)
                 _LOGGER.debug("Sent command frame: %s", frame.hex())
+                self._last_command_ts = loop.time()
                 return True
             except (OSError, asyncio.TimeoutError) as err:
                 _LOGGER.error("Failed to send command: %s", err)

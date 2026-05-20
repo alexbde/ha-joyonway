@@ -88,7 +88,7 @@ python3 -m unittest discover -s tests -v
 | `pump_low`  | Pump LOW — press pump button once (filtration)          |
 | `pump_high` | Pump HIGH — press pump button again (massage jets)      |
 | `heater`    | Heater active — raise setpoint above water temp         |
-| `uv_lamp`   | UV lamp — activate UV/ozone if accessible               |
+| `disinfection` | Disinfection cycle — activate scheduled disinfection if accessible |
 | `setpoint`  | Setpoint change — try different temperature values      |
 
 ---

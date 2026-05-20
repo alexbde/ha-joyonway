@@ -54,26 +54,23 @@ MASK_ACTIVITY = 0x20
 MASK_UV = MASK_ACTIVITY
 
 # Heater state values (at byte 14)
-# KDy describes three heating stages: circulation → heating → cooldown
+# KDy describes three heating stages: circulation → heating → cooldown/off
 # Our captures confirm 0x40 and 0x50; heating and UV differ by 1 bit
 # from KDy's values (firmware variant or sub-state). Both sets are mapped.
-HEATER_COOLDOWN = 0x40    # Post-heating cooldown / idle (KDy: "cooldown") ✅ confirmed
+HEATER_OFF = 0x40    # Idle/off (KDy called this "cooldown") ✅ confirmed
 HEATER_CIRCULATION = 0x50  # Circulation pump pre-heating (KDy: "circulation") ✅ confirmed
 HEATER_HEATING = 0x55     # Actively heating (our capture) ✅ confirmed
 HEATER_HEATING_ALT = 0x54  # Actively heating (KDy's value, differs by bit 0)
-HEATER_UV_OZONE = 0x41    # UV lamp / ozone cycle (our capture) ✅ confirmed
-HEATER_UV_OZONE_ALT = 0xC1  # UV lamp / ozone cycle (KDy's value, differs by bit 7)
-
-# Legacy alias
-HEATER_OFF = HEATER_COOLDOWN  # backward compat
+HEATER_DISINFECTION = 0x41    # Scheduled disinfection cycle (our capture) ✅ confirmed
+HEATER_DISINFECTION_ALT = 0xC1  # KDy variant (differs by bit 7)
 
 HEATER_STATE_MAP: dict[int, str] = {
-    HEATER_COOLDOWN: "off",
+    HEATER_OFF: "off",
     HEATER_CIRCULATION: "circulation",
     HEATER_HEATING: "heating",
     HEATER_HEATING_ALT: "heating",      # KDy variant
-    HEATER_UV_OZONE: "disinfection",
-    HEATER_UV_OZONE_ALT: "disinfection",   # KDy variant
+    HEATER_DISINFECTION: "disinfection",
+    HEATER_DISINFECTION_ALT: "disinfection",   # KDy variant
 }
 
 # ──────────────────────────────────────────────────────────────
@@ -173,7 +170,7 @@ class P25B85Adapter:
         pump_byte = frame[IDX_PUMP_BYTE]
         heater_byte = frame[IDX_HEATER_STATE]
         light_byte = frame[IDX_LIGHT_FLAGS]
-        uv_byte = frame[IDX_UV_FLAG]
+        activity_byte = frame[IDX_UV_FLAG]
 
         heater_state = HEATER_STATE_MAP.get(heater_byte, "unknown")
 
@@ -194,12 +191,12 @@ class P25B85Adapter:
             "light": bool(light_byte & MASK_LIGHT),
             "heater_active": heater_byte in (HEATER_HEATING, HEATER_HEATING_ALT),
             "heater_state": heater_state,
-            "uv_lamp": heater_byte in (HEATER_UV_OZONE, HEATER_UV_OZONE_ALT),
+            "disinfection_active": heater_byte in (HEATER_DISINFECTION, HEATER_DISINFECTION_ALT),
             # Raw diagnostic values
             "raw_pump_byte": pump_byte,
             "raw_heater_byte": heater_byte,
             "raw_light_byte": light_byte,
-            "raw_uv_byte": uv_byte,
+            "raw_activity_byte": activity_byte,
             "raw_water_temp_f": water_temp_f,
             "raw_setpoint_f": setpoint_f,
         }

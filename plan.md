@@ -27,7 +27,9 @@
      fresh session can pick up without loss.
   2. Remove redundant, outdated, or already-completed information to keep
      the file concise and the mental load small.
-  3. Verify the plan file is self-contained — a new AI session with no
+  3. Review `README.md` and update it if implementation, entities, terminology,
+     setup steps, or safety notes changed during the session.
+  4. Verify the plan file is self-contained — a new AI session with no
      prior context should be able to read it and continue the project.
 
 ---

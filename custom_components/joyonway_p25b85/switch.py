@@ -61,12 +61,22 @@ class SpaLightSwitch(CoordinatorEntity, SwitchEntity):
 
     async def async_turn_on(self, **kwargs) -> None:
         """Turn the light on (toggle if currently off)."""
-        if not self.is_on:
+        state = self.is_on
+        if state is None:
+            _LOGGER.warning("Light state unknown; refusing toggle to avoid accidental state flip")
+            await self.coordinator.async_request_refresh()
+            return
+        if not state:
             await self._send_toggle()
 
     async def async_turn_off(self, **kwargs) -> None:
         """Turn the light off (toggle if currently on)."""
-        if self.is_on:
+        state = self.is_on
+        if state is None:
+            _LOGGER.warning("Light state unknown; refusing toggle to avoid accidental state flip")
+            await self.coordinator.async_request_refresh()
+            return
+        if state:
             await self._send_toggle()
 
     async def _send_toggle(self) -> None:
