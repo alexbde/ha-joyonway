@@ -8,5 +8,10 @@ __pycache__/
 *.bak_kdy
 .env
 captures/
+captures_phase4/
+captures_phase5/
+captures_crc/
+captures_temp/
+*.bin
 .idea/
 .local/
