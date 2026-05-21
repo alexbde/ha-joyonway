@@ -45,7 +45,6 @@ import argparse
 import datetime
 import json
 import os
-import re
 import signal
 import socket
 import sys
@@ -76,6 +75,7 @@ def _get_default_port() -> int:
         return 8899
 
 _DEFAULT_PORT = _get_default_port()
+_DEFAULT_OUT_DIR = os.path.join(os.path.dirname(__file__), "captures_crc")
 
 FRAME_START = 0x1A
 FRAME_END = 0x1D
@@ -86,7 +86,7 @@ ESCAPE_MAP = {0x11: 0x1A, 0x0B: 0x1B, 0x13: 0x1C, 0x14: 0x1D, 0x15: 0x1E}
 # CRC session actions — designed for maximum byte-position coverage
 # ──────────────────────────────────────────────────────────────
 
-CRC_ACTIONS = [
+CORE_CRC_ACTIONS = [
     # Temperature: 4x up → byte[15] changes, staying in same byte[11] group
     ("crc_temp_up_1",
      "TEMP UP ×1 — press temp UP once on PB554.\n"
@@ -182,6 +182,24 @@ CRC_ACTIONS = [
 ]
 
 
+CONFIG_CRC_ACTIONS = [
+    ("crc_datetime_set",
+     "DATE/TIME SET — save/set the spa clock on PB554.\n"
+     "     Optional CRC data: command type byte[4] = 0xA2.\n"
+     "     This is usually safe, but it changes the controller clock."),
+
+    ("crc_filter_schedule",
+     "FILTER SCHEDULE — save a filtration schedule/time window.\n"
+     "     Optional CRC data: command type byte[4] = 0xA4.\n"
+     "     Only do this if you are ready to preserve or restore the schedule."),
+
+    ("crc_heat_schedule",
+     "HEAT SCHEDULE — save a timed heating schedule/window.\n"
+     "     Optional CRC data: command type byte[4] = 0xA3.\n"
+     "     Only do this if you are ready to preserve or restore the schedule."),
+]
+
+
 # ──────────────────────────────────────────────────────────────
 # Frame helpers
 # ──────────────────────────────────────────────────────────────
@@ -242,6 +260,36 @@ def extract_broadcast_state(data: bytes) -> dict | None:
     return None
 
 
+def load_resume(out_dir: str) -> tuple[list[dict], dict[str, list[str]], set[str]]:
+    """Load previous capture metadata and return completed action names."""
+    manifest_path = os.path.join(out_dir, "crc_session.json")
+    if not os.path.isfile(manifest_path):
+        return [], {}, set()
+
+    with open(manifest_path) as f:
+        data = json.load(f)
+
+    segments = []
+    all_commands: dict[str, list[str]] = {}
+    completed = set()
+
+    for segment in data.get("segments", []):
+        action = segment.get("action")
+        baseline_file = segment.get("baseline_file")
+        press_file = segment.get("press_file")
+        if not action or not baseline_file or not press_file:
+            continue
+        if not os.path.isfile(os.path.join(out_dir, baseline_file)):
+            continue
+        if not os.path.isfile(os.path.join(out_dir, press_file)):
+            continue
+        segments.append(segment)
+        completed.add(action)
+        all_commands[action] = list(segment.get("new_commands", []))
+
+    return segments, all_commands, completed
+
+
 # ──────────────────────────────────────────────────────────────
 # Capture
 # ──────────────────────────────────────────────────────────────
@@ -265,6 +313,47 @@ def capture_segment(host: str, port: int, duration: float) -> bytes:
     return bytes(buf)
 
 
+class PersistentCapture:
+    """Keep one TCP connection open for the whole guided CRC capture."""
+
+    def __init__(self, host: str, port: int) -> None:
+        self._sock = socket.create_connection((host, port), timeout=10.0)
+        self._sock.settimeout(1.0)
+
+    def close(self) -> None:
+        self._sock.close()
+
+    def drain(self) -> int:
+        """Discard bytes received while the user was reading prompts."""
+        drained = 0
+        self._sock.setblocking(False)
+        try:
+            while True:
+                chunk = self._sock.recv(4096)
+                if not chunk:
+                    raise ConnectionError("TCP bridge closed the connection")
+                drained += len(chunk)
+        except BlockingIOError:
+            return drained
+        finally:
+            self._sock.setblocking(True)
+            self._sock.settimeout(1.0)
+
+    def capture(self, duration: float) -> bytes:
+        self.drain()
+        buf = bytearray()
+        deadline = time.time() + duration
+        while time.time() < deadline:
+            try:
+                chunk = self._sock.recv(4096)
+                if not chunk:
+                    raise ConnectionError("TCP bridge closed the connection")
+                buf.extend(chunk)
+            except socket.timeout:
+                continue
+        return bytes(buf)
+
+
 # ──────────────────────────────────────────────────────────────
 # Main
 # ──────────────────────────────────────────────────────────────
@@ -283,8 +372,8 @@ commands all in one go, we eliminate session state as a variable.
 The result is saved as a JSON file that can be fed directly into crack_crc.py.
 
 Tips:
-  - Run all actions WITHOUT interruption
-  - Don't disconnect/reconnect the bridge between actions
+  - Run with no arguments for the recommended full capture
+  - You can stop any time; the next run resumes from completed actions
   - Press the button ~3 seconds into each capture window
   - The script uses short 10-second windows to keep it fast
 """,
@@ -293,13 +382,35 @@ Tips:
     parser.add_argument("--port", type=int, default=_DEFAULT_PORT)
     parser.add_argument("--duration", type=float, default=10.0,
                         help="Capture duration per segment (default: 10s)")
-    parser.add_argument("--out-dir", default="./captures_crc",
-                        help="Output directory")
+    parser.add_argument("--out-dir", default=_DEFAULT_OUT_DIR,
+                        help="Output directory (default: tools/captures_crc)")
+    parser.add_argument("--core-only", action="store_true",
+                        help="Skip date/time and schedule commands")
+    parser.add_argument("--fresh", action="store_true",
+                        help="Start from the first action instead of resuming")
+    parser.add_argument("--no-persistent", action="store_true",
+                        help="Open a new TCP connection for each capture window")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
+    actions = list(CORE_CRC_ACTIONS)
+    if not args.core_only:
+        actions.extend(CONFIG_CRC_ACTIONS)
+    selected_action_names = {name for name, _desc in actions}
+
     out_dir = args.out_dir
     os.makedirs(out_dir, exist_ok=True)
+
+    resumed_segments: list[dict] = []
+    resumed_commands: dict[str, list[str]] = {}
+    completed_actions: set[str] = set()
+    if not args.fresh:
+        resumed_segments, resumed_commands, completed_actions = load_resume(out_dir)
+        resumed_segments = [seg for seg in resumed_segments if seg.get("action") in selected_action_names]
+        resumed_commands = {name: cmds for name, cmds in resumed_commands.items() if name in selected_action_names}
+        completed_actions = {name for name in completed_actions if name in selected_action_names}
+
+    actions_to_capture = [(name, desc) for name, desc in actions if name not in completed_actions]
 
     print()
     print("=" * 70)
@@ -320,11 +431,20 @@ Tips:
     print("  • Press the button ~3 seconds into each capture window")
     print("  • Be quick — we use short 10-second capture windows")
     print()
-    print(f"Bridge:   {args.host}:{args.port}")
-    print(f"Duration: {args.duration}s per action ({len(CRC_ACTIONS)} actions)")
-    print(f"Total:    ~{len(CRC_ACTIONS) * (args.duration + 8):.0f}s ({len(CRC_ACTIONS) * (args.duration + 8) / 60:.1f} min)")
-    print(f"Output:   {os.path.abspath(out_dir)}")
+    print(f"Bridge:    {args.host}:{args.port}")
+    estimated_seconds = len(actions_to_capture) * (args.duration * 2 + 8)
+    print(f"Duration:  {args.duration}s per segment ({len(actions)} total actions, baseline + press each)")
+    print(f"Total:    ~{estimated_seconds:.0f}s ({estimated_seconds / 60:.1f} min)")
+    print(f"Output:    {os.path.abspath(out_dir)}")
+    print(f"TCP mode:  {'new connection per window' if args.no_persistent else 'persistent single connection'}")
+    print(f"Config:    {'skipped' if args.core_only else 'included'}")
+    print(f"Resume:    {'off (--fresh)' if args.fresh else f'{len(completed_actions)} completed, {len(actions_to_capture)} remaining'}")
     print()
+
+    if not actions_to_capture:
+        print("All requested actions are already captured. Use --fresh to start over.")
+        print(f"Next: python3 tools/crack_crc.py --input {os.path.join(out_dir, 'crc_session.json')}")
+        return
 
     try:
         input("Press Enter to begin (Ctrl-C to abort)... ")
@@ -333,9 +453,8 @@ Tips:
         sys.exit(0)
 
     session_start = datetime.datetime.now(datetime.timezone.utc)
-    segments = []
-    all_commands: dict[str, list[str]] = {}  # action → list of hex command frames
-    counter = 0
+    segments = list(resumed_segments)
+    all_commands: dict[str, list[str]] = dict(resumed_commands)  # action → list of hex command frames
     interrupted = False
 
     def on_interrupt(sig, frame):
@@ -345,104 +464,116 @@ Tips:
 
     signal.signal(signal.SIGINT, on_interrupt)
 
-    for action_name, action_desc in CRC_ACTIONS:
-        if interrupted:
-            break
+    capture: PersistentCapture | None = None
+    try:
+        if not args.dry_run and not args.no_persistent:
+            print("Opening persistent TCP capture connection...", end="", flush=True)
+            capture = PersistentCapture(args.host, args.port)
+            print(" connected")
 
-        print(f"\n{'━' * 70}")
-        print(f"  [{counter + 1}/{len(CRC_ACTIONS)}] {action_name}")
-        print(f"  {action_desc}")
-        print(f"{'━' * 70}")
+        for action_index, (action_name, action_desc) in enumerate(actions, start=1):
+            if interrupted:
+                break
+            if action_name in completed_actions:
+                print(f"  [{action_index}/{len(actions)}] {action_name} — already captured, skipping")
+                continue
 
-        # Baseline
-        try:
-            input(f"\n  Press Enter to capture BASELINE ({args.duration}s, don't touch anything)... ")
-        except (KeyboardInterrupt, EOFError):
-            interrupted = True
-            break
+            print(f"\n{'━' * 70}")
+            print(f"  [{action_index}/{len(actions)}] {action_name}")
+            print(f"  {action_desc}")
+            print(f"{'━' * 70}")
 
-        print(f"  ⏺  Capturing baseline...", end="", flush=True)
-        baseline_file = f"{counter:02d}_{action_name}_baseline.bin"
-        if args.dry_run:
-            baseline_data = b"\x1a\x10\x01\x03\x00\x1d" * 50
-        else:
+            # Baseline
             try:
-                baseline_data = capture_segment(args.host, args.port, args.duration)
-            except (OSError, socket.error) as err:
-                print(f"\n  ❌ Connection error: {err}")
+                input(f"\n  Press Enter to capture BASELINE ({args.duration}s, don't touch anything)... ")
+            except (KeyboardInterrupt, EOFError):
                 interrupted = True
                 break
-        with open(os.path.join(out_dir, baseline_file), "wb") as f:
-            f.write(baseline_data)
-        baseline_cmds = set(cmd.hex() for cmd in extract_panel_cmds(baseline_data))
-        state = extract_broadcast_state(baseline_data)
-        state_str = ""
-        if state:
-            state_str = (f" [temp={state['water_temp_f']}°F set={state['setpoint_f']}°F "
-                         f"pump={state['pump_byte']} heat={state['heater_byte']} "
-                         f"light={state['light_byte']}]")
-        print(f" done ({len(baseline_data)} bytes){state_str}")
 
-        # Press
-        print()
-        print("     ┌──────────────────────────────────────────────────────┐")
-        print("     │  ⚡ After Enter: wait ~3s, then PRESS THE BUTTON    │")
-        print("     └──────────────────────────────────────────────────────┘")
-        try:
-            input(f"  Press Enter to capture PRESS ({args.duration}s)... ")
-        except (KeyboardInterrupt, EOFError):
-            interrupted = True
-            break
+            print(f"  ⏺  Capturing baseline...", end="", flush=True)
+            counter = (action_index - 1) * 2
+            baseline_file = f"{counter:02d}_{action_name}_baseline.bin"
+            if args.dry_run:
+                baseline_data = b"\x1a\x10\x01\x03\x00\x1d" * 50
+            else:
+                try:
+                    baseline_data = capture.capture(args.duration) if capture else capture_segment(args.host, args.port, args.duration)
+                except (OSError, socket.error, ConnectionError) as err:
+                    print(f"\n  ❌ Connection error: {err}")
+                    interrupted = True
+                    break
+            with open(os.path.join(out_dir, baseline_file), "wb") as f:
+                f.write(baseline_data)
+            baseline_cmds = set(cmd.hex() for cmd in extract_panel_cmds(baseline_data))
+            state = extract_broadcast_state(baseline_data)
+            state_str = ""
+            if state:
+                state_str = (f" [temp={state['water_temp_f']}°F set={state['setpoint_f']}°F "
+                             f"pump={state['pump_byte']} heat={state['heater_byte']} "
+                             f"light={state['light_byte']}]")
+            print(f" done ({len(baseline_data)} bytes){state_str}")
 
-        print(f"  ⏺  Capturing press...", end="", flush=True)
-        press_file = f"{counter + 1:02d}_{action_name}_press.bin"
-        if args.dry_run:
-            press_data = b"\x1a\x10\x01\x03\x00\x1d" * 50
-        else:
+            # Press
+            print()
+            print("     ┌──────────────────────────────────────────────────────┐")
+            print("     │  ⚡ After Enter: wait ~3s, then PRESS THE BUTTON    │")
+            print("     └──────────────────────────────────────────────────────┘")
             try:
-                press_data = capture_segment(args.host, args.port, args.duration)
-            except (OSError, socket.error) as err:
-                print(f"\n  ❌ Connection error: {err}")
+                input(f"  Press Enter to capture PRESS ({args.duration}s)... ")
+            except (KeyboardInterrupt, EOFError):
                 interrupted = True
                 break
-        with open(os.path.join(out_dir, press_file), "wb") as f:
-            f.write(press_data)
-        print(f" done ({len(press_data)} bytes)")
 
-        # Extract NEW commands (in press but not in baseline)
-        press_cmds = extract_panel_cmds(press_data)
-        new_cmds = [cmd for cmd in press_cmds if cmd.hex() not in baseline_cmds]
+            print(f"  ⏺  Capturing press...", end="", flush=True)
+            press_file = f"{counter + 1:02d}_{action_name}_press.bin"
+            if args.dry_run:
+                press_data = b"\x1a\x10\x01\x03\x00\x1d" * 50
+            else:
+                try:
+                    press_data = capture.capture(args.duration) if capture else capture_segment(args.host, args.port, args.duration)
+                except (OSError, socket.error, ConnectionError) as err:
+                    print(f"\n  ❌ Connection error: {err}")
+                    interrupted = True
+                    break
+            with open(os.path.join(out_dir, press_file), "wb") as f:
+                f.write(press_data)
+            print(f" done ({len(press_data)} bytes)")
 
-        if new_cmds:
-            # Deduplicate
-            unique_new = {}
-            for cmd in new_cmds:
-                h = cmd.hex()
-                unique_new[h] = unique_new.get(h, 0) + 1
+            # Extract NEW commands (in press but not in baseline)
+            press_cmds = extract_panel_cmds(press_data)
+            new_cmds = [cmd for cmd in press_cmds if cmd.hex() not in baseline_cmds]
 
-            print(f"\n  ⚡ Found {len(unique_new)} NEW command frame(s):")
-            all_commands[action_name] = []
-            for hexstr, count in sorted(unique_new.items(), key=lambda x: -x[1]):
-                print(f"    [{count}x] {hexstr}")
-                unesc = bytes.fromhex(hexstr)
-                inner = unesc[:1] + pseudo_unescape(unesc[1:-1]) + unesc[-1:]
-                if len(inner) >= 22:
-                    print(f"         b[8:12]={inner[8]:02x} {inner[9]:02x} {inner[10]:02x} {inner[11]:02x}"
-                          f"  b[15]=0x{inner[15]:02X}({inner[15]}°F)"
-                          f"  CRC={inner[17]:02x}{inner[18]:02x}{inner[19]:02x}{inner[20]:02x}")
-                all_commands[action_name].append(hexstr)
-        else:
-            print(f"\n  ⚠️  No NEW commands found — button press may have been missed!")
-            all_commands[action_name] = []
+            if new_cmds:
+                # Deduplicate
+                unique_new = {}
+                for cmd in new_cmds:
+                    h = cmd.hex()
+                    unique_new[h] = unique_new.get(h, 0) + 1
 
-        segments.append({
-            "action": action_name,
-            "baseline_file": baseline_file,
-            "press_file": press_file,
-            "new_commands": [cmd.hex() for cmd in new_cmds],
-            "broadcast_state": state,
-        })
-        counter += 2
+                print(f"\n  ⚡ Found {len(unique_new)} NEW command frame(s):")
+                all_commands[action_name] = []
+                for hexstr, count in sorted(unique_new.items(), key=lambda x: -x[1]):
+                    print(f"    [{count}x] {hexstr}")
+                    unesc = bytes.fromhex(hexstr)
+                    inner = unesc[:1] + pseudo_unescape(unesc[1:-1]) + unesc[-1:]
+                    if len(inner) >= 22:
+                        print(f"         type=0x{inner[4]:02X}  b[8:17]={inner[8:17].hex(' ')}"
+                              f"  CRC={inner[17]:02x}{inner[18]:02x}{inner[19]:02x}{inner[20]:02x}")
+                    all_commands[action_name].append(hexstr)
+            else:
+                print(f"\n  ⚠️  No NEW commands found — button press may have been missed!")
+                all_commands[action_name] = []
+
+            segments.append({
+                "action": action_name,
+                "baseline_file": baseline_file,
+                "press_file": press_file,
+                "new_commands": [cmd.hex() for cmd in new_cmds],
+                "broadcast_state": state,
+            })
+    finally:
+        if capture:
+            capture.close()
 
     # Save results
     session_end = datetime.datetime.now(datetime.timezone.utc)
@@ -463,9 +594,12 @@ Tips:
             "tool_version": __version__,
             "dry_run": args.dry_run,
             "completed": not interrupted,
-            "total_actions": len(CRC_ACTIONS),
+            "total_actions": len(actions),
             "captured_actions": len(segments),
             "unique_command_frames": len(crc_frames),
+            "include_config": not args.core_only,
+            "resumed": bool(completed_actions) and not args.fresh,
+            "persistent_tcp": not args.no_persistent,
         },
         "frames": crc_frames,
         "segments": segments,
@@ -493,8 +627,7 @@ Tips:
             inner = raw[:1] + pseudo_unescape(raw[1:-1]) + raw[-1:]
             if len(inner) >= 22:
                 crc_le = int.from_bytes(inner[17:21], "little")
-                print(f"  {name:30s} b[8:12]={inner[8]:02x}{inner[9]:02x}{inner[10]:02x}{inner[11]:02x}"
-                      f" b[15]={inner[15]:02x} CRC_LE={crc_le:08x}")
+                print(f"  {name:30s} type=0x{inner[4]:02X} b[8:17]={inner[8:17].hex(' ')} CRC_LE={crc_le:08x}")
         print()
 
     print("Next steps:")

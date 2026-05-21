@@ -219,12 +219,13 @@ custom_components/joyonway_p25b85/
 ### Priority 2: CRC cracking (optional but high value)
 If replay works, cracking the CRC would eliminate the lookup table limitation:
 ```bash
-python3 tools/capture_crc_session.py   # all command types in ONE session (~6 min)
-python3 tools/crack_crc.py --input captures_crc/crc_session.json
+python3 tools/capture_crc_session.py   # resumable; output defaults to tools/captures_crc
+python3 tools/crack_crc.py --input tools/captures_crc/crc_session.json
 ```
-This captures temp, light, pump, heater, blower all in one session to eliminate
-session-dependent CRC state. If the polynomial is found, we can compute CRC for
-any command and generate frames dynamically.
+This captures temp, light, pump, heater, blower, datetime, heat schedule, and
+filter schedule commands. It resumes automatically if interrupted, so rerun the
+same command to continue. If the polynomial is found, we can compute CRC for any
+command and generate frames dynamically.
 
 ### Priority 3: Polish & release
 - Version bump, README final review, HACS release
@@ -262,6 +263,9 @@ These frames were captured successfully. Implementation after live testing:
   Uses `asyncio.Lock` + global 1.0s cooldown to prevent concurrent/burst sends.
 - **CRC** — see `docs/crc_analysis.md`. Linear but session-dependent.
   CRC cracking tool: `tools/capture_crc_session.py` → `tools/crack_crc.py --input`.
+  The capture tool defaults to `tools/captures_crc`, includes config commands,
+  and resumes automatically. Use `--fresh` to restart or `--core-only` to skip
+  datetime/schedule commands.
 - **Entity unique_id for fan** changed from `_pump` to `_jets` — existing HA installs
   may need entity re-registration after update.
 - **Capture tools**: `guided_capture_phase5.py` only has filter schedule, heat schedule,

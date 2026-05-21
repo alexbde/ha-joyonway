@@ -77,6 +77,36 @@ python3 tools/frame_parser_38400.py --max-frames 5 captures/00_baseline_before.b
 python3 -m unittest discover -s tests -v
 ```
 
+### 5. CRC cracking capture
+
+Interactive, resumable capture tool for collecting all known command types:
+
+```bash
+python3 tools/capture_crc_session.py
+```
+
+The default output directory is `tools/captures_crc`. If you stop or run out of
+time, run the same command again and completed actions are skipped.
+
+The default capture includes the newly discovered configuration command types
+(`0xA2` date/time, `0xA3` heat schedule, `0xA4` filter schedule). Only continue
+through those steps when you are ready to save/preserve or restore the spa clock
+and schedules. Screen flip is not included because the latest captures did not
+show a panel-to-controller command for it.
+
+Useful optional modes:
+
+```bash
+python3 tools/capture_crc_session.py --core-only
+python3 tools/capture_crc_session.py --fresh
+```
+
+Then run:
+
+```bash
+python3 tools/crack_crc.py --input tools/captures_crc/crc_session.json
+```
+
 ---
 
 ## Available actions for capture
@@ -111,4 +141,6 @@ at a time**. Before starting a capture session:
 | `probe_spa.py`             | Quick connectivity test — dump raw frames        |
 | `guided_capture_38400.py`  | Interactive guided capture tool                  |
 | `frame_parser_38400.py`    | Frame parser, annotator, and diff tool           |
+| `capture_crc_session.py`   | Guided same-session command capture for CRC work |
+| `crack_crc.py`             | GF(2) CRC polynomial extraction tool             |
 
