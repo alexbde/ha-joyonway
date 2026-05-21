@@ -160,7 +160,8 @@ custom_components/joyonway_p25b85/
 - **Coordinator write pacing**: global 1.0s command cooldown enforced in `async_send_command`
 - **Pump multi-step writes**: second step is sent only after refresh confirms intermediate state
 - **Terminology cleanup**: canonical naming is now `off` / `disinfection` (legacy aliases removed)
-- **Spa clock format**: parsed as timezone-aware `datetime` (UTC) for HA timestamp rendering
+- **Spa clock format**: parsed as timezone-aware `datetime` using HA's configured
+  local timezone (the controller sends local time without timezone info)
 
 ---
 

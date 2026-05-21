@@ -26,6 +26,11 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+try:
+    from homeassistant.util import dt as dt_util
+except ImportError:  # standalone / test usage without HA
+    dt_util = None  # type: ignore[assignment]
+
 from .base import SpaEntityDescription
 
 # Broadcast frame header signature for P25B85 (bytes 0-8)
@@ -204,11 +209,13 @@ class P25B85Adapter:
         }
 
         # Parse datetime if frame is long enough.
-        # The controller clock has no explicit timezone; we publish UTC to match
-        # HA's timestamp sensor expectations.
+        # The controller clock sends local time without timezone info.
+        # We attach the HA instance timezone so the timestamp sensor displays
+        # the value as-is without any UTC offset conversion.
         if len(frame) > IDX_DATETIME_START + 5:
             dt_bytes = frame[IDX_DATETIME_START : IDX_DATETIME_START + 6]
             try:
+                local_tz = dt_util.DEFAULT_TIME_ZONE if dt_util else timezone.utc
                 result["spa_datetime"] = datetime(
                     year=2000 + dt_bytes[0],
                     month=dt_bytes[1],
@@ -216,7 +223,7 @@ class P25B85Adapter:
                     hour=dt_bytes[3],
                     minute=dt_bytes[4],
                     second=dt_bytes[5],
-                    tzinfo=timezone.utc,
+                    tzinfo=local_tz,
                 )
             except (ValueError, IndexError):
                 result["spa_datetime"] = None
