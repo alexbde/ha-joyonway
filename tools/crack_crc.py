@@ -268,19 +268,32 @@ def verify_poly(poly: int, frames: list[dict], msg_start: int, msg_end: int,
 
 
 def main():
-    base = os.path.dirname(__file__)
-    with open(os.path.join(base, "captures_temp", "temp_commands.json")) as f:
-        temp_data = json.load(f)
+    import argparse
+    parser = argparse.ArgumentParser(description="CRC polynomial extraction")
+    parser.add_argument("--input", help="Path to crc_session.json from capture_crc_session.py")
+    args = parser.parse_args()
 
-    # Collect all frames
+    base = os.path.dirname(__file__)
+
     all_hex = {}
-    all_hex["light_toggle"] = "1a0120103ca110a10000404000c00056003031eeb21d"
-    all_hex["pump_off_low"] = "1a0120103ca110a10202000000c00056007dd2146b1d"
-    all_hex["pump_low_high"] = "1a0120103ca110a10604000000c0005600fc1221c61d"
-    all_hex["pump_high_off"] = "1a0120103ca110a10400000000c0005600735738e91d"
-    for k, v in temp_data.items():
-        if k.endswith("F"):
-            all_hex[f"temp_{k}"] = v
+
+    if args.input:
+        # Load same-session frames from CRC capture tool
+        with open(args.input) as f:
+            crc_data = json.load(f)
+        all_hex = dict(crc_data.get("frames", {}))
+        print(f"  Loaded {len(all_hex)} same-session frames from {args.input}")
+    else:
+        # Legacy mode: load from separate capture files
+        with open(os.path.join(base, "captures_temp", "temp_commands.json")) as f:
+            temp_data = json.load(f)
+        all_hex["light_toggle"] = "1a0120103ca110a10000404000c00056003031eeb21d"
+        all_hex["pump_off_low"] = "1a0120103ca110a10202000000c00056007dd2146b1d"
+        all_hex["pump_low_high"] = "1a0120103ca110a10604000000c0005600fc1221c61d"
+        all_hex["pump_high_off"] = "1a0120103ca110a10400000000c0005600735738e91d"
+        for k, v in temp_data.items():
+            if k.endswith("F"):
+                all_hex[f"temp_{k}"] = v
 
     frames = []
     for name, hex_str in all_hex.items():

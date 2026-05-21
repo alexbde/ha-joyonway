@@ -4,8 +4,9 @@ Phase 5 — Extended command frame capture for Joyonway P25B85.
 
 Captures RS485 bus traffic for functionality NOT yet captured in Phase 4:
   - Heater manual ON/OFF (from PB554 panel menu)
-  - Disinfection (ozone/UV) manual toggle
-  - Filtration schedule changes (timed filtration)
+  - Blower ON/OFF
+  - Date/time setting
+  - Schedule programming
 
 Phase 4 already captured: pump cycle, light toggle, temperature setpoint.
 
@@ -99,55 +100,8 @@ ESCAPE_MAP: dict[int, int] = {
 # Each action: (name, description, phases, group)
 # phases: list of phase names for this action
 
-# Group 1 — High priority: heater and disinfection control
+# Remaining actions — scheduling and configuration
 GROUP1_ACTIONS = [
-    ("cmd_heater_on",
-     "HEATER MANUAL ON — navigate PB554 menu to manually START heating.\n"
-     "     On PB554: press the navigation button to enter the menu,\n"
-     "     find the heating/heater option, and activate it.\n"
-     "     Wait until display shows heating is active.",
-     ["baseline", "press", "observe"]),
-
-    ("cmd_heater_off",
-     "HEATER MANUAL OFF — navigate PB554 menu to manually STOP heating.\n"
-     "     Prerequisite: heater must be currently ON (from previous step).\n"
-     "     Navigate the PB554 menu to deactivate/stop the heater.\n"
-     "     Wait until display shows heating has stopped.",
-     ["baseline", "press", "observe"]),
-
-    ("cmd_disinfection_on",
-     "DISINFECTION (OZONE/UV) ON — manually start disinfection cycle.\n"
-     "     On PB554: navigate to the ozone/disinfection/UV option in the menu\n"
-     "     and set it to ON or MANUAL.\n"
-     "     Confirm the disinfection indicator appears on the display.",
-     ["baseline", "press", "observe"]),
-
-    ("cmd_disinfection_off",
-     "DISINFECTION (OZONE/UV) OFF — manually stop disinfection cycle.\n"
-     "     Prerequisite: disinfection must be currently ON.\n"
-     "     Navigate the PB554 menu to deactivate/stop disinfection.\n"
-     "     Confirm the disinfection indicator disappears from the display.",
-     ["baseline", "press", "observe"]),
-]
-
-# Group 2 — Medium priority: filtration control
-GROUP2_ACTIONS = [
-    ("cmd_filtration_on",
-     "FILTRATION MANUAL ON — start filtration pump manually.\n"
-     "     This may be different from the pump button (which is pump low/high).\n"
-     "     If filtration is controlled via the same pump button, skip this.\n"
-     "     If there's a separate filtration menu option, use that.",
-     ["baseline", "press", "observe"]),
-
-    ("cmd_filtration_off",
-     "FILTRATION MANUAL OFF — stop filtration pump manually.\n"
-     "     Prerequisite: filtration must be currently running.\n"
-     "     If filtration is the same as pump low, skip this.",
-     ["baseline", "press", "observe"]),
-]
-
-# Group 3 — Lower priority: scheduling and configuration
-GROUP3_ACTIONS = [
     ("cmd_filter_schedule_1",
      "FILTRATION SCHEDULE — program filtration timer slot 1.\n"
      "     On PB554: navigate to the filtration schedule/timer settings\n"
@@ -161,18 +115,6 @@ GROUP3_ACTIONS = [
      "     and SET or CHANGE a heating time window.",
      ["baseline", "press"]),
 
-    ("cmd_frost_protect_on",
-     "FROST PROTECTION ON — enable frost protection mode.\n"
-     "     On PB554: navigate to the frost protection setting\n"
-     "     and enable it. If already enabled, skip this action.",
-     ["baseline", "press", "observe"]),
-
-    ("cmd_frost_protect_off",
-     "FROST PROTECTION OFF — disable frost protection mode.\n"
-     "     Prerequisite: frost protection must be currently ON.\n"
-     "     Navigate the PB554 menu to disable frost protection.",
-     ["baseline", "press", "observe"]),
-
     ("cmd_screen_flip",
      "SCREEN FLIP — flip PB554 display 180 degrees.\n"
      "     Press the screen flip shortcut button on the PB554.\n"
@@ -181,9 +123,7 @@ GROUP3_ACTIONS = [
 ]
 
 ALL_GROUPS = [
-    ("Group 1 — High priority (heater + disinfection)", GROUP1_ACTIONS),
-    ("Group 2 — Medium priority (filtration control)", GROUP2_ACTIONS),
-    ("Group 3 — Lower priority (schedules + config)", GROUP3_ACTIONS),
+    ("Group 1 — Schedules + config", GROUP1_ACTIONS),
 ]
 
 PHASE_INSTRUCTIONS = {
@@ -475,17 +415,8 @@ def print_banner():
     print()
     print("This tool captures COMMAND frames for functionality not yet captured:")
     print()
-    print("  GROUP 1 (high priority):")
-    print("    • Heater manual ON/OFF — control heating from HA")
-    print("    • Disinfection (ozone/UV) manual ON/OFF")
-    print()
-    print("  GROUP 2 (medium priority):")
-    print("    • Filtration manual ON/OFF (if separate from pump button)")
-    print()
-    print("  GROUP 3 (lower priority):")
-    print("    • Filtration/heating schedule programming")
-    print("    • Frost protection toggle")
-    print("    • Screen flip")
+    print("  • Filtration/heating schedule programming")
+    print("  • Screen flip")
     print()
     print("For each action, we capture baseline + press + observe segments.")
     print("The 'observe' segment captures broadcast bytes AFTER the state change,")
@@ -599,30 +530,15 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=f"""\
 Examples:
-  %(prog)s                                         # Full guided capture (all groups)
-  %(prog)s --group 1                               # Group 1 only (heater + disinfection)
-  %(prog)s --group 1,2                             # Groups 1 and 2
-  %(prog)s --actions cmd_heater_on,cmd_heater_off  # Specific actions only
+  %(prog)s                                         # Full guided capture
+  %(prog)s --actions cmd_filter_schedule_1          # Specific action only
   %(prog)s --host 192.168.1.34 --port 8899         # Custom bridge address
   %(prog)s --dry-run                               # Simulate without connecting
-  %(prog)s --duration 20                           # 20s capture windows
+  %(prog)s --duration 25                           # 25s capture windows
 
 Actions available:
-  Group 1 (high priority):
-    cmd_heater_on          — manually start heating
-    cmd_heater_off         — manually stop heating
-    cmd_disinfection_on    — manually start disinfection (ozone/UV)
-    cmd_disinfection_off   — manually stop disinfection (ozone/UV)
-
-  Group 2 (medium priority):
-    cmd_filtration_on      — manually start filtration
-    cmd_filtration_off     — manually stop filtration
-
-  Group 3 (lower priority):
     cmd_filter_schedule_1  — program filtration timer
     cmd_heat_schedule_1    — program heating timer
-    cmd_frost_protect_on   — enable frost protection
-    cmd_frost_protect_off  — disable frost protection
     cmd_screen_flip        — flip display 180°
 """,
     )
@@ -648,13 +564,19 @@ Actions available:
         "--actions",
         help="Comma-separated list of specific actions. Overrides --group.",
     )
+    _default_out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "captures_phase5")
     parser.add_argument(
-        "--out-dir", default="./captures_phase5",
-        help="Output directory (default: ./captures_phase5)",
+        "--out-dir", default=_default_out_dir,
+        help=f"Output directory (default: {_default_out_dir})",
     )
     parser.add_argument(
         "--dry-run", action="store_true",
         help="Simulate capture without connecting to bridge",
+    )
+    parser.add_argument(
+        "--fresh", action="store_true",
+        help="Ignore existing manifest and start a fresh session "
+             "(existing .bin files are kept, new ones get higher indices)",
     )
     return parser.parse_args()
 
@@ -685,15 +607,15 @@ def select_actions(args: argparse.Namespace) -> list[tuple[str, str, list[str]]]
     # --group selection
     group_arg = args.group
     if group_arg is None or group_arg.strip().lower() == "all":
-        group_nums = {1, 2, 3}
+        group_nums = {1}
     else:
         group_nums = set()
         for g in group_arg.split(","):
             g = g.strip()
-            if g.isdigit() and 1 <= int(g) <= 3:
+            if g.isdigit() and int(g) == 1:
                 group_nums.add(int(g))
             else:
-                print(f"⚠️  Invalid group '{g}', skipping. Use 1, 2, or 3.")
+                print(f"⚠️  Invalid group '{g}', skipping. Use 1.")
 
     selected = []
     for idx, (_, group_actions) in enumerate(ALL_GROUPS, 1):
@@ -838,7 +760,7 @@ def main():
     print()
 
     # Check for resume
-    existing_manifest = load_manifest(args.out_dir)
+    existing_manifest = load_manifest(args.out_dir) if not args.fresh else None
     existing_segments: list[dict] = []
     existing_started_at: str | None = None
     resume_mode = False
@@ -855,6 +777,16 @@ def main():
 
     completed_map = build_completed_map(existing_segments)
 
+    # Also scan bin files on disk to detect already-captured action/phases
+    # (covers --fresh mode where manifest is ignored)
+    if os.path.isdir(args.out_dir):
+        for name in os.listdir(args.out_dir):
+            m = re.match(r"^\d+_(.+)_(baseline|press|observe)\.bin$", name)
+            if m:
+                action, phase = m.group(1), m.group(2)
+                if (action, phase) not in completed_map:
+                    completed_map[(action, phase)] = name
+
     # Count remaining steps
     plan = [(a[0], p) for a in actions for p in a[2]]
     remaining = [(a, p) for a, p in plan if (a, p) not in completed_map]
@@ -869,6 +801,9 @@ def main():
             sys.exit(0)
     elif existing_segments and not remaining:
         print("All requested actions already captured. Nothing to do.")
+        print()
+        print("To recapture, use --fresh to start a new session:")
+        print(f"  python3 {sys.argv[0]} --fresh")
         sys.exit(0)
     else:
         if not prompt_continue("Press Enter to begin Phase 5 capture (Ctrl-C to abort)... "):
