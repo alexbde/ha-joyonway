@@ -46,7 +46,9 @@
       "bridge_connectivity": { "name": "RS485-Bridge" }
     },
     "switch": {
-      "light": { "name": "Licht" }
+      "light": { "name": "Licht" },
+      "heater": { "name": "Heizung" },
+      "blower": { "name": "Gebläse" }
     },
     "fan": {
       "jets": {

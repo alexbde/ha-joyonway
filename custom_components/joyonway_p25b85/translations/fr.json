@@ -46,7 +46,9 @@
       "bridge_connectivity": { "name": "Pont RS485" }
     },
     "switch": {
-      "light": { "name": "Lumière" }
+      "light": { "name": "Lumière" },
+      "heater": { "name": "Chauffage" },
+      "blower": { "name": "Soufflerie" }
     },
     "fan": {
       "jets": {

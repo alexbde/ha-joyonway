@@ -60,6 +60,9 @@ MASK_ACTIVITY = 0x20
 # Legacy alias kept for callers that imported the old name.
 MASK_UV = MASK_ACTIVITY
 
+# Blower flag at byte 28 (bit 3)
+MASK_BLOWER = 0x08
+
 # Heater state values (at byte 14)
 # KDy describes three heating stages: circulation → heating → cooldown/off
 # Our captures confirm 0x40 and 0x50; heating and UV differ by 1 bit
@@ -92,6 +95,18 @@ CMD_LIGHT_TOGGLE = bytes.fromhex("1a0120103ca110a10000404000c00056003031eeb21d")
 CMD_PUMP_OFF_TO_LOW = bytes.fromhex("1a0120103ca110a10202000000c00056007dd2146b1d")
 CMD_PUMP_LOW_TO_HIGH = bytes.fromhex("1a0120103ca110a10604000000c0005600fc1221c61d")
 CMD_PUMP_HIGH_TO_OFF = bytes.fromhex("1a0120103ca110a10400000000c0005600735738e91d")
+
+# Heater manual ON/OFF (Phase 5 captures)
+# byte[10-11] = 0x08,0x08 for ON; 0x08,0x00 for OFF
+# byte[15] = 0x64 (100°F) was the setpoint at capture time
+CMD_HEATER_ON = bytes.fromhex("1a0120103ca110a10000080800c0006400d3cab4791d")
+CMD_HEATER_OFF = bytes.fromhex("1a0120103ca110a10000080000c000640035b18d0a1d")
+
+# Blower ON/OFF (Phase 5 captures)
+# byte[10-11] = 0x04,0x0C for ON; 0x04,0x08 for OFF
+# Broadcast: byte[14] bit 3 (0x08) = blower active, byte[28] bit 3 (0x08) = blower
+CMD_BLOWER_ON = bytes.fromhex("1a0120103ca110a10000040c00c00064000029c8f51d")
+CMD_BLOWER_OFF = bytes.fromhex("1a0120103ca110a10000040800c0006400f39454cc1d")
 
 # Pump state → next command mapping for cycling
 PUMP_CYCLE_MAP: dict[str, tuple[bytes, str]] = {
@@ -199,6 +214,7 @@ class P25B85Adapter:
             "heater_active": heater_byte in (HEATER_HEATING, HEATER_HEATING_ALT),
             "heater_state": heater_state,
             "disinfection_active": heater_byte in (HEATER_DISINFECTION, HEATER_DISINFECTION_ALT),
+            "blower": bool(activity_byte & MASK_BLOWER),
             # Raw diagnostic values
             "raw_pump_byte": pump_byte,
             "raw_heater_byte": heater_byte,
