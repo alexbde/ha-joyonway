@@ -38,7 +38,7 @@
           "high": "Fort"
         }
       },
-      "spa_datetime": { "name": "Horloge spa" },
+      "spa_datetime": { "name": "Date & heure" },
       "raw_pump_byte": { "name": "Octet pompe brut" },
       "raw_heater_byte": { "name": "Octet chauffage brut" }
     },

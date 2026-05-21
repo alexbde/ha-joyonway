@@ -38,7 +38,7 @@
           "high": "Stark"
         }
       },
-      "spa_datetime": { "name": "Spa-Uhr" },
+      "spa_datetime": { "name": "Datum & Uhrzeit" },
       "raw_pump_byte": { "name": "Pumpenbyte-Rohdaten" },
       "raw_heater_byte": { "name": "Heizungsbyte-Rohdaten" }
     },
