@@ -20,8 +20,8 @@ The P25B85 controls spas like the **Home Deluxe White Marble** outdoor whirlpool
 
 > **Status: Entities and replay writes implemented** — the P25B85 byte map has
 > been validated against local RS485 captures for temperature, setpoint, pump,
-> light, and heater/disinfection states. Write support uses replay-only command
-> frames captured from the physical panel.
+> light, heater, blower, and disinfection states. Write support uses replay-only
+> command frames captured from the physical panel.
 
 > **Discussion thread:** [JoyOnWay Spa Control — Home Assistant Community](https://community.home-assistant.io/t/joyonway-spa-control/582344)
 
@@ -49,6 +49,8 @@ The P25B85 controls spas like the **Home Deluxe White Marble** outdoor whirlpool
 - **Thermostat control** (10°C to 40°C) with debounced slider writes
 - **Jets control** (off/low/high) via fan preset modes
 - **Light** on/off via replay toggle command
+- **Heater** manual on/off via replay command
+- **Blower** on/off via replay command
 - **Heater state** — off / circulation / heating / disinfection
 - **Bridge connectivity** sensor
 - **Diagnostic sensors** for raw protocol bytes (disabled by default)
@@ -58,7 +60,6 @@ The P25B85 controls spas like the **Home Deluxe White Marble** outdoor whirlpool
 ### What this integration does NOT do
 
 - ❌ No synthetic RS485 frame construction or CRC forging
-- ❌ No direct manual heater on/off command (frame not yet captured)
 
 All writes are replay-only and require verified command frames from the physical touchpad.
 
@@ -143,9 +144,11 @@ The integration performs a TCP connection test before saving.
 
 ### Switches
 
-| Entity | Description                                   |
-|--------|-----------------------------------------------|
-| Light  | Light on/off (toggle replay with state guard) |
+| Entity  | Description                                   |
+|---------|-----------------------------------------------|
+| Light   | Light on/off (toggle replay with state guard) |
+| Heater  | Heater manual on/off (distinct replay frames) |
+| Blower  | Air blower on/off (distinct replay frames)    |
 
 ### Fan
 

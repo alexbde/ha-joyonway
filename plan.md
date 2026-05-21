@@ -45,8 +45,10 @@
 - **Light:** RGB LED, 9 states cycling via button
 - **Heater:** 2 kW resistive, thermostat-controlled
 - **Ozone port:** Connector on PCB ("Ozonauslass"), byte 14=0x41 is a
-  **scheduled disinfection cycle** state (not a separate UV device)
-- **Blower:** connector exists but NOT wired
+  **scheduled disinfection cycle** state (not a separate UV device).
+  Cannot be manually toggled from PB554 — runs on schedule only.
+- **Blower:** air blower, connector on PCB, button on PB554 panel. Captured and
+  implemented as switch. Broadcast state: byte[14] bit 3, byte[28] bit 3.
 
 ---
 
@@ -66,10 +68,26 @@
 | 8 | Model ID (`0x03` = P25B85) |
 | **9** | Water temperature (°F) |
 | **12** | Pump status (`0x02`=low, `0x04`=high) |
-| **14** | Heater state (`0x40`=off, `0x50`=circulation, `0x55`=heating, `0x41`=disinfection) |
+| **14** | Heater/blower state (see below) |
 | **16** | Setpoint (°F) |
 | **17** | Light flags (bit 0 = light ON) |
+| **19** | Schedule config (changes on heat/filter schedule writes) |
+| **28** | Activity flags (bit 3=blower, bit 5=activity/disinfection) |
+| **29** | Filter schedule config (changed 0x4C→0xCD on filter schedule write) |
 | 53–58 | Date/time (year, month, day, hour, minute, second) |
+
+**Byte 14 values:**
+- `0x40` = off, `0x50` = circulation, `0x55`/`0x54` = heating
+- `0x41`/`0xC1` = disinfection, `0x58` = blower active (0x50 + bit 3)
+
+### Command frame types (byte[4] distinguishes type)
+
+| byte[4] | Type | Description |
+|---------|------|-------------|
+| 0xA1 | Button command | Light/pump/heater/blower (22 bytes) |
+| 0xA2 | DateTime set | Set spa clock (22 bytes) |
+| 0xA3 | Heat schedule | Program heating time slots (22 bytes) |
+| 0xA4 | Filter schedule | Program filtration time slots (22 bytes) |
 
 ### Captured command frames
 
@@ -79,8 +97,25 @@
 | Pump OFF→low | `1a0120103ca110a10202000000c00056007dd2146b1d` |
 | Pump low→high | `1a0120103ca110a10604000000c0005600fc1221c61d` |
 | Pump high→OFF | `1a0120103ca110a10400000000c0005600735738e91d` |
+| Heater ON | `1a0120103ca110a10000080800c0006400d3cab4791d` |
+| Heater OFF | `1a0120103ca110a10000080000c000640035b18d0a1d` |
+| Blower ON | `1a0120103ca110a10000040c00c00064000029c8f51d` |
+| Blower OFF | `1a0120103ca110a10000040800c0006400f39454cc1d` |
+| DateTime set | `1a0120103ca210a1501b1105150f090000004cbc3d971d` |
+| Filter schedule | `1a0120103ca410a1aa0d000c0011001200f605b0ff1d` |
+| Heat schedule | `1a0120103ca310a1620e001000140016004d48aa7f1d` |
 
 Temperature: 31 frames in `TEMP_COMMAND_TABLE` (adapters/p25b85.py), 10-40°C.
+
+### Button command byte map (bytes 10-11 in 0xA1 command frame)
+
+| Button | byte[10] | byte[11] ON | byte[11] OFF |
+|--------|----------|-------------|--------------|
+| Light | 0x40 | 0x40 (toggle) | 0x40 (same frame) |
+| Temp | 0x80 | 0x88/0x98 | — |
+| Heater | 0x08 | 0x08 | 0x00 |
+| Blower | 0x04 | 0x0C | 0x08 |
+| Pump | via byte[8-9] | — | — |
 
 ### CRC safety
 
@@ -104,13 +139,13 @@ custom_components/joyonway_p25b85/
 ├── coordinator.py       # async TCP polling + async_send_command
 ├── sensor.py            # adapter-driven (water temp, heater/pump state, diagnostics)
 ├── binary_sensor.py     # bridge connectivity only
-├── switch.py            # light toggle (on/off via replay)
+├── switch.py            # light, heater, blower (on/off via replay)
 ├── fan.py               # jets (off/low/high via preset_modes)
 ├── climate.py           # thermostat with debounced slider
 ├── strings.json         # entity translations (base)
 ├── adapters/
 │   ├── __init__.py      # registry: get_adapter("P25B85")
-│   ├── base.py          # ModelAdapter protocol + SpaEntityDescription (incl. options for enums)
+│   ├── base.py          # ModelAdapter protocol + SpaEntityDescription
 │   └── p25b85.py        # byte map, parse_status(), command frames, temp table
 ├── brand/
 │   ├── icon.png         # 256×256
@@ -125,43 +160,33 @@ custom_components/joyonway_p25b85/
 
 | Entity | Platform | What it does |
 |--------|----------|--------------|
-| **Thermostat** | climate | Water temp + setpoint + heater state (HEATING/PREHEATING/IDLE); slider with 1.5s debounce; extra attribute `heater_state` |
-| **Light** | switch | On/off via toggle replay |
+| **Thermostat** | climate | Water temp + setpoint + heater state; slider with 1.5s debounce |
+| **Light** | switch | On/off via toggle replay (state guard: refuses when unknown) |
+| **Heater** | switch | On/off via distinct replay frames |
+| **Blower** | switch | On/off via distinct replay frames; byte[28] bit 3 = state |
 | **Jets** (Düsen) | fan | Off/low/high via preset_modes; handles multi-step transitions |
 | **Water temperature** | sensor | Integer °C for history/graphs |
-| **Heater state** | sensor | Enum: off / circulation / heating / disinfection / unknown (translated) |
-| **Pump state** | sensor | Enum: off / low / high (translated) |
+| **Heater state** | sensor | Enum: off / circulation / heating / disinfection / unknown |
+| **Pump state** | sensor | Enum: off / low / high |
 | **RS485 bridge** | binary_sensor | TCP connectivity |
-| Spa clock | sensor | Diagnostic timestamp sensor (device_class=`timestamp`, disabled by default) |
+| Spa clock | sensor | Diagnostic timestamp (disabled by default) |
 | Raw pump byte | sensor | Diagnostic (disabled by default) |
 | Raw heater byte | sensor | Diagnostic (disabled by default) |
 
-### PLATFORMS in const.py
-
-`["sensor", "binary_sensor", "switch", "fan", "climate"]`
-
 ### Key design decisions
 
-- **Fan = "Jets" / "Düsen"** — matches spa manual terminology; translation_key `"jets"`
-- **Enum sensors with translated states** — `heater_state` and `pump_state` use
-  `device_class="enum"` with `options` list → HA translates state values in UI
-- **Fan preset_mode translations** — low→Leicht / high→Stark (DE), Faible/Fort (FR)
-- **Heater state "off"** — byte 0x40, previously called "cooldown", renamed to "off"
-- **Disinfection** — byte 0x41, previously called "uv_ozone", renamed to "disinfection"
-  (matches manual: "Ozonauslass" = scheduled disinfection cycle)
-- **No separate spa_status sensor** — consolidated into heater_state enum
-- **No button.py / UV binary sensor / light binary sensor / pump binary sensors / setpoint sensor**
-  — all redundant with existing entities
+- **Fan = "Jets" / "Düsen"** — matches spa manual terminology
+- **Enum sensors with translated states** — `heater_state` and `pump_state` with `device_class="enum"`
+- **Light toggle safety**: same frame for on/off; switch refuses toggle when state is unknown
+- **Heater/blower switches**: distinct ON/OFF frames (not toggles); safe to send
+- **Climate debounce**: 1.5s coalescing for slider drags
+- **Coordinator write pacing**: global 1.0s command cooldown
+- **Pump state machine**: OFF→low→high→OFF cycle; fan handles multi-step transitions
 - **Temperatures as integers** — spa only shows whole °C
 - **Climate hvac_action**: heating→HEATING, circulation→PREHEATING, off/disinfection→IDLE
-- **Pump state machine**: OFF→low→high→OFF cycle; fan entity handles multi-step transitions
-- **Light toggle safety**: same frame for on/off; switch refuses toggle when state is unknown
-- **Climate debounce**: 1.5s coalescing for slider drags
-- **Coordinator write pacing**: global 1.0s command cooldown enforced in `async_send_command`
-- **Pump multi-step writes**: second step is sent only after refresh confirms intermediate state
-- **Terminology cleanup**: canonical naming is now `off` / `disinfection` (legacy aliases removed)
-- **Spa clock format**: parsed as timezone-aware `datetime` using HA's configured
-  local timezone (the controller sends local time without timezone info)
+- **Blower state**: read from byte[28] bit 3 (MASK_BLOWER = 0x08)
+- **Not available on PB554**: disinfection manual toggle, filtration manual toggle, frost protection
+- **Screen flip**: handled locally by PB554 panel, not sent on RS485 bus
 
 ---
 
@@ -172,50 +197,52 @@ custom_components/joyonway_p25b85/
 | 1. Capture tools | ✅ Done | `guided_capture_38400.py`, `frame_parser_38400.py` |
 | 2. Integration | ✅ Done | Deployed, reading live data, HACS install works |
 | 3. Validate byte map | ✅ Done | All byte positions confirmed from captures |
-| 4. Write commands | ✅ Done | Light + pump replay frames captured |
-| 5. Live test writes | **Next** | Test all write entities at spa |
-| 5b. Extended captures | **Next** | Heater, disinfection, filtration — `guided_capture_phase5.py` |
+| 4. Write commands | ✅ Done | Light + pump + temp replay frames captured |
+| 5. Extended captures | ✅ Done | Heater, blower, datetime, filter/heat schedule all captured |
 | 6. Temperature control | ✅ Done | Climate with debounced slider, 31-frame lookup |
-| 7. Polish & release | Planned | After Phase 5 live test |
+| 7. Live test writes | **Next** | Test all write entities at spa |
+| 8. Schedule/datetime entities | Planned | Implement heat schedule, filter schedule, datetime sync |
+| 9. CRC cracking | Optional | `capture_crc_session.py` + `crack_crc.py --input` |
+| 10. Polish & release | Planned | After live test |
 
 ---
 
 ## 5. Next Steps
 
-1. **Live test at spa** — restart HA, test light switch, jets fan, thermostat slider
-2. **Phase 5 captures** — capture additional command frames using
-   `tools/guided_capture_phase5.py`. See priority groups below.
-3. **Polish** — version bump, README update, HACS release
-4. **PR to frame-analyzer** — add P25B85 preset to christopheknap's tool
+### Priority 1: Live testing
+1. **Restart HA** with updated integration
+2. **Test each entity**: light switch, heater switch, blower switch, jets fan, thermostat slider
+3. **Verify blower state** reads correctly from byte[28] bit 3
+4. **Check cross-session replay** — heater/blower commands were captured in a different
+   session from Phase 4 pump/light commands; confirm they still work
 
-### Phase 5 capture priorities
+### Priority 2: CRC cracking (optional but high value)
+If replay works, cracking the CRC would eliminate the lookup table limitation:
+```bash
+python3 tools/capture_crc_session.py   # all command types in ONE session (~6 min)
+python3 tools/crack_crc.py --input captures_crc/crc_session.json
+```
+This captures temp, light, pump, heater, blower all in one session to eliminate
+session-dependent CRC state. If the polynomial is found, we can compute CRC for
+any command and generate frames dynamically.
 
-From the Home Deluxe White Marble manual and KDy's community posts, the PB554
-panel + P25B85 controller supports these functions beyond what Phase 4 captured:
+### Priority 3: Polish & release
+- Version bump, README final review, HACS release
+- PR to frame-analyzer — add P25B85 preset to christopheknap's tool
 
-| Priority | Action | Why | Status |
-|----------|--------|-----|--------|
-| **Group 1** | Heater manual ON | Control heating from HA (solar surplus use case) | Not captured |
-| **Group 1** | Heater manual OFF | Stop heating from HA | Not captured |
-| **Group 1** | Disinfection (ozone/UV) ON | Manual start of disinfection cycle | Not captured |
-| **Group 1** | Disinfection (ozone/UV) OFF | Manual stop of disinfection cycle | Not captured |
-| **Group 2** | Filtration manual ON | Manual filtration control (if separate from pump button) | Not captured |
-| **Group 2** | Filtration manual OFF | Manual filtration stop | Not captured |
-| **Group 3** | Filtration schedule | Program timed filtration time slots | Not captured |
-| **Group 3** | Heating schedule | Program timed heating time slots | Not captured |
-| **Group 3** | Frost protection ON/OFF | Enable/disable frost protection mode | Not captured |
-| **Group 3** | Screen flip | Flip PB554 display 180° (diagnostic only) | Not captured |
-
-**Already captured (Phase 4):** pump cycle, light toggle, temperature setpoint (31 frames).
-
-**Capture tool:** `python3 tools/guided_capture_phase5.py --group 1` (start with Group 1).
-The tool adds a third "observe" segment per action to record broadcast byte changes
-after the state change, making byte-map extension easier.
-
-**Known from KDy's analysis (community post #74, #90):**
-- Disinfection active: byte 14 = 0xC1, byte 17 = 0x80, byte 28 = 0x20
-- Heating stages: byte 14 = 0x50 (circulation) → 0x54/0x55 (heating) → 0x40 (off)
-- Filtration forces circulation pump; separate from jets pump button
+### Schedule/datetime commands (captured, implementation planned — Phase 8)
+These frames were captured successfully. Implementation after live testing:
+- **DateTime set** (0xA2 frame): spa clock sync service or automation.
+  Frame encodes year/month/day/hour/min/sec. Could auto-sync on HA start.
+  Unescaped payload: `50 1a 05 15 0f 09` = likely BCD or raw values.
+  Needs CRC cracking OR capture of multiple datetime frames to understand encoding.
+- **Heat schedule** (0xA3 frame): program heating time windows.
+  Payload: `62 0e 00 10 00 14 00 16` — likely start/end hours for time slots.
+  Broadcast byte[19] changes when schedule is written.
+- **Filter schedule** (0xA4 frame): program filtration time windows.
+  Payload: `aa 0d 00 0c 00 11 00 12` — similar structure to heat schedule.
+  Broadcast byte[29] changes (0x4C→0xCD) when schedule is written.
+- **Screen flip**: handled locally by PB554, not sent on RS485 — cannot be implemented
 
 ---
 
@@ -224,6 +251,8 @@ after the state change, making byte-map extension easier.
 - **`.env` file** holds bridge IP (gitignored). Tools auto-load it.
 - **Restart required** after any code change to the integration.
 - **Tests** run with `python3 -m unittest discover -s tests` (97 tests, <1ms).
+- **Captures** are in `tools/captures_phase5/` (21 bin files covering all actions).
+  Manifest can be rebuilt with `python3 tools/rebuild_manifest.py tools/captures_phase5`.
 - **Temperature lookup table**: `TEMP_COMMAND_TABLE` in `adapters/p25b85.py`
   - 31 frames covering 10°C (50°F) to 40°C (104°F)
   - 73°F (23°C) frame has escaped byte in CRC (23 bytes raw vs 22 normal)
@@ -232,8 +261,9 @@ after the state change, making byte-map extension easier.
 - **Command send pattern**: coordinator opens TCP, writes frame, closes.
   Uses `asyncio.Lock` + global 1.0s cooldown to prevent concurrent/burst sends.
 - **CRC** — see `docs/crc_analysis.md`. Linear but session-dependent.
-  To crack: capture ALL command types in ONE session, or disassemble PB554 firmware.
-- **Manual reference files** in `.local/` — `home-deluxe-white-marble.md` (product manual),
-  HA community thread (protocol reverse-engineering discussion). Useful for terminology.
+  CRC cracking tool: `tools/capture_crc_session.py` → `tools/crack_crc.py --input`.
 - **Entity unique_id for fan** changed from `_pump` to `_jets` — existing HA installs
-  may need entity re-registration after update (or manual rename in entity registry).
+  may need entity re-registration after update.
+- **Capture tools**: `guided_capture_phase5.py` only has filter schedule, heat schedule,
+  screen flip remaining (all already captured in latest session). Use `--fresh` flag
+  to bypass old manifest. Default output dir resolves relative to script location.
