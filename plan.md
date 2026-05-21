@@ -173,6 +173,7 @@ custom_components/joyonway_p25b85/
 | 3. Validate byte map | ✅ Done | All byte positions confirmed from captures |
 | 4. Write commands | ✅ Done | Light + pump replay frames captured |
 | 5. Live test writes | **Next** | Test all write entities at spa |
+| 5b. Extended captures | **Next** | Heater, disinfection, filtration — `guided_capture_phase5.py` |
 | 6. Temperature control | ✅ Done | Climate with debounced slider, 31-frame lookup |
 | 7. Polish & release | Planned | After Phase 5 live test |
 
@@ -181,10 +182,39 @@ custom_components/joyonway_p25b85/
 ## 5. Next Steps
 
 1. **Live test at spa** — restart HA, test light switch, jets fan, thermostat slider
-2. **Capture heater manual on/off** — the PB554 display has an option to manually
-   enable/disable the heater. Command frames not yet captured. Add to capture list.
+2. **Phase 5 captures** — capture additional command frames using
+   `tools/guided_capture_phase5.py`. See priority groups below.
 3. **Polish** — version bump, README update, HACS release
 4. **PR to frame-analyzer** — add P25B85 preset to christopheknap's tool
+
+### Phase 5 capture priorities
+
+From the Home Deluxe White Marble manual and KDy's community posts, the PB554
+panel + P25B85 controller supports these functions beyond what Phase 4 captured:
+
+| Priority | Action | Why | Status |
+|----------|--------|-----|--------|
+| **Group 1** | Heater manual ON | Control heating from HA (solar surplus use case) | Not captured |
+| **Group 1** | Heater manual OFF | Stop heating from HA | Not captured |
+| **Group 1** | Disinfection (ozone/UV) ON | Manual start of disinfection cycle | Not captured |
+| **Group 1** | Disinfection (ozone/UV) OFF | Manual stop of disinfection cycle | Not captured |
+| **Group 2** | Filtration manual ON | Manual filtration control (if separate from pump button) | Not captured |
+| **Group 2** | Filtration manual OFF | Manual filtration stop | Not captured |
+| **Group 3** | Filtration schedule | Program timed filtration time slots | Not captured |
+| **Group 3** | Heating schedule | Program timed heating time slots | Not captured |
+| **Group 3** | Frost protection ON/OFF | Enable/disable frost protection mode | Not captured |
+| **Group 3** | Screen flip | Flip PB554 display 180° (diagnostic only) | Not captured |
+
+**Already captured (Phase 4):** pump cycle, light toggle, temperature setpoint (31 frames).
+
+**Capture tool:** `python3 tools/guided_capture_phase5.py --group 1` (start with Group 1).
+The tool adds a third "observe" segment per action to record broadcast byte changes
+after the state change, making byte-map extension easier.
+
+**Known from KDy's analysis (community post #74, #90):**
+- Disinfection active: byte 14 = 0xC1, byte 17 = 0x80, byte 28 = 0x20
+- Heating stages: byte 14 = 0x50 (circulation) → 0x54/0x55 (heating) → 0x40 (off)
+- Filtration forces circulation pump; separate from jets pump button
 
 ---
 
