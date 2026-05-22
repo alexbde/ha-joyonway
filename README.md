@@ -14,14 +14,15 @@
 
 ## Overview
 
-This integration brings **local monitoring and replay-based control** of a **Joyonway P25B85** spa controller into Home Assistant. Communication is purely local via RS485, bridged to your network through an **Elfin EW11** (or similar) WiFi-to-RS485 adapter in TCP server mode. No cloud, no internet required.
+This integration brings **local monitoring and control** of a **Joyonway P25B85** spa controller into Home Assistant. Communication is purely local via RS485, bridged to your network through an **Elfin EW11** (or similar) WiFi-to-RS485 adapter in TCP server mode. No cloud, no internet required.
 
 The P25B85 controls spas like the **Home Deluxe White Marble** outdoor whirlpool and similar rigid/hardshell hot tubs with a PB554 colour touchpad.
 
-> **Status: Entities and replay writes implemented** — the P25B85 byte map has
+> **Status: Entities and write control implemented** — the P25B85 byte map has
 > been validated against local RS485 captures for temperature, setpoint, pump,
-> light, heater, blower, and disinfection states. Write support uses replay-only
-> command frames captured from the physical panel.
+> light, heater, blower, and disinfection states. The CRC-32 algorithm has been
+> fully cracked and verified (21/21 frames), enabling dynamic frame generation
+> for any command.
 
 > **Discussion thread:** [JoyOnWay Spa Control — Home Assistant Community](https://community.home-assistant.io/t/joyonway-spa-control/582344)
 
@@ -59,20 +60,21 @@ The P25B85 controls spas like the **Home Deluxe White Marble** outdoor whirlpool
 
 ### What this integration does NOT do
 
-- ❌ No synthetic RS485 frame construction or CRC forging
-
-All writes are replay-only and require verified command frames from the physical touchpad.
+- ❌ No filtration schedule or heating schedule control (planned)
+- ❌ No date/time sync (planned)
+- ❌ No disinfection cycle manual control (hardware limitation — schedule only)
 
 ---
 
 ## Safety Philosophy
 
-The P25B85 uses a 4-byte CRC on all frames. KDy documented that **sending a frame with an invalid CRC can activate the heater unexpectedly**. Therefore:
+The P25B85 uses a 4-byte CRC-32 on all command frames. The CRC algorithm has been fully reverse-engineered (standard CRC-32 polynomial `0x04C11DB7` with word-swap preprocessing) and verified against 21 unique captured frames covering all command types.
 
-- ❌ We NEVER send frames with forged/guessed CRC
-- ❌ We NEVER construct synthetic command payloads
-- ✅ Write support will ONLY replay frames captured verbatim from the physical panel
-- ✅ Each command frame must be validated against an observed state change
+- ✅ CRC is computed correctly for every command frame
+- ✅ All commands are validated against observed state changes from physical captures
+- ✅ Write pacing enforces a 1-second cooldown between commands
+
+> **Note:** KDy documented that sending a frame with an invalid CRC can activate the heater unexpectedly. This integration always computes correct CRC values.
 
 ---
 
@@ -174,7 +176,10 @@ This integration is built in phases:
 | 2. Integration skeleton | ✅ Done  | HA integration with adapter architecture, protocol parser, entities |
 | 3. Capture & validate   | ✅ Done  | Local captures validated the P25B85 byte map                        |
 | 4. Write commands       | ✅ Done  | Replay verified panel frames for equipment control                  |
-| 5. Polish & release     | Planned | HACS validation, community testing, documentation                   |
+| 5. CRC cracking         | ✅ Done  | CRC-32 algorithm fully cracked, dynamic frame generation ready      |
+| 6. Live testing         | Next    | Test all write entities at the spa                                  |
+| 7. Schedule entities    | Planned | Heat/filter schedule and date/time sync                             |
+| 8. Polish & release     | Planned | HACS validation, community testing, documentation                   |
 
 ---
 

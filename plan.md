@@ -139,7 +139,7 @@ custom_components/joyonway_p25b85/
 ├── const.py             # domain, config keys, PLATFORMS
 ├── manifest.json        # HACS-compatible, v0.1.0
 ├── config_flow.py       # IP + port, TCP connection test
-├── protocol.py          # find_frames, pseudo_unescape, validate_frame
+├── protocol.py          # framing, unescape, CRC-32, build_frame
 ├── coordinator.py       # async TCP polling + async_send_command
 ├── sensor.py            # adapter-driven (water temp, heater/pump state, diagnostics)
 ├── binary_sensor.py     # bridge connectivity only
@@ -253,24 +253,21 @@ CRC is cracked → we can generate frames dynamically for these features:
 - **`.env` file** holds bridge IP (gitignored). Tools auto-load it.
 - **Restart required** after any code change to the integration.
 - **Tests** run with `python3 -m unittest discover -s tests` (97 tests, <1ms).
-- **Captures** are in `tools/captures_phase5/` (21 bin files covering all actions).
-  Manifest can be rebuilt with `python3 tools/rebuild_manifest.py tools/captures_phase5`.
+- **Protocol docs**: `docs/protocol.md` — full protocol reference with all
+  captured frame examples, CRC algorithm, byte maps, and payload layouts.
+- **CRC implementation**: `protocol.py` → `compute_crc()`, `build_frame()`,
+  `pseudo_escape()`. Verified 21/21 frames. See `docs/crc_analysis.md`.
 - **Temperature lookup table**: `TEMP_COMMAND_TABLE` in `adapters/p25b85.py`
-  - 31 frames covering 10°C (50°F) to 40°C (104°F)
-  - 73°F (23°C) frame has escaped byte in CRC (23 bytes raw vs 22 normal)
-  - Byte 11 varies by capture session (0x88/0x98/0x99) — needs live test
-  - Stored as raw wire hex; replay sends verbatim (including escapes)
+  still used for replay. Can be replaced with `build_frame()` once live-tested.
+  Byte 10 varies by session (0x80/0x98/0x99) — needs live test to confirm
+  which value the controller accepts.
 - **Command send pattern**: coordinator opens TCP, writes frame, closes.
   Uses `asyncio.Lock` + global 1.0s cooldown to prevent concurrent/burst sends.
-- **CRC** — CRACKED. Standard CRC-32 (0x04C11DB7), non-reflected, init=0,
-  xor_out=0x552D22C8, with 32-bit word byte-swap preprocessing. Implemented
-  in `protocol.py` as `compute_crc()` and `build_frame()`. Verified 21/21
-  frames across all command types. The word-swap is due to the PB554's ARM
-  Cortex-M MCU feeding a hardware CRC peripheral in little-endian word order.
-  CRC cracking tool chain: `capture_crc_session.py` → `bf_poly` (C brute-force)
-  → `verify_crc32_v2.py`. See `docs/crc_analysis.md` for full write-up.
-- **Entity unique_id for fan** changed from `_pump` to `_jets` — existing HA installs
-  may need entity re-registration after update.
-- **Capture tools**: `guided_capture_phase5.py` only has filter schedule, heat schedule,
-  screen flip remaining (all already captured in latest session). Use `--fresh` flag
-  to bypass old manifest. Default output dir resolves relative to script location.
+- **Entity unique_id for fan** changed from `_pump` to `_jets` — existing HA
+  installs may need entity re-registration after update.
+- **CRC cracking tools** (in `tools/`):
+  - `capture_crc_session.py` — captures all command types in a single session
+  - `bf_poly.c` — C brute-force across 2^32 polynomials (409s exhaustive search)
+  - `verify_crc32_v2.py` — verifies polynomial + word-swap against all frames
+  - `verify_protocol_crc.py` — verifies `protocol.py` implementation
+  - Various analysis scripts: `analyze_crc_session2.py`, `extract_poly.py`, `crack_crc2.py`
