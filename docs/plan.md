@@ -11,6 +11,9 @@
 > **Hardware:** P25B85 + PB554 + Elfin EW11
 > **Status:** All entities implemented. Needs live testing at spa.
 
+> **Documentation policy:** `docs/protocol.md` is the canonical protocol spec.
+> This `docs/plan.md` is progress/handoff only.
+
 ## 0. AI Instructions
 
 - **No PII / timestamps in code.** Do NOT add dates, author names, usernames,
@@ -83,33 +86,18 @@
 | 0xA3 | Heat schedule | Program heating time slots (22 bytes) |
 | 0xA4 | Filter schedule | Program filtration time slots (22 bytes) |
 
-### Captured command frames
+### Command-byte notes (important)
 
-| Action | Frame (hex) |
-|--------|-------------|
-| Light toggle | `1a0120103ca110a10000404000c00056003031eeb21d` |
-| Pump OFF→low | `1a0120103ca110a10202000000c00056007dd2146b1d` |
-| Pump low→high | `1a0120103ca110a10604000000c0005600fc1221c61d` |
-| Pump high→OFF | `1a0120103ca110a10400000000c0005600735738e91d` |
-| Heater ON | `1a0120103ca110a10000080800c0006400d3cab4791d` |
-| Heater OFF | `1a0120103ca110a10000080000c000640035b18d0a1d` |
-| Blower ON | `1a0120103ca110a10000040c00c00064000029c8f51d` |
-| Blower OFF | `1a0120103ca110a10000040800c0006400f39454cc1d` |
-| DateTime set | `1a0120103ca210a1501b1105150f090000004cbc3d971d` |
-| Filter schedule | `1a0120103ca410a1aa0d000c0011001200f605b0ff1d` |
-| Heat schedule | `1a0120103ca310a1620e001000140016004d48aa7f1d` |
+- Same-session CRC captures (`tools/captures_crc/crc_session.json`) show:
+  - Light toggle: byte[9]=0x40, byte[10]=0x58
+  - Heater ON/OFF: byte[9]=0x08, byte[10]=0x08/0x00
+  - Blower ON/OFF: byte[9]=0x04, byte[10]=0x04/0x00
+  - Pump transitions: byte[9]=0x00, byte[10]=0x08; transition encoded in bytes 7-8
+- Current integration runtime still uses legacy replay variants for light/blower
+  from `adapters/p25b85.py` (documented explicitly in `docs/protocol.md`).
 
-Temperature: 31 frames in `TEMP_COMMAND_TABLE` (adapters/p25b85.py), 10-40°C.
-
-### Button command byte map (bytes 10-11 in 0xA1 command frame)
-
-| Button | byte[10] | byte[11] ON | byte[11] OFF |
-|--------|----------|-------------|--------------|
-| Light | 0x40 | 0x40 (toggle) | 0x40 (same frame) |
-| Temp | 0x80 | 0x88/0x98 | — |
-| Heater | 0x08 | 0x08 | 0x00 |
-| Blower | 0x04 | 0x0C | 0x08 |
-| Pump | via byte[8-9] | — | — |
+Temperature: 31-frame lookup table currently used in runtime
+(`TEMP_COMMAND_TABLE`, 10-40°C).
 
 ### CRC — CRACKED ✅
 
@@ -118,8 +106,8 @@ Temperature: 31 frames in `TEMP_COMMAND_TABLE` (adapters/p25b85.py), 10-40°C.
 - **Storage:** little-endian at payload bytes 16–19
 - **Implementation:** `protocol.py` → `compute_crc()` and `build_frame()`
 - **Verification:** 21/21 unique same-session frames, all command types
-- Can now generate frames dynamically for ANY command (no lookup table needed)
-- See `docs/crc_analysis.md` for full analysis
+- Dynamic generation is implemented in `protocol.py`, but runtime entity writes
+  remain replay/lookup (is-state) until live migration.
 
 ## 3. Current Implementation
 
@@ -215,6 +203,8 @@ With the CRC cracked, we can now:
 - Generate custom schedule frames
 - Eliminate the 31-frame `TEMP_COMMAND_TABLE` and compute on the fly
 - Implementation: `protocol.build_frame(payload)` computes CRC and escapes
+- Important: keep this as a migration task; current runtime is intentionally
+  replay/lookup until live validation confirms behavior.
 
 ### Priority 3: Polish & release
 - Version bump, README final review, HACS release
@@ -243,7 +233,7 @@ CRC is cracked → we can generate frames dynamically for these features:
 - **Protocol docs**: `docs/protocol.md` — full protocol reference with all
   captured frame examples, CRC algorithm, byte maps, and payload layouts.
 - **CRC implementation**: `protocol.py` → `compute_crc()`, `build_frame()`,
-  `pseudo_escape()`. Verified 21/21 frames. See `docs/crc_analysis.md`.
+  `pseudo_escape()`. Verified 21/21 frames.
 - **Temperature lookup table**: `TEMP_COMMAND_TABLE` in `adapters/p25b85.py`
   still used for replay. Can be replaced with `build_frame()` once live-tested.
   Byte 10 varies by session (0x80/0x98/0x99) — needs live test to confirm
