@@ -10,8 +10,6 @@
 
 </div>
 
----
-
 ## Overview
 
 This integration brings **local monitoring and control** of a **Joyonway P25B85** spa controller into Home Assistant. Communication is purely local via RS485, bridged to your network through an **Elfin EW11** (or similar) WiFi-to-RS485 adapter in TCP server mode. No cloud, no internet required.
@@ -26,8 +24,6 @@ The P25B85 controls spas like the **Home Deluxe White Marble** outdoor whirlpool
 
 > **Discussion thread:** [JoyOnWay Spa Control — Home Assistant Community](https://community.home-assistant.io/t/joyonway-spa-control/582344)
 
----
-
 ## My Hardware
 
 | Component        | Details                                                       |
@@ -41,8 +37,6 @@ The P25B85 controls spas like the **Home Deluxe White Marble** outdoor whirlpool
 | **Light**        | RGB LED (9 colour states via button press)                    |
 | **Heater**       | 2 kW resistive, thermostat-controlled                         |
 | **UV/ozone port**| Scheduled disinfection cycle state (not user-toggleable)      |
-
----
 
 ## Features
 
@@ -64,8 +58,6 @@ The P25B85 controls spas like the **Home Deluxe White Marble** outdoor whirlpool
 - ❌ No date/time sync (planned)
 - ❌ No disinfection cycle manual control (hardware limitation — schedule only)
 
----
-
 ## Safety Philosophy
 
 The P25B85 uses a 4-byte CRC-32 on all command frames. The CRC algorithm has been fully reverse-engineered (standard CRC-32 polynomial `0x04C11DB7` with word-swap preprocessing) and verified against 21 unique captured frames covering all command types.
@@ -77,8 +69,6 @@ The P25B85 uses a 4-byte CRC-32 on all command frames. The CRC algorithm has bee
 
 > **Note:** KDy documented that sending a frame with an invalid CRC can activate the heater unexpectedly. This integration currently sends captured commands with known-good CRC; dynamic CRC generation is verified and available for future migration.
 
----
-
 ## Requirements
 
 | Item           | Details                                          |
@@ -88,8 +78,6 @@ The P25B85 uses a 4-byte CRC-32 on all command frames. The CRC algorithm has bee
 | Bridge config  | 38400 baud, 8N1, TCP Server mode, port 8899      |
 | Home Assistant | 2024.1.0 or later                                |
 | Network        | HA and bridge on the same LAN                    |
-
----
 
 ## Installation
 
@@ -109,8 +97,6 @@ The P25B85 uses a 4-byte CRC-32 on all command frames. The CRC algorithm has bee
 2. Restart Home Assistant
 3. Add the integration via the UI
 
----
-
 ## Configuration
 
 After restart, go to **Settings → Devices & Services → Add integration** and search for **Joyonway P25B85**.
@@ -123,8 +109,6 @@ After restart, go to **Settings → Devices & Services → Add integration** and
 The integration performs a TCP connection test before saving.
 
 > **⚠️ Single-client limitation:** Most RS485 bridges only accept one TCP connection at a time. Stop the phone app or other tools before using HA.
-
----
 
 ## Entities
 
@@ -164,8 +148,6 @@ The integration performs a TCP connection test before saving.
 |------------|----------------------------------------|
 | Thermostat | Target setpoint control (10°C to 40°C) |
 
----
-
 ## Development Plan
 
 Roadmap and session handoff live in `docs/plan.md`.
@@ -178,14 +160,10 @@ Current high-level status:
 - Runtime writes: replay/lookup is-state
 - Next: live spa testing, then migrate writes to algorithm-based frame generation
 
----
-
 ## Related Projects
 
 - **[ha-joyonway-p23b32](https://github.com/KnapTheBuilder/ha-joyonway-p23b32)** — HA integration for the P23B32 controller (by christopheknap)
 - **[joyonway-frame-analyzer](https://github.com/KnapTheBuilder/joyonway-frame-analyzer)** — Browser-based frame analysis tool for all Joyonway models
-
----
 
 ## Credits
 
@@ -196,15 +174,12 @@ Current high-level status:
 | **[Gaet78](https://community.home-assistant.io/u/gaet78)**   | P69B133 integration, 30s timing discovery                                                        |
 | **[c0mpleX](https://community.home-assistant.io/u/c0mplex)** | Frame samples and community discussion                                                           |
 
----
-
 ## License
 
 This project is released under the [MIT License](LICENSE).
 
 <div align="center">
 
----
 
 **Made for the Home Assistant community. 🧖‍♂️**
 

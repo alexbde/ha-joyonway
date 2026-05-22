@@ -4,8 +4,6 @@ Capture and analysis tools for Joyonway spa RS485 protocol (38400 baud, PB55x co
 
 **Requirements:** Python 3.10+, stdlib only — no `pip install` needed.
 
----
-
 ## Quick Start
 
 ### 1. Test bridge connectivity
@@ -107,8 +105,6 @@ Then run:
 python3 tools/crack_crc.py --input tools/captures_crc/crc_session.json
 ```
 
----
-
 ## Available actions for capture
 
 | Action      | Description                                             |
@@ -121,8 +117,6 @@ python3 tools/crack_crc.py --input tools/captures_crc/crc_session.json
 | `disinfection` | Disinfection cycle — activate scheduled disinfection if accessible |
 | `setpoint`  | Setpoint change — try different temperature values      |
 
----
-
 ## ⚠️ Bridge single-client limitation
 
 Most RS485-to-WiFi bridges (Elfin EW11, USR-W610) only accept **one TCP client
@@ -132,7 +126,6 @@ at a time**. Before starting a capture session:
 - Stop Home Assistant's Joyonway integration
 - Close any other tool connected to the bridge
 
----
 
 ## File overview
 

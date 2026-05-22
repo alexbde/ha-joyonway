@@ -6,16 +6,12 @@ Captured from physical touchpad <-> controller bus sniffing.
 This document describes the **current observed protocol** and explicitly marks
 where multiple captured command-byte variants exist.
 
----
-
 ## P25B85
 
 **Controller:** Joyonway P25B85, PCB `P2325B0003 R05`  
 **Touchpad:** PB554 colour screen  
 **UART:** 38400 baud, 8N1  
 **Bus:** RS-485 half-duplex  
-
----
 
 ### 1. Framing
 
@@ -39,8 +35,6 @@ where multiple captured command-byte variants exist.
 (find `0x1A` start, scan for `0x1D` end), then escape decoding is applied
 to the content between delimiters.
 
----
-
 ### 2. CRC-32
 
 All command frames carry a 4-byte CRC. Verified against 21 unique
@@ -56,9 +50,6 @@ same-session frames covering all command types.
 | Preprocessing | Each 32-bit word byte-reversed before CRC |
 | CRC position | Bytes 16–19 of unescaped inner frame |
 | CRC byte order | Little-endian |
-
-Deep-dive derivation and historical cracking notes are in
-`docs/crc_analysis.md`.
 
 **Algorithm (pseudocode):**
 
@@ -87,8 +78,6 @@ inner = payload[16 bytes] + crc[4 bytes LE]
 escaped = escape(inner)
 wire = 0x1A + escaped + 0x1D
 ```
-
----
 
 ### 3. Broadcast Frames
 
@@ -123,8 +112,6 @@ These are long frames (60+ bytes) prefixed with destination `0xFF`.
 For disinfection state, byte 14 (`0x41`/`0xC1`) is the authoritative indicator.
 Byte 28 bit 5 is useful activity context but not UV-specific on its own.
 
----
-
 ### 4. Command Frames
 
 All commands are 22 bytes on wire (may be 23 if CRC contains an escaped
@@ -146,8 +133,6 @@ byte). Unescaped inner frame is always 20 bytes: 16 payload + 4 CRC.
 ```
 
 Where `[type]` = `A1` / `A2` / `A3` / `A4`.
-
----
 
 ### 4.1. Button Commands (type 0xA1)
 
@@ -187,8 +172,6 @@ light/blower, same CRC-valid frame family).
 | Low → High | `0x06` | `0x04` | `0x00` | `0x08` |
 | High → OFF | `0x04` | `0x00` | `0x00` | `0x08` |
 
----
-
 ### 4.2. DateTime Set (type 0xA2)
 
 Sets the spa's internal clock.
@@ -211,8 +194,6 @@ Sets the spa's internal clock.
 > **Note:** Byte ordering/encoding needs further capture sessions to fully
 > confirm. The CRC is now cracked, so any encoding can be tested live.
 
----
-
 ### 4.3. Heat Schedule (type 0xA3)
 
 Programs heating time windows.
@@ -234,8 +215,6 @@ Programs heating time windows.
 
 > Broadcast byte[19] changes when a heat schedule is written.
 
----
-
 ### 4.4. Filter Schedule (type 0xA4)
 
 Programs filtration time windows.
@@ -256,8 +235,6 @@ Programs filtration time windows.
 | 15 | `0x00` (padding or slot 2 end) |
 
 > Broadcast byte[29] changes (`0x4C` → `0xCD`) when a filter schedule is written.
-
----
 
 ### 5. Captured Frame Examples
 
@@ -327,8 +304,6 @@ reference; the CRC formula can regenerate them if payloads are known.
 | Filter schedule | `1a0120103ca410a1aa0d000c0011001200f605b0ff1d` |
 | Heat schedule | `1a0120103ca310a1620e001000140016004d48aa7f1d` |
 
----
-
 ### 6. Temperature Command Byte Encoding
 
 Temperature commands (type `0xA1`, byte[9]=`0x80`) encode the **target**
@@ -353,7 +328,6 @@ state at time of capture). With CRC cracked, any variant can be tested.
 
 Then call `compute_crc(payload)` and `build_frame(payload)`.
 
----
 
 ### 7. Notes
 
@@ -371,3 +345,41 @@ Then call `compute_crc(payload)` and `build_frame(payload)`.
 - **Auto-off**: pump high speed auto-stops after 20 minutes (hardware timer).
 - **Disinfection cycle** (ozone) is schedule-only; cannot be toggled or
   cancelled via RS-485 from the PB554.
+
+### 8. CRC Derivation Notes
+
+This section summarizes how the CRC parameters were derived and why the final
+model is trustworthy, without repeating the full brute-force notebook history.
+
+**Evidence set**
+
+- 21 unique same-session command frames were used, covering every known command
+  family: temperature, light, pump, heater, blower, datetime, filter schedule,
+  and heat schedule.
+- Delta/linearity checks behaved exactly like a CRC-family transform, which
+  justified polynomial-focused search methods.
+
+**How the polynomial was found**
+
+- Exhaustive search over all 2^32 CRC-32 polynomials produced one valid result:
+  `0x04C11DB7`.
+- The key discovery was that payload bytes are processed after **32-bit word
+  byte-swap**. Before accounting for this transform, GCD/constraint attempts
+  failed because byte-position assumptions were wrong.
+
+**Why `xor_out = 0x552D22C8` is expected**
+
+- This is not an anomaly; it is an equivalent CRC parameterization for this
+  message shape.
+- Because command headers are mostly constant, their contribution is absorbed
+  into an effective output constant, represented here explicitly as `xor_out`
+  to keep generation deterministic and reproducible.
+
+**Final canonical model (used in this repo)**
+
+- Polynomial: `0x04C11DB7` (non-reflected, MSB-first)
+- Init: `0x00000000`
+- Preprocessing: word32 byte-swap on payload bytes `0..15`
+- CRC storage: little-endian at bytes `16..19`
+- Verification: full match on all 21 unique same-session frames
+

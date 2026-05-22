@@ -11,8 +11,6 @@
 > **Hardware:** P25B85 + PB554 + Elfin EW11
 > **Status:** All entities implemented. Needs live testing at spa.
 
----
-
 ## 0. AI Instructions
 
 - **No PII / timestamps in code.** Do NOT add dates, author names, usernames,
@@ -32,8 +30,6 @@
   4. Verify the plan file is self-contained — a new AI session with no
      prior context should be able to read it and continue the project.
 
----
-
 ## 1. Hardware
 
 - **Spa:** Home Deluxe White Marble (outdoor whirlpool, rigid/hardshell)
@@ -49,8 +45,6 @@
   Cannot be manually toggled from PB554 — runs on schedule only.
 - **Blower:** air blower, connector on PCB, button on PB554 panel. Captured and
   implemented as switch. Broadcast state: byte[14] bit 3, byte[28] bit 3.
-
----
 
 ## 2. Protocol Summary
 
@@ -127,8 +121,6 @@ Temperature: 31 frames in `TEMP_COMMAND_TABLE` (adapters/p25b85.py), 10-40°C.
 - Can now generate frames dynamically for ANY command (no lookup table needed)
 - See `docs/crc_analysis.md` for full analysis
 
----
-
 ## 3. Current Implementation
 
 ### File structure
@@ -192,8 +184,6 @@ custom_components/joyonway_p25b85/
 - **Not available on PB554**: disinfection manual toggle, filtration manual toggle, frost protection
 - **Screen flip**: handled locally by PB554 panel, not sent on RS485 bus
 
----
-
 ## 4. Phase Status
 
 | Phase | Status | Notes |
@@ -208,8 +198,6 @@ custom_components/joyonway_p25b85/
 | 8. Schedule/datetime entities | Planned | Heat schedule, filter schedule, datetime sync |
 | 9. CRC cracking | ✅ **Done** | P=0x04C11DB7, word32-swap, verified 21/21 frames |
 | 10. Polish & release | Planned | After live test |
-
----
 
 ## 5. Next Steps
 
@@ -246,7 +234,6 @@ CRC is cracked → we can generate frames dynamically for these features:
 - **Dynamic temperature** — replace `TEMP_COMMAND_TABLE` lookup with
   `protocol.build_frame()` for any °F target. Eliminates the 31-frame limit.
 
----
 
 ## 6. Technical Notes for Next Session
 
