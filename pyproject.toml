@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ha-joyonway-p25b85"
+version = "0.1.0"
+description = "Joyonway P25B85 Home Assistant integration"
+requires-python = ">=3.11"
+
+[project.optional-dependencies]
+test = [
+  "pytest>=8.3",
+  "pytest-asyncio>=0.24",
+]
+ha-test = [
+  "pytest>=8.3",
+  "pytest-homeassistant-custom-component>=0.13",
+  "homeassistant>=2024.1.0",
+]
+
+[tool.setuptools]
+packages = []
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-ra"
+testpaths = ["tests"]
+asyncio_default_fixture_loop_scope = "function"
+

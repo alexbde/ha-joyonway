@@ -5,11 +5,10 @@ No CRC computation — only verbatim captured frames are sent.
 """
 from __future__ import annotations
 
-import logging
-
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -23,9 +22,6 @@ from .adapters.p25b85 import (
 from .const import DOMAIN
 from .coordinator import JoyonwayP25B85Coordinator
 from .entity import device_info
-
-_LOGGER = logging.getLogger(__name__)
-
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -71,9 +67,10 @@ class SpaLightSwitch(CoordinatorEntity, SwitchEntity):
         """Turn the light on (toggle if currently off)."""
         state = self.is_on
         if state is None:
-            _LOGGER.warning("Light state unknown; refusing toggle to avoid accidental state flip")
             await self.coordinator.async_request_refresh()
-            return
+            raise HomeAssistantError(
+                "Light state is unknown; retry after the next coordinator refresh"
+            )
         if not state:
             await self._send_toggle()
 
@@ -81,9 +78,10 @@ class SpaLightSwitch(CoordinatorEntity, SwitchEntity):
         """Turn the light off (toggle if currently on)."""
         state = self.is_on
         if state is None:
-            _LOGGER.warning("Light state unknown; refusing toggle to avoid accidental state flip")
             await self.coordinator.async_request_refresh()
-            return
+            raise HomeAssistantError(
+                "Light state is unknown; retry after the next coordinator refresh"
+            )
         if state:
             await self._send_toggle()
 
@@ -91,9 +89,11 @@ class SpaLightSwitch(CoordinatorEntity, SwitchEntity):
         """Send the light toggle command and refresh state."""
         coordinator: JoyonwayP25B85Coordinator = self.coordinator
         success = await coordinator.async_send_command(CMD_LIGHT_TOGGLE)
-        if success:
-            # Request a refresh after a short delay to pick up the new state
-            await coordinator.async_request_refresh()
+        if not success:
+            raise HomeAssistantError("Failed to send light command")
+
+        # Request a refresh after a short delay to pick up the new state
+        await coordinator.async_request_refresh()
 
 
 class SpaHeaterSwitch(CoordinatorEntity, SwitchEntity):
@@ -132,8 +132,9 @@ class SpaHeaterSwitch(CoordinatorEntity, SwitchEntity):
             return  # Already on
         coordinator: JoyonwayP25B85Coordinator = self.coordinator
         success = await coordinator.async_send_command(CMD_HEATER_ON)
-        if success:
-            await coordinator.async_request_refresh()
+        if not success:
+            raise HomeAssistantError("Failed to send heater ON command")
+        await coordinator.async_request_refresh()
 
     async def async_turn_off(self, **kwargs) -> None:
         """Turn the heater off."""
@@ -141,8 +142,9 @@ class SpaHeaterSwitch(CoordinatorEntity, SwitchEntity):
             return  # Already off
         coordinator: JoyonwayP25B85Coordinator = self.coordinator
         success = await coordinator.async_send_command(CMD_HEATER_OFF)
-        if success:
-            await coordinator.async_request_refresh()
+        if not success:
+            raise HomeAssistantError("Failed to send heater OFF command")
+        await coordinator.async_request_refresh()
 
 
 class SpaBlowerSwitch(CoordinatorEntity, SwitchEntity):
@@ -175,8 +177,9 @@ class SpaBlowerSwitch(CoordinatorEntity, SwitchEntity):
             return
         coordinator: JoyonwayP25B85Coordinator = self.coordinator
         success = await coordinator.async_send_command(CMD_BLOWER_ON)
-        if success:
-            await coordinator.async_request_refresh()
+        if not success:
+            raise HomeAssistantError("Failed to send blower ON command")
+        await coordinator.async_request_refresh()
 
     async def async_turn_off(self, **kwargs) -> None:
         """Turn the blower off."""
@@ -184,5 +187,6 @@ class SpaBlowerSwitch(CoordinatorEntity, SwitchEntity):
             return
         coordinator: JoyonwayP25B85Coordinator = self.coordinator
         success = await coordinator.async_send_command(CMD_BLOWER_OFF)
-        if success:
-            await coordinator.async_request_refresh()
+        if not success:
+            raise HomeAssistantError("Failed to send blower OFF command")
+        await coordinator.async_request_refresh()

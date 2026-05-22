@@ -160,6 +160,32 @@ Current high-level status:
 - Runtime writes: replay/lookup is-state
 - Next: live spa testing, then migrate writes to algorithm-based frame generation
 
+## Testing
+
+### Lightweight tests (no Home Assistant runtime)
+
+```zsh
+cd /Users/alex/IdeaProjects/alexbde/ha-joyonway-p25b85
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -U pip
+python -m pip install -e ".[test]"
+pytest -q
+```
+
+### Home Assistant runtime tests
+
+```zsh
+cd /Users/alex/IdeaProjects/alexbde/ha-joyonway-p25b85
+/opt/homebrew/bin/python3.12 -m venv .venv-ha
+source .venv-ha/bin/activate
+python -m pip install -U pip
+python -m pip install -e ".[ha-test]"
+pytest -q
+```
+
+Runtime entity tests auto-skip when `homeassistant` is not installed.
+
 ## Related Projects
 
 - **[ha-joyonway-p23b32](https://github.com/KnapTheBuilder/ha-joyonway-p23b32)** — HA integration for the P23B32 controller (by christopheknap)

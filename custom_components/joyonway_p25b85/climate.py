@@ -11,6 +11,7 @@ into a single command sent after the slider settles.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 
 from homeassistant.components.climate import (
@@ -22,6 +23,7 @@ from homeassistant.components.climate import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -83,6 +85,8 @@ class SpaClimate(CoordinatorEntity, ClimateEntity):
     @property
     def target_temperature(self) -> float | None:
         """Return the target (setpoint) temperature."""
+        if self._pending_temp is not None:
+            return float(self._pending_temp)
         if self.coordinator.data is None:
             return None
         return self.coordinator.data.get("setpoint")
@@ -121,7 +125,8 @@ class SpaClimate(CoordinatorEntity, ClimateEntity):
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         """Set HVAC mode — only HEAT is supported (no-op)."""
-        # Spa is always heating to setpoint; nothing to do.
+        if hvac_mode != HVACMode.HEAT:
+            raise HomeAssistantError("Only HEAT mode is supported")
 
     async def async_set_temperature(self, **kwargs) -> None:
         """Set target temperature with debouncing for slider support.
@@ -137,49 +142,68 @@ class SpaClimate(CoordinatorEntity, ClimateEntity):
         target_c = int(round(temperature))
         target_c = max(TEMP_MIN_C, min(TEMP_MAX_C, target_c))
         self._pending_temp = target_c
+        self.async_write_ha_state()
 
         # Cancel any existing debounce timer
-        if self._debounce_task is not None:
-            self._debounce_task.cancel()
+        await self._async_cancel_debounce_task()
 
         # Start a new debounce timer
-        self._debounce_task = self.hass.async_create_task(self._debounced_send())
+        self._debounce_task = self.hass.async_create_task(
+            self._debounced_send(target_c)
+        )
 
-    async def _debounced_send(self) -> None:
+    async def _debounced_send(self, scheduled_target: int) -> None:
         """Wait for debounce period, then send the temperature command."""
         try:
             await asyncio.sleep(TEMP_DEBOUNCE_SECONDS)
+            # If a newer target has been queued, skip this stale send.
+            if self._pending_temp != scheduled_target:
+                return
+
+            coordinator: JoyonwayP25B85Coordinator = self.coordinator
+            adapter = coordinator.adapter
+            command = adapter.get_temp_command(scheduled_target)
+
+            if command is None:
+                _LOGGER.warning(
+                    "No captured command frame for %d°C - cannot set temperature",
+                    scheduled_target,
+                )
+                return
+
+            success = await coordinator.async_send_command(command)
+            if success:
+                _LOGGER.debug("Sent temperature command for %d°C", scheduled_target)
+                self._pending_temp = None
+                await coordinator.async_request_refresh()
+            else:
+                _LOGGER.error(
+                    "Failed to send temperature command for %d°C",
+                    scheduled_target,
+                )
         except asyncio.CancelledError:
+            raise
+        except Exception:
+            _LOGGER.exception("Unexpected error while sending debounced temperature")
+        finally:
+            if self._debounce_task is asyncio.current_task():
+                self._debounce_task = None
+                self.async_write_ha_state()
+
+    async def _async_cancel_debounce_task(self) -> None:
+        """Cancel and await the debounce task to avoid leaked exceptions."""
+        if self._debounce_task is None:
             return
 
-        target_c = self._pending_temp
-        if target_c is None:
-            return
-
-        coordinator: JoyonwayP25B85Coordinator = self.coordinator
-        adapter = coordinator.adapter
-        command = adapter.get_temp_command(target_c)
-
-        if command is None:
-            _LOGGER.warning(
-                "No captured command frame for %d°C — cannot set temperature",
-                target_c,
-            )
-            return
-
-        success = await coordinator.async_send_command(command)
-        if success:
-            _LOGGER.debug("Sent temperature command for %d°C", target_c)
-            await coordinator.async_request_refresh()
-        else:
-            _LOGGER.error("Failed to send temperature command for %d°C", target_c)
+        self._debounce_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await self._debounce_task
+        self._debounce_task = None
 
     async def async_will_remove_from_hass(self) -> None:
         """Cancel any pending debounce task before entity removal."""
         await super().async_will_remove_from_hass()
-        if self._debounce_task is not None:
-            self._debounce_task.cancel()
-            self._debounce_task = None
+        await self._async_cancel_debounce_task()
 
 
 

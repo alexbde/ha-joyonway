@@ -122,7 +122,11 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
             logical = unescape_frame(raw_frame, full=self._adapter.unescape_full_frame)
 
             # Parse through adapter
-            data = self._adapter.parse_status(logical)
+            try:
+                data = self._adapter.parse_status(logical)
+            except Exception:
+                _LOGGER.exception("Adapter parse failed for frame: %s", logical.hex())
+                continue
             if data is not None:
                 return data
 

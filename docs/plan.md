@@ -9,7 +9,8 @@
 >
 > **Integration domain:** `joyonway_p25b85`
 > **Hardware:** P25B85 + PB554 + Elfin EW11
-> **Status:** All entities implemented. Needs live testing at spa.
+> **Status:** All entities implemented. Async/UI hardening and expanded runtime
+> test coverage are done. Needs live testing at spa.
 
 > **Documentation policy:** `docs/protocol.md` is the canonical protocol spec.
 > This `docs/plan.md` is progress/handoff only.
@@ -224,12 +225,43 @@ CRC is cracked → we can generate frames dynamically for these features:
 - **Dynamic temperature** — replace `TEMP_COMMAND_TABLE` lookup with
   `protocol.build_frame()` for any °F target. Eliminates the 31-frame limit.
 
+## 6. Recent Session Updates
 
-## 6. Technical Notes for Next Session
+- **Entity reliability fixes completed**:
+  - `fan` now advertises `TURN_ON`/`TURN_OFF` support in addition to preset mode.
+  - `switch` and `fan` command failures now raise `HomeAssistantError` instead of
+    failing silently.
+  - `climate` debounce flow now cancels/awaits previous tasks cleanly,
+    avoids stale sends, and shows pending target temperature optimistically.
+  - `coordinator` now catches adapter parse exceptions per frame to avoid
+    refresh-loop crashes from malformed frames.
+- **Test stack migrated to pytest**:
+  - Added `pyproject.toml` pytest config + optional extras (`test`, `ha-test`).
+  - Legacy unittest-style files converted to pytest in `tests/`.
+  - Added helper loader `tests/_loader.py` for direct-module tests without HA.
+- **Runtime entity tests expanded**:
+  - `tests/test_fan_entity_runtime.py` verifies fan feature flags and power paths.
+  - `tests/test_entities_runtime.py` covers sensor, binary sensor, switch,
+    fan, and climate logic.
+- **Dual test modes now expected**:
+  - Lightweight env (no HA): runtime tests auto-skip.
+  - HA env (`python3.12` + `.[ha-test]`): runtime tests execute.
+
+## 7. Technical Notes for Next Session
 
 - **`.env` file** holds bridge IP (gitignored). Tools auto-load it.
 - **Restart required** after any code change to the integration.
-- **Tests** run with `python3 -m unittest discover -s tests` (97 tests, <1ms).
+- **Tests now run with pytest**:
+  - Lightweight mode (no HA runtime):
+    - `source .venv/bin/activate && pytest -q`
+    - Current result: `61 passed, 2 skipped` (runtime tests skipped by design).
+  - HA runtime mode:
+    - `source .venv-ha/bin/activate && pytest -q`
+    - Current result: `72 passed`.
+- **HA runtime test env**:
+  - `python3.12` installed via Homebrew at `/opt/homebrew/bin/python3.12`.
+  - `.venv-ha` exists and includes `homeassistant` +
+    `pytest-homeassistant-custom-component` via `pip install -e ".[ha-test]"`.
 - **Protocol docs**: `docs/protocol.md` — full protocol reference with all
   captured frame examples, CRC algorithm, byte maps, and payload layouts.
 - **CRC implementation**: `protocol.py` → `compute_crc()`, `build_frame()`,

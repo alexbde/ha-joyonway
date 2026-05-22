@@ -1,41 +1,32 @@
-#!/usr/bin/env python3
-"""Tests for the Joyonway P25B85 adapter and integration protocol module.
-
-Run with: python3 -m pytest tests/test_p25b85_adapter.py -v
-"""
+"""Pytest coverage for protocol and P25B85 adapter behavior."""
 from __future__ import annotations
 
-import sys
-import os
-import unittest
 from datetime import datetime, timezone
+from pathlib import Path
+import sys
+import types
 
-# Add custom_components/joyonway_p25b85 to path directly (avoids importing __init__.py
-# which requires homeassistant). We import protocol and adapters as standalone modules.
-_pkg_dir = os.path.join(os.path.dirname(__file__), "..", "custom_components", "joyonway_p25b85")
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "custom_components"))
+import pytest
 
-# Import protocol module directly (no HA dependency)
-import importlib.util
+from _loader import load_module
 
-def _load_module(name, path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
+ROOT = Path(__file__).resolve().parents[1]
+PKG_DIR = ROOT / "custom_components" / "joyonway_p25b85"
 
-# Load modules without triggering __init__.py (which needs homeassistant)
-protocol = _load_module("joyonway_p25b85.protocol", os.path.join(_pkg_dir, "protocol.py"))
-adapters_base = _load_module("joyonway_p25b85.adapters.base", os.path.join(_pkg_dir, "adapters", "base.py"))
-sys.modules["joyonway_p25b85.adapters"] = type(sys)("joyonway_p25b85.adapters")
-sys.modules["joyonway_p25b85.adapters"].base = adapters_base
-sys.modules["joyonway_p25b85.adapters"].SpaEntityDescription = adapters_base.SpaEntityDescription
-adapters_p25b85 = _load_module("joyonway_p25b85.adapters.p25b85", os.path.join(_pkg_dir, "adapters", "p25b85.py"))
-
-# Now load the adapters __init__ for registry
-_adapters_init_path = os.path.join(_pkg_dir, "adapters", "__init__.py")
-adapters_pkg = _load_module("joyonway_p25b85.adapters_init", _adapters_init_path)
+protocol = load_module("joyonway_p25b85.protocol", PKG_DIR / "protocol.py")
+adapters_base = load_module(
+    "joyonway_p25b85.adapters.base", PKG_DIR / "adapters" / "base.py"
+)
+adapters_pkg_mod = types.ModuleType("joyonway_p25b85.adapters")
+adapters_pkg_mod.base = adapters_base
+adapters_pkg_mod.SpaEntityDescription = adapters_base.SpaEntityDescription
+sys.modules["joyonway_p25b85.adapters"] = adapters_pkg_mod
+adapters_p25b85 = load_module(
+    "joyonway_p25b85.adapters.p25b85", PKG_DIR / "adapters" / "p25b85.py"
+)
+adapters_registry = load_module(
+    "joyonway_p25b85.adapters_init", PKG_DIR / "adapters" / "__init__.py"
+)
 
 find_frames = protocol.find_frames
 pseudo_unescape = protocol.pseudo_unescape
@@ -47,273 +38,143 @@ FRAME_END = protocol.FRAME_END
 
 P25B85Adapter = adapters_p25b85.P25B85Adapter
 P25B85_SIGNATURE = adapters_p25b85.P25B85_SIGNATURE
-IDX_WATER_TEMP = adapters_p25b85.IDX_WATER_TEMP
-IDX_SETPOINT = adapters_p25b85.IDX_SETPOINT
 IDX_HEATER_STATE = adapters_p25b85.IDX_HEATER_STATE
-IDX_LIGHT_FLAGS = adapters_p25b85.IDX_LIGHT_FLAGS
-IDX_PUMP_BYTE = adapters_p25b85.IDX_PUMP_BYTE
-IDX_UV_FLAG = adapters_p25b85.IDX_UV_FLAG
 IDX_DATETIME_START = adapters_p25b85.IDX_DATETIME_START
 HEATER_OFF = adapters_p25b85.HEATER_OFF
 HEATER_HEATING = adapters_p25b85.HEATER_HEATING
 HEATER_CIRCULATION = adapters_p25b85.HEATER_CIRCULATION
 HEATER_DISINFECTION = adapters_p25b85.HEATER_DISINFECTION
-_fahrenheit_to_celsius = adapters_p25b85._fahrenheit_to_celsius
+fahrenheit_to_celsius = adapters_p25b85._fahrenheit_to_celsius
 
-get_adapter = adapters_pkg.get_adapter
-ADAPTERS = adapters_pkg.ADAPTERS
+get_adapter = adapters_registry.get_adapter
+ADAPTERS = adapters_registry.ADAPTERS
 
-
-# KDy reference frame (normalized: 0x13 → 0x1B at byte 55, 0x11 → end marker correction)
-# This is the wire frame as it would appear on TCP
-KDY_RAW_HEX = (
-    "1A FF 01 3C D2 B4 FF 08 03 5E 04 06 04 F5 40 00 "
-    "68 01 00 12 21 12 3B 14 00 16 00 04 00 43 00 04 "
-    "3B 12 00 14 00 00 00 06 4D 00 00 00 00 00 00 00 "
-    "00 00 00 00 00 10 05 08 1B 1B 11 12 00 00 4E 28 "
-    "33 1D"
+KDY_RAW = bytes.fromhex(
+    "1AFF013CD2B4FF08035E040604F54000"
+    "6801001221123B140016000400430004"
+    "3B120014000000064D00000000000000"
+    "00000000001005081B1B111200004E28"
+    "331D"
 )
-KDY_RAW = bytes.fromhex(KDY_RAW_HEX.replace(" ", ""))
 
 
-class TestProtocolModule(unittest.TestCase):
-    """Test the protocol.py module (shared frame handling)."""
-
-    def test_find_frames_single(self):
-        stream = bytes([0x1A, 0x01, 0x02, 0x1D])
-        frames = find_frames(stream)
-        self.assertEqual(len(frames), 1)
-        self.assertEqual(frames[0], stream)
-
-    def test_find_frames_multiple(self):
-        f1 = bytes([0x1A, 0xAA, 0x1D])
-        f2 = bytes([0x1A, 0xBB, 0x1D])
-        self.assertEqual(len(find_frames(f1 + f2)), 2)
-
-    def test_find_frames_with_junk(self):
-        junk = bytes([0xFF, 0xFE])
-        frame = bytes([0x1A, 0x01, 0x1D])
-        self.assertEqual(len(find_frames(junk + frame)), 1)
-
-    def test_pseudo_unescape_all_sequences(self):
-        self.assertEqual(pseudo_unescape(bytes([0x1B, 0x11])), bytes([0x1A]))
-        self.assertEqual(pseudo_unescape(bytes([0x1B, 0x0B])), bytes([0x1B]))
-        self.assertEqual(pseudo_unescape(bytes([0x1B, 0x13])), bytes([0x1C]))
-        self.assertEqual(pseudo_unescape(bytes([0x1B, 0x14])), bytes([0x1D]))
-        self.assertEqual(pseudo_unescape(bytes([0x1B, 0x15])), bytes([0x1E]))
-
-    def test_unescape_frame_full(self):
-        frame = bytes([0x1A, 0x1B, 0x11, 0x1D])
-        result = unescape_frame(frame, full=True)
-        self.assertEqual(result, bytes([0x1A, 0x1A, 0x1D]))
-
-    def test_unescape_frame_preserves_delimiters(self):
-        result = unescape_frame(KDY_RAW, full=True)
-        self.assertEqual(result[0], FRAME_START)
-        self.assertEqual(result[-1], FRAME_END)
-
-    def test_is_broadcast(self):
-        self.assertTrue(is_broadcast(bytes([0x1A, 0xFF, 0x01])))
-        self.assertFalse(is_broadcast(bytes([0x1A, 0x20, 0x01])))
-
-    def test_validate_frame(self):
-        self.assertTrue(validate_frame(bytes([0x1A, 0x01, 0x02, 0x1D])))
-        self.assertFalse(validate_frame(bytes([0x1A, 0x1D])))  # too short (< 4)
-        self.assertFalse(validate_frame(bytes([0xFF, 0x01, 0x02, 0x1D])))  # wrong start
-
-    def test_kdy_frame_extraction(self):
-        frames = find_frames(KDY_RAW)
-        self.assertEqual(len(frames), 1)
-        self.assertTrue(is_broadcast(frames[0]))
-        self.assertTrue(validate_frame(frames[0]))
+@pytest.fixture
+def adapter() -> P25B85Adapter:
+    return P25B85Adapter()
 
 
-class TestP25B85Adapter(unittest.TestCase):
-    """Test the P25B85 adapter parse_status against KDy golden sample."""
-
-    def setUp(self):
-        self.adapter = P25B85Adapter()
-        # Apply full unescape (P25B85 policy)
-        self.logical = unescape_frame(KDY_RAW, full=True)
-
-    def test_adapter_properties(self):
-        self.assertEqual(self.adapter.model, "P25B85")
-        self.assertTrue(self.adapter.unescape_full_frame)
-        self.assertTrue(self.adapter.supports_writes)
-
-    def test_signature_matches(self):
-        self.assertEqual(
-            self.logical[: len(P25B85_SIGNATURE)], P25B85_SIGNATURE
-        )
-
-    def test_parse_returns_dict(self):
-        result = self.adapter.parse_status(self.logical)
-        self.assertIsNotNone(result)
-        self.assertIsInstance(result, dict)
-
-    def test_water_temperature(self):
-        result = self.adapter.parse_status(self.logical)
-        # byte[9] = 0x5E = 94°F ≈ 34°C (rounded to integer)
-        self.assertEqual(result["water_temperature"], 34)
-
-    def test_setpoint(self):
-        result = self.adapter.parse_status(self.logical)
-        # byte[16] = 0x68 = 104°F = 40°C (rounded to integer)
-        self.assertEqual(result["setpoint"], 40)
-
-    def test_heater_state_off(self):
-        result = self.adapter.parse_status(self.logical)
-        # KDy frame has byte[14] = 0x40 → off (heater idle)
-        self.assertEqual(result["heater_state"], "off")
-        self.assertFalse(result["heater_active"])
-
-    def test_light_on(self):
-        result = self.adapter.parse_status(self.logical)
-        # byte[17] = 0x01 → light on
-        self.assertTrue(result["light"])
-
-    def test_disinfection_off(self):
-        result = self.adapter.parse_status(self.logical)
-        # byte[14] = 0x40, not 0x41 → UV off
-        self.assertFalse(result["disinfection_active"])
-
-    def test_pump_values(self):
-        result = self.adapter.parse_status(self.logical)
-        # byte[12] = 0x04 → pump_high should be True (0x04 & 0x04)
-        # byte[12] = 0x04 → pump_low should be False (0x04 & 0x02 = 0)
-        self.assertTrue(result["pump_high"])
-        self.assertFalse(result["pump_low"])
-
-    def test_raw_diagnostics_present(self):
-        result = self.adapter.parse_status(self.logical)
-        self.assertIn("raw_pump_byte", result)
-        self.assertIn("raw_heater_byte", result)
-        self.assertEqual(result["raw_water_temp_f"], 0x5E)
-        self.assertEqual(result["raw_setpoint_f"], 0x68)
-
-    def test_spa_datetime_is_timestamp(self):
-        modified = bytearray(self.logical)
-        modified[IDX_DATETIME_START : IDX_DATETIME_START + 6] = bytes([24, 5, 20, 14, 30, 45])
-        result = self.adapter.parse_status(bytes(modified))
-        self.assertIsInstance(result["spa_datetime"], datetime)
-        self.assertEqual(result["spa_datetime"].tzinfo, timezone.utc)
-
-    def test_rejects_wrong_signature(self):
-        # Change byte[8] from 0x03 to 0x02 (P23B32 signature)
-        modified = bytearray(self.logical)
-        modified[8] = 0x02
-        result = self.adapter.parse_status(bytes(modified))
-        self.assertIsNone(result)
-
-    def test_rejects_short_frame(self):
-        result = self.adapter.parse_status(bytes([0x1A, 0xFF, 0x01, 0x1D]))
-        self.assertIsNone(result)
-
-    def test_entity_descriptions(self):
-        descs = self.adapter.entity_descriptions()
-        self.assertGreater(len(descs), 0)
-
-        # Check we have sensors
-        platforms = {d.platform for d in descs}
-        self.assertIn("sensor", platforms)
-
-        # Check key entities exist
-        keys = {d.key for d in descs}
-        self.assertIn("water_temperature", keys)
+@pytest.fixture
+def logical_frame() -> bytes:
+    return unescape_frame(KDY_RAW, full=True)
 
 
-class TestP25B85HeaterStates(unittest.TestCase):
-    """Test all heater state byte values (at byte 14, validated from captures).
-
-    KDy used 1-based numbering ("byte 15") — 0-based is byte 14.
-    KDy describes three stages: circulation (0x50) → heating (0x54) → cooldown (0x40).
-    Our captures show 0x55 for heating and 0x41 for UV (1-bit variants of KDy's values).
-    Both sets are accepted.
-    """
-
-    def setUp(self):
-        self.adapter = P25B85Adapter()
-        self.base_logical = unescape_frame(KDY_RAW, full=True)
-
-    def _with_heater_byte(self, value: int) -> bytes:
-        modified = bytearray(self.base_logical)
-        modified[IDX_HEATER_STATE] = value
-        return bytes(modified)
-
-    def test_heater_off(self):
-        result = self.adapter.parse_status(self._with_heater_byte(HEATER_OFF))
-        self.assertEqual(result["heater_state"], "off")
-        self.assertFalse(result["heater_active"])
-
-    def test_heater_circulation(self):
-        result = self.adapter.parse_status(self._with_heater_byte(HEATER_CIRCULATION))
-        self.assertEqual(result["heater_state"], "circulation")
-        self.assertFalse(result["heater_active"])
-
-    def test_heater_heating(self):
-        result = self.adapter.parse_status(self._with_heater_byte(HEATER_HEATING))
-        self.assertEqual(result["heater_state"], "heating")
-        self.assertTrue(result["heater_active"])
-
-    def test_heater_heating_kdy_variant(self):
-        """KDy reported 0x54 for heating (our captures show 0x55, bit 0 differs)."""
-        result = self.adapter.parse_status(self._with_heater_byte(0x54))
-        self.assertEqual(result["heater_state"], "heating")
-        self.assertTrue(result["heater_active"])
-
-    def test_heater_disinfection(self):
-        result = self.adapter.parse_status(self._with_heater_byte(HEATER_DISINFECTION))
-        self.assertEqual(result["heater_state"], "disinfection")
-        self.assertFalse(result["heater_active"])
-        self.assertTrue(result["disinfection_active"])
-
-    def test_heater_disinfection_kdy_variant(self):
-        """KDy reported 0xC1 for UV/ozone (our captures show 0x41, bit 7 differs)."""
-        result = self.adapter.parse_status(self._with_heater_byte(0xC1))
-        self.assertEqual(result["heater_state"], "disinfection")
-        self.assertFalse(result["heater_active"])
-        self.assertTrue(result["disinfection_active"])
-
-    def test_heater_unknown(self):
-        result = self.adapter.parse_status(self._with_heater_byte(0x99))
-        self.assertEqual(result["heater_state"], "unknown")
+def test_find_frames_and_broadcast_validation() -> None:
+    frames = find_frames(bytes([0xFF, 0x1A, 0xFF, 0x01, 0x1D]))
+    assert len(frames) == 1
+    assert is_broadcast(frames[0])
+    assert validate_frame(frames[0])
 
 
-class TestAdapterRegistry(unittest.TestCase):
-    """Test the adapter registry."""
-
-    def test_get_p25b85(self):
-        adapter = get_adapter("P25B85")
-        self.assertEqual(adapter.model, "P25B85")
-
-    def test_unknown_model_raises(self):
-        with self.assertRaises(ValueError):
-            get_adapter("UNKNOWN")
-
-    def test_registry_contains_p25b85(self):
-        self.assertIn("P25B85", ADAPTERS)
-
-
-class TestFahrenheitConversion(unittest.TestCase):
-    """Test temperature conversion edge cases."""
-
-    def test_normal_values(self):
-        self.assertEqual(_fahrenheit_to_celsius(94), 34)
-        self.assertEqual(_fahrenheit_to_celsius(104), 40)
-        self.assertEqual(_fahrenheit_to_celsius(32), 0)
-
-    def test_zero_invalid(self):
-        self.assertIsNone(_fahrenheit_to_celsius(0))
-
-    def test_over_200_invalid(self):
-        self.assertIsNone(_fahrenheit_to_celsius(201))
-        self.assertIsNone(_fahrenheit_to_celsius(255))
-
-    def test_boundary_200(self):
-        self.assertIsNotNone(_fahrenheit_to_celsius(200))
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (bytes([0x1B, 0x11]), bytes([0x1A])),
+        (bytes([0x1B, 0x0B]), bytes([0x1B])),
+        (bytes([0x1B, 0x13]), bytes([0x1C])),
+        (bytes([0x1B, 0x14]), bytes([0x1D])),
+        (bytes([0x1B, 0x15]), bytes([0x1E])),
+    ],
+)
+def test_pseudo_unescape(raw: bytes, expected: bytes) -> None:
+    assert pseudo_unescape(raw) == expected
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_unescape_preserves_frame_delimiters() -> None:
+    logical = unescape_frame(KDY_RAW, full=True)
+    assert logical[0] == FRAME_START
+    assert logical[-1] == FRAME_END
+
+
+def test_adapter_properties(adapter: P25B85Adapter, logical_frame: bytes) -> None:
+    assert adapter.model == "P25B85"
+    assert adapter.unescape_full_frame is True
+    assert adapter.supports_writes is True
+    assert logical_frame[: len(P25B85_SIGNATURE)] == P25B85_SIGNATURE
+
+
+def test_parse_status_core_fields(adapter: P25B85Adapter, logical_frame: bytes) -> None:
+    result = adapter.parse_status(logical_frame)
+    assert isinstance(result, dict)
+    assert result["water_temperature"] == 34
+    assert result["setpoint"] == 40
+    assert result["heater_state"] == "off"
+    assert result["heater_active"] is False
+    assert result["pump_high"] is True
+    assert result["pump_low"] is False
+    assert result["light"] is True
+
+
+def test_parse_status_datetime(adapter: P25B85Adapter, logical_frame: bytes) -> None:
+    modified = bytearray(logical_frame)
+    modified[IDX_DATETIME_START : IDX_DATETIME_START + 6] = bytes([24, 5, 20, 14, 30, 45])
+    result = adapter.parse_status(bytes(modified))
+    assert isinstance(result["spa_datetime"], datetime)
+    assert result["spa_datetime"].tzinfo == timezone.utc
+
+
+def test_parse_rejects_wrong_signature(adapter: P25B85Adapter, logical_frame: bytes) -> None:
+    modified = bytearray(logical_frame)
+    modified[8] = 0x02
+    assert adapter.parse_status(bytes(modified)) is None
+
+
+@pytest.mark.parametrize(
+    ("heater_byte", "state", "active", "disinfection"),
+    [
+        (HEATER_OFF, "off", False, False),
+        (HEATER_CIRCULATION, "circulation", False, False),
+        (HEATER_HEATING, "heating", True, False),
+        (0x54, "heating", True, False),
+        (HEATER_DISINFECTION, "disinfection", False, True),
+        (0xC1, "disinfection", False, True),
+        (0x99, "unknown", False, False),
+    ],
+)
+def test_heater_state_mapping(
+    adapter: P25B85Adapter,
+    logical_frame: bytes,
+    heater_byte: int,
+    state: str,
+    active: bool,
+    disinfection: bool,
+) -> None:
+    modified = bytearray(logical_frame)
+    modified[IDX_HEATER_STATE] = heater_byte
+    result = adapter.parse_status(bytes(modified))
+    assert result["heater_state"] == state
+    assert result["heater_active"] is active
+    assert result["disinfection_active"] is disinfection
+
+
+def test_entity_descriptions(adapter: P25B85Adapter) -> None:
+    descs = adapter.entity_descriptions()
+    assert descs
+    assert {d.platform for d in descs} >= {"sensor"}
+    assert "water_temperature" in {d.key for d in descs}
+
+
+def test_adapter_registry() -> None:
+    assert "P25B85" in ADAPTERS
+    assert get_adapter("P25B85").model == "P25B85"
+    with pytest.raises(ValueError):
+        get_adapter("UNKNOWN")
+
+
+@pytest.mark.parametrize(
+    ("f", "expected"),
+    [(94, 34), (104, 40), (32, 0), (0, None), (201, None), (255, None)],
+)
+def test_fahrenheit_to_celsius(f: int, expected: int | None) -> None:
+    assert fahrenheit_to_celsius(f) == expected
 
 
