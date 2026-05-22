@@ -20,9 +20,9 @@ The P25B85 controls spas like the **Home Deluxe White Marble** outdoor whirlpool
 
 > **Status: Entities and write control implemented** — the P25B85 byte map has
 > been validated against local RS485 captures for temperature, setpoint, pump,
-> light, heater, blower, and disinfection states. The CRC-32 algorithm has been
-> fully cracked and verified (21/21 frames), enabling dynamic frame generation
-> for any command.
+> light, heater, blower, and disinfection states. CRC-32 is cracked and verified
+> (21/21 unique frames) and implemented in `protocol.py`; current entity writes
+> still use captured replay frames / lookup tables (is-state).
 
 > **Discussion thread:** [JoyOnWay Spa Control — Home Assistant Community](https://community.home-assistant.io/t/joyonway-spa-control/582344)
 
@@ -40,13 +40,13 @@ The P25B85 controls spas like the **Home Deluxe White Marble** outdoor whirlpool
 | **Pump**         | 1× dual-speed (low = filtration, high = massage jets)         |
 | **Light**        | RGB LED (9 colour states via button press)                    |
 | **Heater**       | 2 kW resistive, thermostat-controlled                         |
-| **UV/ozone**     | UV lamp connected on ozonator port                            |
+| **UV/ozone port**| Scheduled disinfection cycle state (not user-toggleable)      |
 
 ---
 
 ## Features
 
-- **Water temperature** and **setpoint** monitoring (°C)
+- **Water temperature** monitoring (°C)
 - **Thermostat control** (10°C to 40°C) with debounced slider writes
 - **Jets control** (off/low/high) via fan preset modes
 - **Light** on/off via replay toggle command
@@ -70,11 +70,12 @@ The P25B85 controls spas like the **Home Deluxe White Marble** outdoor whirlpool
 
 The P25B85 uses a 4-byte CRC-32 on all command frames. The CRC algorithm has been fully reverse-engineered (standard CRC-32 polynomial `0x04C11DB7` with word-swap preprocessing) and verified against 21 unique captured frames covering all command types.
 
-- ✅ CRC is computed correctly for every command frame
+- ✅ CRC algorithm is implemented and verified for dynamic frame building
+- ✅ Current runtime writes send captured frames with known-good CRC bytes
 - ✅ All commands are validated against observed state changes from physical captures
 - ✅ Write pacing enforces a 1-second cooldown between commands
 
-> **Note:** KDy documented that sending a frame with an invalid CRC can activate the heater unexpectedly. This integration always computes correct CRC values.
+> **Note:** KDy documented that sending a frame with an invalid CRC can activate the heater unexpectedly. This integration currently sends captured commands with known-good CRC; dynamic CRC generation is verified and available for future migration.
 
 ---
 
@@ -132,7 +133,6 @@ The integration performs a TCP connection test before saving.
 | Entity            | Description                                                                |
 |-------------------|----------------------------------------------------------------------------|
 | Water temperature | Current water temp in °C                                                   |
-| Setpoint          | Target temperature in °C                                                   |
 | Heater state      | off / circulation / heating / disinfection                                 |
 | Spa clock         | Controller date/time as timestamp sensor (diagnostic, disabled by default) |
 | Raw pump byte     | Diagnostic (disabled by default)                                           |
@@ -168,18 +168,15 @@ The integration performs a TCP connection test before saving.
 
 ## Development Plan
 
-This integration is built in phases:
+Roadmap and session handoff live in `docs/plan.md`.
 
-| Phase                   | Status  | Description                                                         |
-|-------------------------|---------|---------------------------------------------------------------------|
-| 1. Capture tools        | ✅ Done  | CLI tools for guided RS485 capture and frame analysis               |
-| 2. Integration skeleton | ✅ Done  | HA integration with adapter architecture, protocol parser, entities |
-| 3. Capture & validate   | ✅ Done  | Local captures validated the P25B85 byte map                        |
-| 4. Write commands       | ✅ Done  | Replay verified panel frames for equipment control                  |
-| 5. CRC cracking         | ✅ Done  | CRC-32 algorithm fully cracked, dynamic frame generation ready      |
-| 6. Live testing         | Next    | Test all write entities at the spa                                  |
-| 7. Schedule entities    | Planned | Heat/filter schedule and date/time sync                             |
-| 8. Polish & release     | Planned | HACS validation, community testing, documentation                   |
+Current high-level status:
+
+- Capture + byte-map validation: done
+- Integration entities: implemented
+- CRC cracking + protocol implementation: done
+- Runtime writes: replay/lookup is-state
+- Next: live spa testing, then migrate writes to algorithm-based frame generation
 
 ---
 

@@ -1,61 +1,27 @@
 # CRC Analysis — P25B85 Command Frames
 
+This file is the CRC derivation/forensics companion.
+Canonical protocol behavior and implementation-facing parameters live in
+`docs/protocol.md`.
+
 ## SOLVED ✅
 
 The CRC algorithm has been fully cracked and verified against 21 unique
 same-session frames (all command types: temp, light, pump, heater, blower,
 datetime, filter schedule, heat schedule).
 
-### Algorithm
+### Final parameters (summary)
 
 | Parameter | Value |
 |-----------|-------|
-| **Polynomial** | `0x04C11DB7` (standard CRC-32 / Ethernet) |
+| **Polynomial** | `0x04C11DB7` |
 | **Init** | `0x00000000` |
 | **XorOut** | `0x552D22C8` |
-| **Reflected** | No (MSB-first, non-reflected) |
-| **Message** | inner[0:16] (16 bytes between 0x1A/0x1D, unescaped) |
-| **Transform** | Each 32-bit word byte-reversed before CRC |
-| **CRC storage** | Little-endian at inner[16:20] |
+| **Reflected** | No (MSB-first) |
+| **Transform** | 32-bit word byte-swap before CRC |
+| **CRC storage** | Little-endian at payload bytes 16–19 |
 
-### How to compute
-
-```python
-import struct
-
-POLY = 0x04C11DB7
-INIT = 0x00000000
-XOR_OUT = 0x552D22C8
-
-def word32_swap(data: bytes) -> bytes:
-    """Byte-reverse each 32-bit word."""
-    result = bytearray()
-    for i in range(0, len(data), 4):
-        result.extend(reversed(data[i:i+4]))
-    return bytes(result)
-
-def crc32_p25b85(payload_16: bytes) -> int:
-    """Compute CRC-32 for a 16-byte P25B85 command payload."""
-    msg = word32_swap(payload_16)
-    crc = INIT
-    for byte in msg:
-        crc ^= byte << 24
-        for _ in range(8):
-            if crc & 0x80000000:
-                crc = ((crc << 1) & 0xFFFFFFFF) ^ POLY
-            else:
-                crc = (crc << 1) & 0xFFFFFFFF
-    return crc ^ XOR_OUT
-
-def build_command_frame(payload_16: bytes) -> bytes:
-    """Build a complete wire frame from 16-byte payload."""
-    crc = crc32_p25b85(payload_16)
-    crc_bytes = struct.pack('<I', crc)  # little-endian
-    inner = payload_16 + crc_bytes
-    # Escape and frame
-    escaped = escape(inner)
-    return b'\\x1a' + escaped + b'\\x1d'
-```
+For current algorithm pseudocode and frame construction, see `docs/protocol.md`.
 
 ### Why the XorOut is non-zero
 

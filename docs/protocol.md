@@ -1,7 +1,10 @@
 # Protocol
 
-Reference documentation for Joyonway spa RS-485 communication protocols.
-Captured from physical touchpad ↔ controller bus sniffing.
+Canonical protocol reference for Joyonway spa RS-485 communication in this repo.
+Captured from physical touchpad <-> controller bus sniffing.
+
+This document describes the **current observed protocol** and explicitly marks
+where multiple captured command-byte variants exist.
 
 ---
 
@@ -54,6 +57,9 @@ same-session frames covering all command types.
 | CRC position | Bytes 16–19 of unescaped inner frame |
 | CRC byte order | Little-endian |
 
+Deep-dive derivation and historical cracking notes are in
+`docs/crc_analysis.md`.
+
 **Algorithm (pseudocode):**
 
 ```
@@ -89,7 +95,7 @@ wire = 0x1A + escaped + 0x1D
 The controller sends periodic broadcast frames (~2/sec) reporting spa state.
 These are long frames (60+ bytes) prefixed with destination `0xFF`.
 
-**Byte map** (logical frame after unescape, 0-indexed from inner start):
+**Byte map** (logical frame after unescape, 0-indexed including `0x1A` start):
 
 | Byte | Content |
 |------|---------|
@@ -100,7 +106,7 @@ These are long frames (60+ bytes) prefixed with destination `0xFF`.
 | 16 | Setpoint temperature (°F) |
 | 17 | Light flags (bit 0 = light ON) |
 | 19 | Schedule config byte (changes on heat/filter schedule writes) |
-| 28 | Activity flags (bit 3=blower, bit 5=disinfection active) |
+| 28 | Activity flags (bit 3=blower, bit 5=activity/disinfection-related) |
 | 29 | Filter schedule config (observed: `0x4C` → `0xCD` on write) |
 | 53–58 | Date/time: year, month, day, hour, minute, second |
 
@@ -113,6 +119,9 @@ These are long frames (60+ bytes) prefixed with destination `0xFF`.
 | `0x54` / `0x55` | Heater active |
 | `0x41` / `0xC1` | Disinfection cycle |
 | `0x58` | Blower active (base `0x50` + bit 3) |
+
+For disinfection state, byte 14 (`0x41`/`0xC1`) is the authoritative indicator.
+Byte 28 bit 5 is useful activity context but not UV-specific on its own.
 
 ---
 
@@ -161,10 +170,14 @@ Where `[type]` = `A1` / `A2` / `A3` / `A4`.
 
 | Button | byte[9] | byte[10] ON | byte[10] OFF |
 |--------|---------|-------------|--------------|
-| Light | `0x40` | `0x58` (toggle) | `0x58` (same) |
+| Light | `0x40` | `0x58` (same-session) / `0x40` (legacy replay) | same as ON (toggle) |
 | Heater | `0x08` | `0x08` | `0x00` |
-| Blower | `0x04` | `0x04` | `0x00` |
+| Blower | `0x04` | `0x04` (same-session) / `0x0C` (legacy replay) | `0x00` (same-session) / `0x08` (legacy replay) |
 | Temperature | `0x80` | `0x80`/`0x99`/`0x98` | — |
+
+Current integration is-state: entity writes still use replay/lookup frames from
+`custom_components/joyonway_p25b85/adapters/p25b85.py` (legacy variants for
+light/blower, same CRC-valid frame family).
 
 **Pump commands** use bytes 7–8 (pump state transition):
 
@@ -282,6 +295,17 @@ been verified for all same-session frames.
 | DateTime set | `1a0120103ca210a1501b110515163500000087ecf6541d` |
 | Filter schedule | `1a0120103ca410a1aa0c000c00110012007b62bdb61d` |
 | Heat schedule | `1a0120103ca310a1620c001000140016005787b0ed1d` |
+
+#### 5.2.1. Same-session button bytes (double-check from captures)
+
+Extracted from `tools/captures_crc/crc_session.json` payload bytes 9-10:
+
+| Action | byte[9] | byte[10] |
+|--------|---------|----------|
+| Light toggle | `0x40` | `0x58` |
+| Heater ON / OFF | `0x08` | `0x08` / `0x00` |
+| Blower ON / OFF | `0x04` | `0x04` / `0x00` |
+| Pump transitions | `0x00` | `0x08` |
 
 #### 5.3. Button Commands (earlier sessions — pre-CRC, replay-only)
 

@@ -271,3 +271,4 @@ CRC is cracked → we can generate frames dynamically for these features:
   - `verify_crc32_v2.py` — verifies polynomial + word-swap against all frames
   - `verify_protocol_crc.py` — verifies `protocol.py` implementation
   - Various analysis scripts: `analyze_crc_session2.py`, `extract_poly.py`, `crack_crc2.py`
+
