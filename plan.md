@@ -117,10 +117,14 @@ Temperature: 31 frames in `TEMP_COMMAND_TABLE` (adapters/p25b85.py), 10-40°C.
 | Blower | 0x04 | 0x0C | 0x08 |
 | Pump | via byte[8-9] | — | — |
 
-### CRC safety
+### CRC — CRACKED ✅
 
-- ❌ NEVER send frames with forged CRC (can activate heater — KDy warning)
-- ✅ ONLY replay verbatim captured frames from physical panel
+- **Algorithm:** CRC-32 (0x04C11DB7), non-reflected, init=0, xor_out=0x552D22C8
+- **Preprocessing:** 32-bit word byte-swap of payload before CRC
+- **Storage:** little-endian at payload bytes 16–19
+- **Implementation:** `protocol.py` → `compute_crc()` and `build_frame()`
+- **Verification:** 21/21 unique same-session frames, all command types
+- Can now generate frames dynamically for ANY command (no lookup table needed)
 - See `docs/crc_analysis.md` for full analysis
 
 ---
@@ -201,8 +205,8 @@ custom_components/joyonway_p25b85/
 | 5. Extended captures | ✅ Done | Heater, blower, datetime, filter/heat schedule all captured |
 | 6. Temperature control | ✅ Done | Climate with debounced slider, 31-frame lookup |
 | 7. Live test writes | **Next** | Test all write entities at spa |
-| 8. Schedule/datetime entities | Planned | Implement heat schedule, filter schedule, datetime sync |
-| 9. CRC cracking | Optional | `capture_crc_session.py` + `crack_crc.py --input` |
+| 8. Schedule/datetime entities | Planned | Heat schedule, filter schedule, datetime sync |
+| 9. CRC cracking | ✅ **Done** | P=0x04C11DB7, word32-swap, verified 21/21 frames |
 | 10. Polish & release | Planned | After live test |
 
 ---
@@ -216,34 +220,31 @@ custom_components/joyonway_p25b85/
 4. **Check cross-session replay** — heater/blower commands were captured in a different
    session from Phase 4 pump/light commands; confirm they still work
 
-### Priority 2: CRC cracking (optional but high value)
-If replay works, cracking the CRC would eliminate the lookup table limitation:
-```bash
-python3 tools/capture_crc_session.py   # resumable; output defaults to tools/captures_crc
-python3 tools/crack_crc.py --input tools/captures_crc/crc_session.json
-```
-This captures temp, light, pump, heater, blower, datetime, heat schedule, and
-filter schedule commands. It resumes automatically if interrupted, so rerun the
-same command to continue. If the polynomial is found, we can compute CRC for any
-command and generate frames dynamically.
+### Priority 2: Dynamic frame generation (CRC cracked!)
+With the CRC cracked, we can now:
+- Generate temperature commands for ANY setpoint (no lookup table limitation)
+- Generate datetime sync frames with current timestamp
+- Generate custom schedule frames
+- Eliminate the 31-frame `TEMP_COMMAND_TABLE` and compute on the fly
+- Implementation: `protocol.build_frame(payload)` computes CRC and escapes
 
 ### Priority 3: Polish & release
 - Version bump, README final review, HACS release
 - PR to frame-analyzer — add P25B85 preset to christopheknap's tool
 
-### Schedule/datetime commands (captured, implementation planned — Phase 8)
-These frames were captured successfully. Implementation after live testing:
-- **DateTime set** (0xA2 frame): spa clock sync service or automation.
-  Frame encodes year/month/day/hour/min/sec. Could auto-sync on HA start.
-  Unescaped payload: `50 1a 05 15 0f 09` = likely BCD or raw values.
-  Needs CRC cracking OR capture of multiple datetime frames to understand encoding.
-- **Heat schedule** (0xA3 frame): program heating time windows.
-  Payload: `62 0e 00 10 00 14 00 16` — likely start/end hours for time slots.
-  Broadcast byte[19] changes when schedule is written.
-- **Filter schedule** (0xA4 frame): program filtration time windows.
-  Payload: `aa 0d 00 0c 00 11 00 12` — similar structure to heat schedule.
-  Broadcast byte[29] changes (0x4C→0xCD) when schedule is written.
-- **Screen flip**: handled locally by PB554, not sent on RS485 — cannot be implemented
+### Priority 4: Schedule/DateTime entities (Phase 8 — CRC enables this)
+CRC is cracked → we can generate frames dynamically for these features:
+- **DateTime sync** (0xA2): auto-sync spa clock to HA time on startup/daily.
+  Need to decode exact byte encoding (verify with 2–3 captures at known times).
+  Implement as `button` or `service` entity (`spa.sync_clock`).
+- **Heat schedule** (0xA3): set heating time windows from HA.
+  Payload structure captured; implement as `time` entities or service.
+  Could expose start/end times for 2 heating slots.
+- **Filter schedule** (0xA4): set filtration time windows from HA.
+  Same structure as heat schedule; 2 filtration slots.
+  Could expose as `time` entities or service.
+- **Dynamic temperature** — replace `TEMP_COMMAND_TABLE` lookup with
+  `protocol.build_frame()` for any °F target. Eliminates the 31-frame limit.
 
 ---
 
@@ -261,11 +262,13 @@ These frames were captured successfully. Implementation after live testing:
   - Stored as raw wire hex; replay sends verbatim (including escapes)
 - **Command send pattern**: coordinator opens TCP, writes frame, closes.
   Uses `asyncio.Lock` + global 1.0s cooldown to prevent concurrent/burst sends.
-- **CRC** — see `docs/crc_analysis.md`. Linear but session-dependent.
-  CRC cracking tool: `tools/capture_crc_session.py` → `tools/crack_crc.py --input`.
-  The capture tool defaults to `tools/captures_crc`, includes config commands,
-  and resumes automatically. Use `--fresh` to restart or `--core-only` to skip
-  datetime/schedule commands.
+- **CRC** — CRACKED. Standard CRC-32 (0x04C11DB7), non-reflected, init=0,
+  xor_out=0x552D22C8, with 32-bit word byte-swap preprocessing. Implemented
+  in `protocol.py` as `compute_crc()` and `build_frame()`. Verified 21/21
+  frames across all command types. The word-swap is due to the PB554's ARM
+  Cortex-M MCU feeding a hardware CRC peripheral in little-endian word order.
+  CRC cracking tool chain: `capture_crc_session.py` → `bf_poly` (C brute-force)
+  → `verify_crc32_v2.py`. See `docs/crc_analysis.md` for full write-up.
 - **Entity unique_id for fan** changed from `_pump` to `_jets` — existing HA installs
   may need entity re-registration after update.
 - **Capture tools**: `guided_capture_phase5.py` only has filter schedule, heat schedule,
