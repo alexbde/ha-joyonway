@@ -48,6 +48,37 @@ IDX_ACTIVITY_FLAG = 28  # ✅ confirmed (KDy "byte 29"); set during heating and 
 IDX_UV_FLAG = IDX_ACTIVITY_FLAG
 IDX_DATETIME_START = 53  # bytes 53-58: year, month, day, hour, minute, second
 
+# Schedule byte positions in broadcast frame
+# Layout per schedule: [s1_start_h] [s1_start_m] [s1_end_h] [s1_end_m]
+#                      [s2_start_h] [s2_start_m] [s2_end_h] [s2_end_m]
+# Start-hour bytes encode: hour | 0x40 when slot is enabled, plain hour when disabled
+MASK_SLOT_ENABLED = 0x40   # bit 6 on start-hour byte = slot enabled
+MASK_SLOT_HOUR = 0x3F      # lower 6 bits = hour value (0-23)
+
+# Heat schedule: broadcast bytes 19-26
+IDX_HEAT_SLOT1_START_H = 19   # Heat slot 1 start hour (+ enable flag)
+IDX_HEAT_SLOT1_START_M = 20   # Heat slot 1 start minute
+IDX_HEAT_SLOT1_END_H = 21     # Heat slot 1 end hour
+IDX_HEAT_SLOT1_END_M = 22     # Heat slot 1 end minute
+IDX_HEAT_SLOT2_START_H = 23   # Heat slot 2 start hour (+ enable flag)
+IDX_HEAT_SLOT2_START_M = 24   # Heat slot 2 start minute
+IDX_HEAT_SLOT2_END_H = 25     # Heat slot 2 end hour
+IDX_HEAT_SLOT2_END_M = 26     # Heat slot 2 end minute
+
+# Filter schedule: broadcast bytes 29-36
+IDX_FILTER_SLOT1_START_H = 29  # Filter slot 1 start hour (+ enable flag)
+IDX_FILTER_SLOT1_START_M = 30  # Filter slot 1 start minute
+IDX_FILTER_SLOT1_END_H = 31   # Filter slot 1 end hour
+IDX_FILTER_SLOT1_END_M = 32   # Filter slot 1 end minute
+IDX_FILTER_SLOT2_START_H = 33  # Filter slot 2 start hour (+ enable flag)
+IDX_FILTER_SLOT2_START_M = 34  # Filter slot 2 start minute
+IDX_FILTER_SLOT2_END_H = 35   # Filter slot 2 end hour
+IDX_FILTER_SLOT2_END_M = 36   # Filter slot 2 end minute
+
+# Schedule command flags bytes (byte 7 of command payload)
+HEAT_SCHEDULE_FLAGS = 0x62
+FILTER_SCHEDULE_FLAGS = 0xAA
+
 # Pump masks
 MASK_PUMP_LOW = 0x02   # filtration / circulation ✅
 MASK_PUMP_HIGH = 0x04  # massage jets ✅
@@ -246,6 +277,28 @@ class P25B85Adapter:
         else:
             result["spa_datetime"] = None
 
+        # Parse heat schedule from broadcast (bytes 19-26)
+        if len(frame) > IDX_HEAT_SLOT2_END_M:
+            raw_s1 = frame[IDX_HEAT_SLOT1_START_H]
+            raw_s2 = frame[IDX_HEAT_SLOT2_START_H]
+            result["heat_slot1_start"] = (raw_s1 & MASK_SLOT_HOUR, frame[IDX_HEAT_SLOT1_START_M])
+            result["heat_slot1_end"] = (frame[IDX_HEAT_SLOT1_END_H], frame[IDX_HEAT_SLOT1_END_M])
+            result["heat_slot1_enabled"] = bool(raw_s1 & MASK_SLOT_ENABLED)
+            result["heat_slot2_start"] = (raw_s2 & MASK_SLOT_HOUR, frame[IDX_HEAT_SLOT2_START_M])
+            result["heat_slot2_end"] = (frame[IDX_HEAT_SLOT2_END_H], frame[IDX_HEAT_SLOT2_END_M])
+            result["heat_slot2_enabled"] = bool(raw_s2 & MASK_SLOT_ENABLED)
+
+        # Parse filter schedule from broadcast (bytes 29-36)
+        if len(frame) > IDX_FILTER_SLOT2_END_M:
+            raw_s1 = frame[IDX_FILTER_SLOT1_START_H]
+            raw_s2 = frame[IDX_FILTER_SLOT2_START_H]
+            result["filter_slot1_start"] = (raw_s1 & MASK_SLOT_HOUR, frame[IDX_FILTER_SLOT1_START_M])
+            result["filter_slot1_end"] = (frame[IDX_FILTER_SLOT1_END_H], frame[IDX_FILTER_SLOT1_END_M])
+            result["filter_slot1_enabled"] = bool(raw_s1 & MASK_SLOT_ENABLED)
+            result["filter_slot2_start"] = (raw_s2 & MASK_SLOT_HOUR, frame[IDX_FILTER_SLOT2_START_M])
+            result["filter_slot2_end"] = (frame[IDX_FILTER_SLOT2_END_H], frame[IDX_FILTER_SLOT2_END_M])
+            result["filter_slot2_enabled"] = bool(raw_s2 & MASK_SLOT_ENABLED)
+
         return result
 
     def entity_descriptions(self) -> list[SpaEntityDescription]:
@@ -288,6 +341,86 @@ class P25B85Adapter:
         Returns None if the temperature is out of range (10-40°C).
         """
         return TEMP_COMMAND_TABLE.get(target_celsius)
+
+    def build_schedule_command(
+        self,
+        schedule_type: str,
+        slot1_start: tuple[int, int],
+        slot1_end: tuple[int, int],
+        slot2_start: tuple[int, int],
+        slot2_end: tuple[int, int],
+    ) -> bytes:
+        """Build a schedule command frame with CRC.
+
+        Args:
+            schedule_type: "heat" or "filter"
+            slot1_start: (hour, minute) for slot 1 start
+            slot1_end: (hour, minute) for slot 1 end
+            slot2_start: (hour, minute) for slot 2 start
+            slot2_end: (hour, minute) for slot 2 end
+
+        Returns:
+            Wire-ready frame bytes.
+        """
+        from ..protocol import build_frame
+
+        if schedule_type == "heat":
+            cmd_type = 0xA3
+            flags = HEAT_SCHEDULE_FLAGS
+        elif schedule_type == "filter":
+            cmd_type = 0xA4
+            flags = FILTER_SCHEDULE_FLAGS
+        else:
+            raise ValueError(f"Unsupported schedule type: {schedule_type}")
+
+        # Command payload (16 bytes):
+        # [0-6] header, [7] flags, [8-15] slot times
+        payload = bytearray([
+            0x01, 0x20, 0x10, 0x3C, cmd_type, 0x10, 0xA1,
+            flags,
+            slot1_start[0], slot1_start[1],  # slot 1 start h, m
+            slot1_end[0], slot1_end[1],      # slot 1 end h, m
+            slot2_start[0], slot2_start[1],  # slot 2 start h, m
+            slot2_end[0], slot2_end[1],      # slot 2 end h, m
+        ])
+        return build_frame(bytes(payload))
+
+    def build_datetime_command(
+        self,
+        year: int,
+        month: int,
+        day: int,
+        hour: int,
+        minute: int,
+        second: int,
+    ) -> bytes:
+        """Build a DateTime set command frame with CRC.
+
+        Args:
+            year: Full year (e.g. 2026)
+            month: 1-12
+            day: 1-31
+            hour: 0-23
+            minute: 0-59
+            second: 0-59
+
+        Returns:
+            Wire-ready frame bytes.
+        """
+        from ..protocol import build_frame
+
+        payload = bytearray([
+            0x01, 0x20, 0x10, 0x3C, 0xA2, 0x10, 0xA1,
+            0x50,                    # fixed prefix
+            year - 2000,             # year offset
+            month,
+            day,
+            hour,
+            minute,
+            second,
+            0x00, 0x00,
+        ])
+        return build_frame(bytes(payload))
 
 
 _P25B85_ENTITIES: list[SpaEntityDescription] = [

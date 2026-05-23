@@ -21,5 +21,5 @@ TCP_TIMEOUT: float = 5.0
 SCAN_INTERVAL: int = 30
 
 # Loaded platforms
-PLATFORMS: list[str] = ["sensor", "binary_sensor", "switch", "fan", "climate"]
+PLATFORMS: list[str] = ["sensor", "binary_sensor", "switch", "fan", "climate", "time", "button"]
 

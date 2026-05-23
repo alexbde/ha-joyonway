@@ -1,7 +1,7 @@
-"""Switch platform for Joyonway P25B85 — light toggle and pump control.
+"""Switch platform for Joyonway P25B85 — light, heater, blower, schedule enables.
 
-Uses replay-only command frames captured from the PB554 panel.
-No CRC computation — only verbatim captured frames are sent.
+Uses replay-only command frames for light/heater/blower.
+Uses dynamic CRC-computed frames for schedule enable/disable.
 """
 from __future__ import annotations
 
@@ -35,6 +35,10 @@ async def async_setup_entry(
         SpaLightSwitch(coordinator, entry),
         SpaHeaterSwitch(coordinator, entry),
         SpaBlowerSwitch(coordinator, entry),
+        SpaScheduleSlotSwitch(coordinator, entry, "heat", 1),
+        SpaScheduleSlotSwitch(coordinator, entry, "heat", 2),
+        SpaScheduleSlotSwitch(coordinator, entry, "filter", 1),
+        SpaScheduleSlotSwitch(coordinator, entry, "filter", 2),
     ]
     async_add_entities(entities)
 
@@ -189,4 +193,101 @@ class SpaBlowerSwitch(CoordinatorEntity, SwitchEntity):
         success = await coordinator.async_send_command(CMD_BLOWER_OFF)
         if not success:
             raise HomeAssistantError("Failed to send blower OFF command")
+        await coordinator.async_request_refresh()
+
+
+class SpaScheduleSlotSwitch(CoordinatorEntity, SwitchEntity):
+    """Switch entity to enable/disable a schedule time slot."""
+
+    _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        coordinator: JoyonwayP25B85Coordinator,
+        entry: ConfigEntry,
+        schedule_type: str,
+        slot: int,
+    ) -> None:
+        """Initialize the schedule slot switch."""
+        super().__init__(coordinator)
+        self._schedule_type = schedule_type
+        self._slot = slot
+        self._key = f"{schedule_type}_slot{slot}_enabled"
+        self._attr_unique_id = f"{entry.entry_id}_{self._key}"
+        self._attr_device_info = device_info(entry)
+        self._attr_translation_key = self._key
+        self._attr_icon = "mdi:calendar-check" if schedule_type == "heat" else "mdi:air-filter"
+        self._last_slot_times: tuple[tuple[int, int], tuple[int, int]] | None = None
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return True if the schedule slot is enabled."""
+        if self.coordinator.data is None:
+            return None
+        return self.coordinator.data.get(self._key)
+
+    async def async_turn_on(self, **kwargs) -> None:
+        """Enable the schedule slot."""
+        if self.is_on:
+            return
+        await self._send_schedule(enabled=True)
+
+    async def async_turn_off(self, **kwargs) -> None:
+        """Disable the schedule slot."""
+        if self.is_on is False:
+            return
+        await self._send_schedule(enabled=False)
+
+    async def _send_schedule(self, enabled: bool) -> None:
+        """Send the full schedule command with updated slot values.
+
+        Until live testing confirms an explicit enable bit in command payload,
+        disable is modeled as 00:00-00:00. To keep the toggle reversible,
+        the last non-zero slot times are cached and restored on enable.
+        """
+        data = self.coordinator.data
+        if data is None:
+            raise HomeAssistantError("No data available from spa")
+
+        prefix = self._schedule_type
+        s1_start = data.get(f"{prefix}_slot1_start", (0, 0))
+        s1_end = data.get(f"{prefix}_slot1_end", (0, 0))
+        s2_start = data.get(f"{prefix}_slot2_start", (0, 0))
+        s2_end = data.get(f"{prefix}_slot2_end", (0, 0))
+
+        if self._slot == 1:
+            slot_start, slot_end = s1_start, s1_end
+        else:
+            slot_start, slot_end = s2_start, s2_end
+
+        if not enabled:
+            if slot_start != (0, 0) or slot_end != (0, 0):
+                self._last_slot_times = (slot_start, slot_end)
+            if self._slot == 1:
+                s1_start = (0, 0)
+                s1_end = (0, 0)
+            else:
+                s2_start = (0, 0)
+                s2_end = (0, 0)
+        elif slot_start == (0, 0) and slot_end == (0, 0):
+            if self._last_slot_times is None:
+                raise HomeAssistantError(
+                    "Cannot enable slot with unknown times; set start/end times first"
+                )
+            if self._slot == 1:
+                s1_start, s1_end = self._last_slot_times
+            else:
+                s2_start, s2_end = self._last_slot_times
+
+        adapter = self.coordinator.adapter
+        frame = adapter.build_schedule_command(
+            self._schedule_type, s1_start, s1_end, s2_start, s2_end
+        )
+
+        coordinator: JoyonwayP25B85Coordinator = self.coordinator
+        success = await coordinator.async_send_command(frame)
+        if not success:
+            raise HomeAssistantError(
+                f"Failed to send {self._schedule_type} schedule command"
+            )
         await coordinator.async_request_refresh()
