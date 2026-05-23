@@ -46,6 +46,9 @@ The P25B85 controls spas like the **Home Deluxe White Marble** outdoor whirlpool
 - **Light** on/off via replay toggle command
 - **Heater** manual on/off via replay command
 - **Blower** on/off via replay command
+- **Heat schedule** — 2 time slots with start/end times and enable/disable
+- **Filter schedule** — 2 time slots with start/end times and enable/disable
+- **Clock sync** — sync spa clock to Home Assistant time via button press
 - **Heater state** — off / circulation / heating / disinfection
 - **Bridge connectivity** sensor
 - **Diagnostic sensors** for raw protocol bytes (disabled by default)
@@ -54,9 +57,7 @@ The P25B85 controls spas like the **Home Deluxe White Marble** outdoor whirlpool
 
 ### What this integration does NOT do
 
-- ❌ No filtration schedule or heating schedule control (planned)
-- ❌ No date/time sync (planned)
-- ❌ No disinfection cycle manual control (hardware limitation — schedule only)
+- ❌ No ozone/disinfection manual control yet (panel supports it in "Manual" mode — capture needed)
 
 ## Safety Philosophy
 
@@ -108,7 +109,7 @@ After restart, go to **Settings → Devices & Services → Add integration** and
 
 The integration performs a TCP connection test before saving.
 
-> **⚠️ Single-client limitation:** Most RS485 bridges only accept one TCP connection at a time. Stop the phone app or other tools before using HA.
+> **⚠️ Connection note:** The Elfin EW11 supports up to 4 simultaneous TCP connections. Home Assistant uses one; you can still use debug/capture tools in parallel.
 
 ## Entities
 
@@ -130,11 +131,13 @@ The integration performs a TCP connection test before saving.
 
 ### Switches
 
-| Entity  | Description                                   |
-|---------|-----------------------------------------------|
-| Light   | Light on/off (toggle replay with state guard) |
-| Heater  | Heater manual on/off (distinct replay frames) |
-| Blower  | Air blower on/off (distinct replay frames)    |
+| Entity          | Description                                   |
+|-----------------|-----------------------------------------------|
+| Light           | Light on/off (toggle replay with state guard) |
+| Heater          | Heater manual on/off (distinct replay frames) |
+| Blower          | Air blower on/off (distinct replay frames)    |
+| Heat slot 1 / 2   | Enable/disable heating schedule slots      |
+| Filter slot 1 / 2 | Enable/disable filtration schedule slots   |
 
 ### Fan
 
@@ -148,6 +151,19 @@ The integration performs a TCP connection test before saving.
 |------------|----------------------------------------|
 | Thermostat | Target setpoint control (10°C to 40°C) |
 
+### Time
+
+| Entity                       | Description                        |
+|------------------------------|------------------------------------|
+| Heat slot 1/2 start/end     | Heating schedule times (HH:MM)     |
+| Filter slot 1/2 start/end   | Filtration schedule times (HH:MM)  |
+
+### Button
+
+| Entity     | Description                              |
+|------------|------------------------------------------|
+| Sync clock | Sends current HA time to spa controller  |
+
 ## Development Plan
 
 Roadmap and session handoff live in `docs/plan.md`.
@@ -155,10 +171,11 @@ Roadmap and session handoff live in `docs/plan.md`.
 Current high-level status:
 
 - Capture + byte-map validation: done
-- Integration entities: implemented
+- Integration entities: implemented (including schedule time/switch entities)
 - CRC cracking + protocol implementation: done
-- Runtime writes: replay/lookup is-state
-- Next: live spa testing, then migrate writes to algorithm-based frame generation
+- Schedule writes: dynamic frame generation with verified CRC
+- Button/heater/blower writes: replay frames (is-state)
+- Next: live spa testing, then migrate remaining writes to algorithm-based frames
 
 ## Testing
 
