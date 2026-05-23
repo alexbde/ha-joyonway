@@ -143,6 +143,10 @@ The integration performs a TCP connection test before saving.
 > **Schedule note:** Slot disable/enable currently follows observed behavior and
 > live-safe heuristics, but byte-level enable encoding in schedule command frames
 > is still under capture validation.
+>
+> **Rule:** `00:00` is a temporary fallback only. If captures confirm an
+> explicit enable flag/field, remove the `00:00` disable convention and use
+> the confirmed flag encoding.
 
 ### Fan
 

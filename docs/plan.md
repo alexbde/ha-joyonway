@@ -307,6 +307,9 @@ Use this section as the capture TODO list and script target specification.
   enable restores cached prior non-zero times when possible. True controller-side
   enable encoding is still unknown (likely flags byte or another field) and must
   be resolved by the dedicated capture tasks in `Priority 3`.
+- **Rule for future implementation:** `00:00` is a temporary fallback only. If
+  captures confirm an explicit enable flag/field, remove the `00:00` disable
+  convention and use the confirmed flag encoding.
 - **EW11 connection limit**: 4 concurrent TCP clients. HA uses 1, tools can use up to 3 more.
 - **Tools added this session**: `test_ew11_max_connections.py`,
   `test_ew11_dual_stream.py`, `read_schedule_datetime.py`, `dump_broadcast_bytes.py`
