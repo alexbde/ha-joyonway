@@ -94,9 +94,15 @@ These are long frames (60+ bytes) prefixed with destination `0xFF`.
 | 14 | Heater/blower flags (see below) |
 | 16 | Setpoint temperature (°F) |
 | 17 | Light flags (bit 0 = light ON) |
-| 19 | Schedule config byte (changes on heat/filter schedule writes) |
+| 19 | Heat slot 1 start hour + enable flag (hour \| 0x40 if enabled) |
+| 21 | Heat slot 1 end hour |
+| 23 | Heat slot 2 start hour + enable flag (hour \| 0x40 if enabled) |
+| 25 | Heat slot 2 end hour |
 | 28 | Activity flags (bit 3=blower, bit 5=activity/disinfection-related) |
-| 29 | Filter schedule config (observed: `0x4C` → `0xCD` on write) |
+| 29 | Filter slot 1 start hour + enable flag (hour \| 0x40 if enabled) |
+| 31 | Filter slot 1 end hour |
+| 33 | Filter slot 2 start hour + enable flag (hour \| 0x40 if enabled) |
+| 35 | Filter slot 2 end hour |
 | 53–58 | Date/time: year, month, day, hour, minute, second |
 
 **Byte 14 — heater/blower states:**
@@ -182,17 +188,18 @@ Sets the spa's internal clock.
 |-------|---------|
 | 0–6 | Header: `01 20 10 3C A2 10 A1` |
 | 7 | `0x50` (fixed prefix) |
-| 8 | Year (low byte, BCD or raw — see captured example) |
-| 9 | Day |
-| 10 | Month |
-| 11 | Hour |
+| 8 | Year (offset from 2000, e.g. `0x1A` = 26 = 2026) |
+| 9 | Month |
+| 10 | Day |
+| 11 | Hour (24h) |
 | 12 | Minute |
-| 13 | Second? (observed `0x00`) |
+| 13 | Second |
 | 14 | `0x00` |
 | 15 | `0x00` |
 
-> **Note:** Byte ordering/encoding needs further capture sessions to fully
-> confirm. The CRC is now cracked, so any encoding can be tested live.
+Verified from two captures at known times:
+- `50 1A 05 15 16 35 00 00 00` → 2026-05-21 22:53:00
+- `50 1A 05 15 0F 09 00 00 00` → 2026-05-21 15:09:00
 
 ### 4.3. Heat Schedule (type 0xA3)
 
@@ -327,6 +334,42 @@ state at time of capture). With CRC cracked, any variant can be tested.
 ```
 
 Then call `compute_crc(payload)` and `build_frame(payload)`.
+
+
+### 6b. Schedule Broadcast Encoding
+
+The controller broadcasts schedule state in bytes 19–35 of the broadcast frame.
+Each schedule has 2 time slots, encoded as 4 bytes per slot pair:
+
+```
+[slot1_start] 00 [slot1_end] 00 [slot2_start] 00 [slot2_end]
+```
+
+**Enable flag:** The start byte of each slot uses bit 6 (0x40) as a slot-enabled
+flag. The actual hour is in the lower 6 bits (mask 0x3F).
+
+| Raw byte | Enabled? | Hour |
+|----------|----------|------|
+| `0x4B` | Yes (bit 6 set) | 0x0B = 11 |
+| `0x14` | No (bit 6 clear) | 0x14 = 20 |
+| `0x51` | Yes (bit 6 set) | 0x11 = 17 |
+
+**Byte positions:**
+
+| Bytes | Schedule |
+|-------|----------|
+| 19, 21, 23, 25 | Heat: slot1 start, slot1 end, slot2 start, slot2 end |
+| 29, 31, 33, 35 | Filter: slot1 start, slot1 end, slot2 start, slot2 end |
+
+**Example** (live capture):
+- Byte 19 = `0x4B` → heat slot 1: start=11:00, enabled
+- Byte 21 = `0x10` → heat slot 1: end=16:00
+- Byte 23 = `0x14` → heat slot 2: start=20:00, disabled
+- Byte 25 = `0x16` → heat slot 2: end=22:00
+- Byte 29 = `0x4B` → filter slot 1: start=11:00, enabled
+- Byte 31 = `0x0C` → filter slot 1: end=12:00
+- Byte 33 = `0x51` → filter slot 2: start=17:00, enabled
+- Byte 35 = `0x12` → filter slot 2: end=18:00
 
 
 ### 7. Notes
