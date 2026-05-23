@@ -9,8 +9,8 @@
 >
 > **Integration domain:** `joyonway_p25b85`
 > **Hardware:** P25B85 + PB554 + Elfin EW11
-> **Status:** All entities implemented. Async/UI hardening and expanded runtime
-> test coverage are done. Needs live testing at spa.
+> **Status:** Schedule entities (time + switch) and DateTime sync (button)
+> implemented with dynamic CRC write support. Needs live testing at spa.
 
 > **Documentation policy:** `docs/protocol.md` is the canonical protocol spec.
 > This `docs/plan.md` is progress/handoff only.
@@ -40,15 +40,17 @@
 - **Controller:** Joyonway P25B85, PCB `P2325B0003 R05`
 - **Touchpad:** PB554 colour screen
 - **Bridge:** Elfin EW11, RS-485 → WiFi, TCP server (IP in `.env`, port 8899)
+  - Supports **4 simultaneous TCP connections** (tested: 3 new + HA = 4)
+  - All connections receive the **same full RS485 data stream** (multicast)
 - **UART:** 38400 8N1
 - **Pump:** ONE dual-speed (low = filtration, high = massage jets, 20-min auto-off)
 - **Light:** RGB LED, 9 states cycling via button
 - **Heater:** 2 kW resistive, thermostat-controlled
-- **Ozone port:** Connector on PCB ("Ozonauslass"), byte 14=0x41 is a
-  **scheduled disinfection cycle** state (not a separate UV device).
-  Cannot be manually toggled from PB554 — runs on schedule only.
-- **Blower:** air blower, connector on PCB, button on PB554 panel. Captured and
-  implemented as switch. Broadcast state: byte[14] bit 3, byte[28] bit 3.
+- **Ozone port:** Connector on PCB ("Ozonauslass"), byte 14=0x41 is the
+  disinfection cycle state. PB554 manual confirms two modes: **Auto** (schedule)
+  and **Manual** (user-triggerable from panel). Manual mode adds an ozone icon
+  to the panel's function screen. Command frame for manual toggle not yet captured.
+- **Blower:** air blower, connector on PCB, button on PB554 panel.
 
 ## 2. Protocol Summary
 
@@ -69,10 +71,13 @@
 | **14** | Heater/blower state (see below) |
 | **16** | Setpoint (°F) |
 | **17** | Light flags (bit 0 = light ON) |
-| **19** | Schedule config (changes on heat/filter schedule writes) |
+| **19–26** | Heat schedule (4 pairs: start_h, start_m, end_h, end_m per slot) |
 | **28** | Activity flags (bit 3=blower, bit 5=activity/disinfection) |
-| **29** | Filter schedule config (changed 0x4C→0xCD on filter schedule write) |
+| **29–36** | Filter schedule (same layout as heat) |
 | 53–58 | Date/time (year, month, day, hour, minute, second) |
+
+**Schedule encoding:** Start-hour bytes (19, 23, 29, 33) use bit 6 (0x40) as
+slot-enabled flag. Hour = byte & 0x3F. Minutes are in the next byte.
 
 **Byte 14 values:**
 - `0x40` = off, `0x50` = circulation, `0x55`/`0x54` = heating
@@ -87,18 +92,33 @@
 | 0xA3 | Heat schedule | Program heating time slots (22 bytes) |
 | 0xA4 | Filter schedule | Program filtration time slots (22 bytes) |
 
-### Command-byte notes (important)
+### Schedule command payload (0xA3 / 0xA4)
 
-- Same-session CRC captures (`tools/captures_crc/crc_session.json`) show:
-  - Light toggle: byte[9]=0x40, byte[10]=0x58
-  - Heater ON/OFF: byte[9]=0x08, byte[10]=0x08/0x00
-  - Blower ON/OFF: byte[9]=0x04, byte[10]=0x04/0x00
-  - Pump transitions: byte[9]=0x00, byte[10]=0x08; transition encoded in bytes 7-8
-- Current integration runtime still uses legacy replay variants for light/blower
-  from `adapters/p25b85.py` (documented explicitly in `docs/protocol.md`).
+```
+[0-6]  Header: 01 20 10 3C [A3|A4] 10 A1
+[7]    Flags: 0x62 (heat) / 0xAA (filter) — static observed value
+[8-9]  Slot 1 start: hour, minute
+[10-11] Slot 1 end: hour, minute
+[12-13] Slot 2 start: hour, minute
+[14-15] Slot 2 end: hour, minute
+```
 
-Temperature: 31-frame lookup table currently used in runtime
-(`TEMP_COMMAND_TABLE`, 10-40°C).
+**Verified:** `build_schedule_command("heat", (12,0), (16,0), (20,0), (22,0))`
+produces byte-for-byte identical frame to captured session 2 heat schedule.
+
+### DateTime command payload (0xA2)
+
+```
+[0-6]  Header: 01 20 10 3C A2 10 A1
+[7]    0x50 (fixed prefix)
+[8]    Year (offset from 2000)
+[9]    Month
+[10]   Day
+[11]   Hour (24h)
+[12]   Minute
+[13]   Second
+[14-15] 0x00 0x00
+```
 
 ### CRC — CRACKED ✅
 
@@ -107,8 +127,6 @@ Temperature: 31-frame lookup table currently used in runtime
 - **Storage:** little-endian at payload bytes 16–19
 - **Implementation:** `protocol.py` → `compute_crc()` and `build_frame()`
 - **Verification:** 21/21 unique same-session frames, all command types
-- Dynamic generation is implemented in `protocol.py`, but runtime entity writes
-  remain replay/lookup (is-state) until live migration.
 
 ## 3. Current Implementation
 
@@ -124,14 +142,16 @@ custom_components/joyonway_p25b85/
 ├── coordinator.py       # async TCP polling + async_send_command
 ├── sensor.py            # adapter-driven (water temp, heater/pump state, diagnostics)
 ├── binary_sensor.py     # bridge connectivity only
-├── switch.py            # light, heater, blower (on/off via replay)
+├── switch.py            # light, heater, blower, schedule slot enables
 ├── fan.py               # jets (off/low/high via preset_modes)
 ├── climate.py           # thermostat with debounced slider
+├── time.py              # schedule time slot start/end (8 entities, read+write)
+├── button.py            # sync spa clock to HA time
 ├── strings.json         # entity translations (base)
 ├── adapters/
 │   ├── __init__.py      # registry: get_adapter("P25B85")
 │   ├── base.py          # ModelAdapter protocol + SpaEntityDescription
-│   └── p25b85.py        # byte map, parse_status(), command frames, temp table
+│   └── p25b85.py        # byte map, parse_status(), command frames, schedule builder
 ├── brand/
 │   ├── icon.png         # 256×256
 │   └── icon@2x.png      # 512×512
@@ -149,7 +169,12 @@ custom_components/joyonway_p25b85/
 | **Light** | switch | On/off via toggle replay (state guard: refuses when unknown) |
 | **Heater** | switch | On/off via distinct replay frames |
 | **Blower** | switch | On/off via distinct replay frames; byte[28] bit 3 = state |
+| **Heat slot 1 / 2** | switch | Enable/disable heat schedule slots |
+| **Filter slot 1 / 2** | switch | Enable/disable filter schedule slots |
 | **Jets** (Düsen) | fan | Off/low/high via preset_modes; handles multi-step transitions |
+| **Heat slot 1/2 start/end** | time | Read+write heat schedule times (HH:MM) |
+| **Filter slot 1/2 start/end** | time | Read+write filter schedule times (HH:MM) |
+| **Sync clock** | button | Sends current HA time to spa controller |
 | **Water temperature** | sensor | Integer °C for history/graphs |
 | **Heater state** | sensor | Enum: off / circulation / heating / disinfection / unknown |
 | **Pump state** | sensor | Enum: off / low / high |
@@ -161,123 +186,98 @@ custom_components/joyonway_p25b85/
 ### Key design decisions
 
 - **Fan = "Jets" / "Düsen"** — matches spa manual terminology
-- **Enum sensors with translated states** — `heater_state` and `pump_state` with `device_class="enum"`
 - **Light toggle safety**: same frame for on/off; switch refuses toggle when state is unknown
 - **Heater/blower switches**: distinct ON/OFF frames (not toggles); safe to send
 - **Climate debounce**: 1.5s coalescing for slider drags
 - **Coordinator write pacing**: global 1.0s command cooldown
 - **Pump state machine**: OFF→low→high→OFF cycle; fan handles multi-step transitions
 - **Temperatures as integers** — spa only shows whole °C
-- **Climate hvac_action**: heating→HEATING, circulation→PREHEATING, off/disinfection→IDLE
-- **Blower state**: read from byte[28] bit 3 (MASK_BLOWER = 0x08)
-- **Not available on PB554**: disinfection manual toggle, filtration manual toggle, frost protection
-- **Screen flip**: handled locally by PB554 panel, not sent on RS485 bus
+- **Schedule times as `time` entities** — proper HA time pickers, supports HH:MM
+- **Schedule enables as `switch` entities** — toggle slots on/off
+- **Schedule write**: builds full command with all 4 slot values + CRC via `build_frame()`
+- **Schedule disable mechanism**: sends 00:00–00:00 for disabled slot (needs live verification)
 
 ## 4. Phase Status
 
 | Phase | Status | Notes |
 |-------|--------|-------|
-| 1. Capture tools | ✅ Done | `guided_capture_38400.py`, `frame_parser_38400.py` |
-| 2. Integration | ✅ Done | Deployed, reading live data, HACS install works |
-| 3. Validate byte map | ✅ Done | All byte positions confirmed from captures |
-| 4. Write commands | ✅ Done | Light + pump + temp replay frames captured |
-| 5. Extended captures | ✅ Done | Heater, blower, datetime, filter/heat schedule all captured |
-| 6. Temperature control | ✅ Done | Climate with debounced slider, 31-frame lookup |
+| 1–6 | ✅ Done | Capture, integration, byte map, writes, temp control |
 | 7. Live test writes | **Next** | Test all write entities at spa |
-| 8. Schedule/datetime entities | Planned | Heat schedule, filter schedule, datetime sync |
-| 9. CRC cracking | ✅ **Done** | P=0x04C11DB7, word32-swap, verified 21/21 frames |
-| 10. Polish & release | Planned | After live test |
+| 8. Schedule entities | ✅ Done | `time` + `switch` entities with dynamic CRC write |
+| 9. CRC cracking | ✅ Done | P=0x04C11DB7, word32-swap, verified 21/21 frames |
+| 10. DateTime sync | ✅ Done | `button` entity, verified against 2 captured frames |
+| 11. Polish & release | Planned | After live test |
 
 ## 5. Next Steps
 
 ### Priority 1: Live testing
 1. **Restart HA** with updated integration
-2. **Test each entity**: light switch, heater switch, blower switch, jets fan, thermostat slider
-3. **Verify blower state** reads correctly from byte[28] bit 3
-4. **Check cross-session replay** — heater/blower commands were captured in a different
-   session from Phase 4 pump/light commands; confirm they still work
+2. **Test each entity**: light, heater, blower, jets, thermostat, schedule times, sync clock
+3. **Verify schedule writes**: change a time slot, confirm broadcast updates
+4. **Verify schedule enable/disable**: toggle a slot switch, check broadcast
+5. **Verify clock sync**: press button, check spa_datetime sensor updates
+6. **Check schedule flags byte**: 0x62 (heat) and 0xAA (filter) may need
+   adjustment if controller rejects commands — could encode enable states
 
-### Priority 2: Dynamic frame generation (CRC cracked!)
-With the CRC cracked, we can now:
-- Generate temperature commands for ANY setpoint (no lookup table limitation)
-- Generate datetime sync frames with current timestamp
-- Generate custom schedule frames
-- Eliminate the 31-frame `TEMP_COMMAND_TABLE` and compute on the fly
-- Implementation: `protocol.build_frame(payload)` computes CRC and escapes
-- Important: keep this as a migration task; current runtime is intentionally
-  replay/lookup until live validation confirms behavior.
+### Priority 2: Replace temperature lookup table
+- `TEMP_COMMAND_TABLE` (31 entries) can be replaced with `build_frame()`
+- Byte 10 variants (0x80/0x98/0x99) need live test to confirm which works
+- Would allow ANY °F setpoint, not just the 31 captured values
 
-### Priority 3: Polish & release
+### Priority 3: Ozone manual control
+- PB554 manual confirms ozone has Auto + Manual modes (screenshot from manual)
+- In Manual mode, an ozone icon appears on panel and user can toggle it
+- **Need to capture**: set panel to "Ozone Mode: M", then capture the toggle command
+- Likely a button command (0xA1) with a new byte[9]/byte[10] pair
+- Broadcast state: byte 14 = 0x41/0xC1 when disinfection active
+
+### Priority 4: Remaining PB554 config options (uncaptured)
+From the spa manual, the PB554 "Set" menu has these options not yet implemented:
+- **Ozone Mode** (Auto/Manual) — config command to switch modes, likely a new
+  command type or a settings frame. Determines whether ozone icon appears.
+- **Auto Lock** (On/Off) — panel auto-lock after timeout. May be panel-local
+  (not sent on RS485) similar to screen flip. Needs testing.
+- **Brightness** — display brightness. Likely panel-local (not on RS485),
+  similar to screen flip.
+- **Light mode** (On-Off / RGB cycling) — PB554 manual describes two light modes:
+  simple on/off or 9-state RGB cycling. The mode selection might be a config
+  command or panel-local.
+- **Heater priority** — heater or hydromassage priority (can't run both if
+  breaker too small). This is a **DIP switch** setting on the controller PCB
+  (A2/A3/A5 on the steuerbox), NOT an RS485 command. Not applicable.
+- **Frost protection** — controller has built-in frost protection mode.
+  Not accessible from PB554 panel. Likely automatic based on temp sensor.
+
+**Probably NOT on RS485 (panel-local):** Auto Lock, Brightness, Screen flip.
+**Worth capturing:** Ozone Mode toggle, Light mode config.
+**Hardware config (DIP switches):** A1 host/slave, A2/A3/A5 function config.
+**Not planned:** "Modes" config options (panel economy/standard/boost presets) —
+these are composite shortcuts that combine setpoint + schedule changes.
+Integration users can achieve the same via HA automations/scenes instead.
+
+### Priority 5: Polish & release
 - Version bump, README final review, HACS release
-- PR to frame-analyzer — add P25B85 preset to christopheknap's tool
 
-### Priority 4: Schedule/DateTime entities (Phase 8 — CRC enables this)
-CRC is cracked → we can generate frames dynamically for these features:
-- **DateTime sync** (0xA2): auto-sync spa clock to HA time on startup/daily.
-  Need to decode exact byte encoding (verify with 2–3 captures at known times).
-  Implement as `button` or `service` entity (`spa.sync_clock`).
-- **Heat schedule** (0xA3): set heating time windows from HA.
-  Payload structure captured; implement as `time` entities or service.
-  Could expose start/end times for 2 heating slots.
-- **Filter schedule** (0xA4): set filtration time windows from HA.
-  Same structure as heat schedule; 2 filtration slots.
-  Could expose as `time` entities or service.
-- **Dynamic temperature** — replace `TEMP_COMMAND_TABLE` lookup with
-  `protocol.build_frame()` for any °F target. Eliminates the 31-frame limit.
-
-## 6. Recent Session Updates
-
-- **Entity reliability fixes completed**:
-  - `fan` now advertises `TURN_ON`/`TURN_OFF` support in addition to preset mode.
-  - `switch` and `fan` command failures now raise `HomeAssistantError` instead of
-    failing silently.
-  - `climate` debounce flow now cancels/awaits previous tasks cleanly,
-    avoids stale sends, and shows pending target temperature optimistically.
-  - `coordinator` now catches adapter parse exceptions per frame to avoid
-    refresh-loop crashes from malformed frames.
-- **Test stack migrated to pytest**:
-  - Added `pyproject.toml` pytest config + optional extras (`test`, `ha-test`).
-  - Legacy unittest-style files converted to pytest in `tests/`.
-  - Added helper loader `tests/_loader.py` for direct-module tests without HA.
-- **Runtime entity tests expanded**:
-  - `tests/test_fan_entity_runtime.py` verifies fan feature flags and power paths.
-  - `tests/test_entities_runtime.py` covers sensor, binary sensor, switch,
-    fan, and climate logic.
-- **Dual test modes now expected**:
-  - Lightweight env (no HA): runtime tests auto-skip.
-  - HA env (`python3.12` + `.[ha-test]`): runtime tests execute.
-
-## 7. Technical Notes for Next Session
+## 6. Technical Notes for Next Session
 
 - **`.env` file** holds bridge IP (gitignored). Tools auto-load it.
 - **Restart required** after any code change to the integration.
 - **Tests now run with pytest**:
   - Lightweight mode (no HA runtime):
     - `source .venv/bin/activate && pytest -q`
-    - Current result: `61 passed, 2 skipped` (runtime tests skipped by design).
+    - Current result: `64 passed, 2 skipped`.
   - HA runtime mode:
     - `source .venv-ha/bin/activate && pytest -q`
-    - Current result: `72 passed`.
-- **HA runtime test env**:
-  - `python3.12` installed via Homebrew at `/opt/homebrew/bin/python3.12`.
-  - `.venv-ha` exists and includes `homeassistant` +
-    `pytest-homeassistant-custom-component` via `pip install -e ".[ha-test]"`.
-- **Protocol docs**: `docs/protocol.md` — full protocol reference with all
-  captured frame examples, CRC algorithm, byte maps, and payload layouts.
-- **CRC implementation**: `protocol.py` → `compute_crc()`, `build_frame()`,
-  `pseudo_escape()`. Verified 21/21 frames.
-- **Temperature lookup table**: `TEMP_COMMAND_TABLE` in `adapters/p25b85.py`
-  still used for replay. Can be replaced with `build_frame()` once live-tested.
-  Byte 10 varies by session (0x80/0x98/0x99) — needs live test to confirm
-  which value the controller accepts.
-- **Command send pattern**: coordinator opens TCP, writes frame, closes.
-  Uses `asyncio.Lock` + global 1.0s cooldown to prevent concurrent/burst sends.
-- **Entity unique_id for fan** changed from `_pump` to `_jets` — existing HA
-  installs may need entity re-registration after update.
-- **CRC cracking tools** (in `tools/`):
-  - `capture_crc_session.py` — captures all command types in a single session
-  - `bf_poly.c` — C brute-force across 2^32 polynomials (409s exhaustive search)
-  - `verify_crc32_v2.py` — verifies polynomial + word-swap against all frames
-  - `verify_protocol_crc.py` — verifies `protocol.py` implementation
-  - Various analysis scripts: `analyze_crc_session2.py`, `extract_poly.py`, `crack_crc2.py`
-
+    - `.venv-ha` has `python3.12` + `homeassistant` + `pytest-homeassistant-custom-component`.
+- **Protocol docs**: `docs/protocol.md` — full protocol reference with schedule
+  broadcast encoding section (6b), CRC algorithm, all captured frame examples.
+- **Schedule command generation verified**: `build_schedule_command()` in
+  `adapters/p25b85.py` produces byte-for-byte match with captured frames.
+- **Schedule flags byte**: 0x62 (heat) / 0xAA (filter) are static in our captures.
+  Unclear if they encode enable state or are mode identifiers. Live test needed.
+- **Schedule slot disable**: currently implemented by sending 00:00–00:00 times.
+  May need different approach if controller doesn't accept zero times. Alternative:
+  the flags byte might control enables (needs live experimentation).
+- **EW11 connection limit**: 4 concurrent TCP clients. HA uses 1, tools can use up to 3 more.
+- **Tools added this session**: `test_ew11_max_connections.py`,
+  `test_ew11_dual_stream.py`, `read_schedule_datetime.py`, `dump_broadcast_bytes.py`
