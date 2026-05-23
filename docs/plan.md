@@ -195,7 +195,9 @@ custom_components/joyonway_p25b85/
 - **Schedule times as `time` entities** — proper HA time pickers, supports HH:MM
 - **Schedule enables as `switch` entities** — toggle slots on/off
 - **Schedule write**: builds full command with all 4 slot values + CRC via `build_frame()`
-- **Schedule disable mechanism**: sends 00:00–00:00 for disabled slot (needs live verification)
+- **Schedule disable mechanism**: currently uses 00:00–00:00 convention for disable;
+  switch caches last non-zero slot times and restores them on enable when available
+  (still needs live protocol verification)
 
 ## 4. Phase Status
 
@@ -216,56 +218,82 @@ custom_components/joyonway_p25b85/
 3. **Verify schedule writes**: change a time slot, confirm broadcast updates
 4. **Verify schedule enable/disable**: toggle a slot switch, check broadcast
 5. **Verify clock sync**: press button, check spa_datetime sensor updates
-6. **Check schedule flags byte**: 0x62 (heat) and 0xAA (filter) may need
-   adjustment if controller rejects commands — could encode enable states
 
 ### Priority 2: Replace temperature lookup table
 - `TEMP_COMMAND_TABLE` (31 entries) can be replaced with `build_frame()`
 - Byte 10 variants (0x80/0x98/0x99) need live test to confirm which works
 - Would allow ANY °F setpoint, not just the 31 captured values
 
-### Priority 3: Ozone manual control
-- PB554 manual confirms ozone has Auto + Manual modes (screenshot from manual)
-- In Manual mode, an ozone icon appears on panel and user can toggle it
-- **Need to capture**: set panel to "Ozone Mode: M", then capture the toggle command
-- Likely a button command (0xA1) with a new byte[9]/byte[10] pair
-- Broadcast state: byte 14 = 0x41/0xC1 when disinfection active
+### Priority 3: Capture backlog (single source for script work)
 
-### Priority 4: Remaining PB554 config options (uncaptured)
-From the spa manual, the PB554 "Set" menu has these options not yet implemented:
-- **Ozone Mode** (Auto/Manual) — config command to switch modes, likely a new
-  command type or a settings frame. Determines whether ozone icon appears.
-- **Auto Lock** (On/Off) — panel auto-lock after timeout. May be panel-local
-  (not sent on RS485) similar to screen flip. Needs testing.
-- **Brightness** — display brightness. Likely panel-local (not on RS485),
-  similar to screen flip.
-- **Light mode** (On-Off / RGB cycling) — PB554 manual describes two light modes:
-  simple on/off or 9-state RGB cycling. The mode selection might be a config
-  command or panel-local.
-- **Heater priority** — heater or hydromassage priority (can't run both if
-  breaker too small). This is a **DIP switch** setting on the controller PCB
-  (A2/A3/A5 on the steuerbox), NOT an RS485 command. Not applicable.
-- **Frost protection** — controller has built-in frost protection mode.
-  Not accessible from PB554 panel. Likely automatic based on temp sensor.
+Use this section as the capture TODO list and script target specification.
 
-**Probably NOT on RS485 (panel-local):** Auto Lock, Brightness, Screen flip.
-**Worth capturing:** Ozone Mode toggle, Light mode config.
-**Hardware config (DIP switches):** A1 host/slave, A2/A3/A5 function config.
-**Not planned:** "Modes" config options (panel economy/standard/boost presets) —
-these are composite shortcuts that combine setpoint + schedule changes.
-Integration users can achieve the same via HA automations/scenes instead.
+**Capture targets (in order):**
+1. **Schedule slot enable encoding**
+   - Action: on PB554, disable then re-enable one heat slot and one filter slot
+     while keeping slot times unchanged.
+   - Goal: determine whether enable is encoded by zero-times convention,
+     command byte[7] (`0x62`/`0xAA`) bits, or another field/frame.
+2. **Ozone manual control**
+   - Action: set Ozone Mode to Manual, then toggle ozone ON/OFF from panel.
+   - Goal: identify command frame(s) for mode change + manual toggle.
+   - Broadcast check: heater byte 14 transitions involving `0x41`/`0xC1`.
+3. **Light mode config (On-Off vs RGB cycling)**
+   - Action: change light mode in PB554 settings and capture resulting traffic.
+   - Goal: determine if mode is RS485 command or panel-local only.
+4. **Panel-local candidates**
+   - Actions: Auto Lock, Brightness, Screen flip.
+   - Goal: confirm whether any RS485 frames are emitted (likely none).
+
+**Known constraints / setup for capture scripts:**
+- EW11 supports 4 concurrent TCP clients; HA uses 1, tooling can use up to 3 more.
+- Tools read `.env`; `SPA_BRIDGE_HOST` is required, `SPA_BRIDGE_PORT` defaults to `8899`.
+- Frame workflow must be: detect boundaries on raw bytes (`0x1A...0x1D`) first,
+  then unescape (`unescape_frame(..., full=True)` for P25B85).
+- Keep both raw wire hex and unescaped logical frame in artifacts.
+- Classify command by payload byte[4]: `0xA1`/`0xA2`/`0xA3`/`0xA4`.
+
+**Capture procedure (repeat per target):**
+1. Record baseline traffic for 3-5 seconds (no interaction).
+2. Perform exactly one panel action.
+3. Record post-action traffic for 5-10 seconds.
+4. Repeat same action at least once more to validate byte-level consistency.
+5. Diff action capture vs baseline and extract only outbound command frames.
+6. For schedule actions, also compare subsequent broadcast bytes `19-36`.
+
+**Expected script output (for future AI implementation):**
+- Per-action JSON with:
+  - raw frames, logical frames, decoded payload fields, CRC verification result,
+  - changed byte positions vs baseline,
+  - inferred candidate encoding (e.g., "byte[7] bit X toggles slot1_enable").
+- One markdown summary table per session with: action, frame type, changed bytes,
+  confidence, and next hypothesis.
+
+**Out of scope / not planned:**
+- Heater priority (DIP switch A2/A3/A5) and frost protection (controller-internal).
+- PB554 "Modes" presets (economy/standard/boost) as entities; users can compose
+  equivalent behavior via HA automations/scenes.
 
 ### Priority 5: Polish & release
 - Version bump, README final review, HACS release
 
 ## 6. Technical Notes for Next Session
 
+- **Session outcomes (latest):**
+  - Fixed review findings in code: reversible schedule slot toggles, strict
+    schedule type validation, and added regression test coverage.
+  - Removed hardcoded bridge IP defaults from capture/debug tools.
+  - Rewrote recent commits with autosquash so fixes are amended into original
+    feature/docs commits.
+  - Consolidated all capture TODOs into one script-oriented backlog section
+    (`Priority 3`) for follow-up automation.
+
 - **`.env` file** holds bridge IP (gitignored). Tools auto-load it.
 - **Restart required** after any code change to the integration.
 - **Tests now run with pytest**:
   - Lightweight mode (no HA runtime):
     - `source .venv/bin/activate && pytest -q`
-    - Current result: `64 passed, 2 skipped`.
+    - Current result: `65 passed, 2 skipped`.
   - HA runtime mode:
     - `source .venv-ha/bin/activate && pytest -q`
     - `.venv-ha` has `python3.12` + `homeassistant` + `pytest-homeassistant-custom-component`.
@@ -275,9 +303,10 @@ Integration users can achieve the same via HA automations/scenes instead.
   `adapters/p25b85.py` produces byte-for-byte match with captured frames.
 - **Schedule flags byte**: 0x62 (heat) / 0xAA (filter) are static in our captures.
   Unclear if they encode enable state or are mode identifiers. Live test needed.
-- **Schedule slot disable**: currently implemented by sending 00:00–00:00 times.
-  May need different approach if controller doesn't accept zero times. Alternative:
-  the flags byte might control enables (needs live experimentation).
+- **Schedule slot disable/enable behavior**: disable currently sends 00:00–00:00;
+  enable restores cached prior non-zero times when possible. True controller-side
+  enable encoding is still unknown (likely flags byte or another field) and must
+  be resolved by the dedicated capture tasks in `Priority 3`.
 - **EW11 connection limit**: 4 concurrent TCP clients. HA uses 1, tools can use up to 3 more.
 - **Tools added this session**: `test_ew11_max_connections.py`,
   `test_ew11_dual_stream.py`, `read_schedule_datetime.py`, `dump_broadcast_bytes.py`

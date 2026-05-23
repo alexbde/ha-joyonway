@@ -58,6 +58,7 @@ The P25B85 controls spas like the **Home Deluxe White Marble** outdoor whirlpool
 ### What this integration does NOT do
 
 - ❌ No ozone/disinfection manual control yet (panel supports it in "Manual" mode — capture needed)
+- ❌ Schedule slot enable encoding is not fully confirmed yet (current implementation uses a zero-time disable convention with restore-on-enable fallback; capture validation pending)
 
 ## Safety Philosophy
 
@@ -138,6 +139,10 @@ The integration performs a TCP connection test before saving.
 | Blower          | Air blower on/off (distinct replay frames)    |
 | Heat slot 1 / 2   | Enable/disable heating schedule slots      |
 | Filter slot 1 / 2 | Enable/disable filtration schedule slots   |
+
+> **Schedule note:** Slot disable/enable currently follows observed behavior and
+> live-safe heuristics, but byte-level enable encoding in schedule command frames
+> is still under capture validation.
 
 ### Fan
 
