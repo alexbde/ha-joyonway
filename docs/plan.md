@@ -21,6 +21,11 @@
   IP addresses, or any data that could identify the developer or when work was
   done. Dates belong only in this plan file and in git history — never in
   `.py`, `.json`, or other shipped files.
+- **Naming convention for data keys and entities.** Keep names short and
+  consistent. No `_state` or `_status` suffixes — use bare nouns: `jets`,
+  `blower`, `light`, `status`, `setpoint`. The integration is pre-release;
+  there is no backwards compatibility constraint on key/entity naming.
+  When in doubt, match the naming already used by sibling entities.
 - This plan file is the single source of truth for the AI. Read it at the
   start of every session.
 - **End-of-session routine.** When the user says "end this session" (or
@@ -163,25 +168,25 @@ custom_components/joyonway_p25b85/
 
 ### Entities
 
-| Entity | Platform | What it does |
-|--------|----------|--------------|
-| **Thermostat** | climate | Water temp + setpoint + heater state; slider with 1.5s debounce |
-| **Light** | switch | On/off via toggle replay (state guard: refuses when unknown) |
-| **Heater** | switch | On/off via distinct replay frames |
-| **Blower** | switch | On/off via distinct replay frames; byte[28] bit 3 = state |
-| **Heat slot 1 / 2** | switch | Enable/disable heat schedule slots |
-| **Filter slot 1 / 2** | switch | Enable/disable filter schedule slots |
-| **Jets** (Düsen) | fan | Off/low/high via preset_modes; handles multi-step transitions |
-| **Heat slot 1/2 start/end** | time | Read+write heat schedule times (HH:MM) |
-| **Filter slot 1/2 start/end** | time | Read+write filter schedule times (HH:MM) |
-| **Sync clock** | button | Sends current HA time to spa controller |
-| **Water temperature** | sensor | Integer °C for history/graphs |
-| **Heater state** | sensor | Enum: off / circulation / heating / disinfection / unknown |
-| **Pump state** | sensor | Enum: off / low / high |
-| **RS485 bridge** | binary_sensor | TCP connectivity |
-| Spa clock | sensor | Diagnostic timestamp (disabled by default) |
-| Raw pump byte | sensor | Diagnostic (disabled by default) |
-| Raw heater byte | sensor | Diagnostic (disabled by default) |
+| Entity | Platform | Key | What it does |
+|--------|----------|-----|--------------|
+| **Water temperature** | sensor | `water_temperature` | Integer °C for history/graphs |
+| **Setpoint** | sensor | `setpoint` | Current target temperature °C |
+| **Status** | sensor | `status` | Enum: off / circulation / heating / disinfection / unknown; dynamic icon per state |
+| **Jets** (Düsen) | sensor | `jets` | Enum: off / low / high |
+| **Thermostat** | climate | `thermostat` | Water temp + setpoint + status; slider with 1.5s debounce |
+| **Heater** | switch | `heater` | On/off via distinct replay frames |
+| **Filtration** | switch | `filter` | On/off; pump low = filtration running |
+| **Light** | switch | `light` | On/off via toggle replay (state guard: refuses when unknown) |
+| **Blower** | switch | `blower` | On/off via distinct replay frames; byte[28] bit 3 = state |
+| **Heat slot 1 / 2** | switch | `heat_slot{n}_enabled` | Enable/disable heat schedule slots |
+| **Filter slot 1 / 2** | switch | `filter_slot{n}_enabled` | Enable/disable filter schedule slots |
+| **Jets** (Düsen) | fan | `jets` | Off/low/high via preset_modes; handles multi-step transitions |
+| **Heat slot 1/2 start/end** | time | `heat_slot{n}_{start\|end}` | Read+write heat schedule times (HH:MM) |
+| **Filter slot 1/2 start/end** | time | `filter_slot{n}_{start\|end}` | Read+write filter schedule times (HH:MM) |
+| Sync clock | button | `sync_clock` | Sends current HA time to spa controller (disabled by default) |
+| RS485 bridge | binary_sensor | `bridge_connectivity` | TCP connectivity (disabled by default) |
+| Spa clock | sensor | `spa_datetime` | Diagnostic timestamp (disabled by default) |
 
 ### Key design decisions
 
@@ -223,6 +228,15 @@ custom_components/joyonway_p25b85/
 - `TEMP_COMMAND_TABLE` (31 entries) can be replaced with `build_frame()`
 - Byte 10 variants (0x80/0x98/0x99) need live test to confirm which works
 - Would allow ANY °F setpoint, not just the 31 captured values
+
+### Priority 2b: Automatic clock sync
+- Currently manual via a button (disabled by default).
+- **Idea:** Add a config flow option "Auto-sync clock" (boolean, default ON).
+  When enabled, the coordinator compares `spa_datetime` to HA time on each
+  broadcast and sends a DateTime command if drift exceeds a threshold (e.g. 30s).
+- Could also be a configurable interval (e.g. daily at 03:00) via HA automation,
+  but a built-in option is more user-friendly.
+- Keep the manual button as a fallback (disabled by default).
 
 ### Priority 3: Capture backlog (single source for script work)
 
@@ -279,14 +293,33 @@ Use this section as the capture TODO list and script target specification.
 
 ## 6. Technical Notes for Next Session
 
-- **Session outcomes (latest):**
-  - Fixed review findings in code: reversible schedule slot toggles, strict
-    schedule type validation, and added regression test coverage.
-  - Removed hardcoded bridge IP defaults from capture/debug tools.
-  - Rewrote recent commits with autosquash so fixes are amended into original
-    feature/docs commits.
-  - Consolidated all capture TODOs into one script-oriented backlog section
-    (`Priority 3`) for follow-up automation.
+- **Session outcomes (latest — 2026-05-26):**
+  - **Major entity refactor** (pre-release, no backwards compat needed):
+    - `heater_state` → `status` (data key + entity key)
+    - `pump_state` / `jets_state` → `jets` (consistent with `blower`, `light`)
+    - Removed `raw_pump_byte` and `raw_heater_byte` diagnostic sensors
+    - Added `setpoint` sensor (Solltemperatur)
+    - Added `filter` switch (manual filtration on/off via pump low)
+    - Renamed sensor "Heizstatus" → "Status" (Betrieb was intermediate)
+    - Renamed sensor "Pumpenstatus" → "Düsen"
+  - **Icons:**
+    - `status` sensor: dynamic icon per state (`mdi:waves`/`mdi:pump`/`mdi:fire`/`mdi:shield-sun`)
+    - `jets` sensor + fan: `mdi:weather-windy`
+    - `blower` switch: `mdi:chart-bubble`
+  - **Entity visibility:**
+    - RS485 bridge: disabled by default
+    - Sync clock button: disabled by default
+    - Spa clock sensor: disabled by default (already was)
+  - **Switch order** (for 2-col dashboard pairing): heater, filter, light, blower,
+    heat_slot1, heat_slot2, filter_slot1, filter_slot2 (8 = even)
+  - **`SpaEntityDescription.icon_map`** added to `adapters/base.py` for
+    state-dependent icons
+  - **Guided write test script** created: `tools/guided_write_test.py`
+    - Interactive menu to select tests
+    - Round-trip design: read state → change → verify → restore original
+    - Tests: light, heater, blower, jets cycle, heat schedule, filter schedule, clock
+    - Filter schedule test verifies all 8 fields + enable/disable
+    - Clock test writes known Y/M/D H:m:s and verifies each field
 
 - **`.env` file** holds bridge IP (gitignored). Tools auto-load it.
 - **Restart required** after any code change to the integration.
@@ -311,5 +344,5 @@ Use this section as the capture TODO list and script target specification.
   captures confirm an explicit enable flag/field, remove the `00:00` disable
   convention and use the confirmed flag encoding.
 - **EW11 connection limit**: 4 concurrent TCP clients. HA uses 1, tools can use up to 3 more.
-- **Tools added this session**: `test_ew11_max_connections.py`,
-  `test_ew11_dual_stream.py`, `read_schedule_datetime.py`, `dump_broadcast_bytes.py`
+- **Tools**: `guided_write_test.py` (live write tests), `show_layout.py` (dashboard preview),
+  `read_schedule_datetime.py`, `dump_broadcast_bytes.py`, capture/analysis tools in `tools/`

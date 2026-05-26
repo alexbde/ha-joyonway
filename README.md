@@ -41,17 +41,18 @@ The P25B85 controls spas like the **Home Deluxe White Marble** outdoor whirlpool
 ## Features
 
 - **Water temperature** monitoring (°C)
+- **Setpoint temperature** monitoring (°C)
 - **Thermostat control** (10°C to 40°C) with debounced slider writes
 - **Jets control** (off/low/high) via fan preset modes
+- **Filtration** manual on/off switch
 - **Light** on/off via replay toggle command
 - **Heater** manual on/off via replay command
 - **Blower** on/off via replay command
 - **Heat schedule** — 2 time slots with start/end times and enable/disable
 - **Filter schedule** — 2 time slots with start/end times and enable/disable
-- **Clock sync** — sync spa clock to Home Assistant time via button press
-- **Heater state** — off / circulation / heating / disinfection
-- **Bridge connectivity** sensor
-- **Diagnostic sensors** for raw protocol bytes (disabled by default)
+- **Clock sync** — sync spa clock to Home Assistant time (disabled by default)
+- **Status sensor** — off / circulation / heating / disinfection (with dynamic icons)
+- **Jets sensor** — off / low / high
 - Fully local, no cloud, no internet
 - English, French, and German UI translations
 
@@ -119,26 +120,27 @@ The integration performs a TCP connection test before saving.
 | Entity            | Description                                                                |
 |-------------------|----------------------------------------------------------------------------|
 | Water temperature | Current water temp in °C                                                   |
-| Heater state      | off / circulation / heating / disinfection                                 |
+| Setpoint          | Current target temperature in °C                                           |
+| Status            | off / circulation / heating / disinfection (icon changes per state)         |
+| Jets (Düsen)      | off / low / high                                                           |
 | Spa clock         | Controller date/time as timestamp sensor (diagnostic, disabled by default) |
-| Raw pump byte     | Diagnostic (disabled by default)                                           |
-| Raw heater byte   | Diagnostic (disabled by default)                                           |
 
 ### Binary sensors
 
-| Entity                  | Description                |
-|-------------------------|----------------------------|
-| RS485 bridge connection | TCP connectivity to bridge |
+| Entity                  | Description                                  |
+|-------------------------|----------------------------------------------|
+| RS485 bridge connection | TCP connectivity to bridge (disabled by default) |
 
 ### Switches
 
-| Entity          | Description                                   |
-|-----------------|-----------------------------------------------|
-| Light           | Light on/off (toggle replay with state guard) |
-| Heater          | Heater manual on/off (distinct replay frames) |
-| Blower          | Air blower on/off (distinct replay frames)    |
-| Heat slot 1 / 2   | Enable/disable heating schedule slots      |
-| Filter slot 1 / 2 | Enable/disable filtration schedule slots   |
+| Entity             | Description                                   |
+|--------------------|-----------------------------------------------|
+| Heater             | Heater manual on/off (distinct replay frames) |
+| Filtration         | Manual filtration on/off (pump low speed)      |
+| Light              | Light on/off (toggle replay with state guard) |
+| Blower             | Air blower on/off (distinct replay frames)    |
+| Heat slot 1 / 2   | Enable/disable heating schedule slots         |
+| Filter slot 1 / 2 | Enable/disable filtration schedule slots      |
 
 > **Schedule note:** Slot disable/enable currently follows observed behavior and
 > live-safe heuristics, but byte-level enable encoding in schedule command frames
@@ -169,9 +171,9 @@ The integration performs a TCP connection test before saving.
 
 ### Button
 
-| Entity     | Description                              |
-|------------|------------------------------------------|
-| Sync clock | Sends current HA time to spa controller  |
+| Entity     | Description                                           |
+|------------|-------------------------------------------------------|
+| Sync clock | Sends current HA time to spa controller (disabled by default) |
 
 ## Development Plan
 
