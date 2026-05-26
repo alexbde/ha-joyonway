@@ -107,7 +107,7 @@ def test_parse_status_core_fields(adapter: P25B85Adapter, logical_frame: bytes) 
     assert isinstance(result, dict)
     assert result["water_temperature"] == 34
     assert result["setpoint"] == 40
-    assert result["heater_state"] == "off"
+    assert result["status"] == "off"
     assert result["heater_active"] is False
     assert result["pump_high"] is True
     assert result["pump_low"] is False
@@ -151,7 +151,7 @@ def test_heater_state_mapping(
     modified = bytearray(logical_frame)
     modified[IDX_HEATER_STATE] = heater_byte
     result = adapter.parse_status(bytes(modified))
-    assert result["heater_state"] == state
+    assert result["status"] == state
     assert result["heater_active"] is active
     assert result["disinfection_active"] is disinfection
 
@@ -161,8 +161,8 @@ def test_entity_descriptions(adapter: P25B85Adapter) -> None:
     assert descs
     assert {d.platform for d in descs} >= {"sensor"}
     assert "water_temperature" in {d.key for d in descs}
-    assert "heater_state" in {d.key for d in descs}
-    assert "pump_state" in {d.key for d in descs}
+    assert "status" in {d.key for d in descs}
+    assert "jets" in {d.key for d in descs}
 
 
 def test_adapter_registry() -> None:

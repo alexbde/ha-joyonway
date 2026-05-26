@@ -51,12 +51,8 @@ class DummyAdapter:
     """Small adapter stub used by several entities."""
 
     @staticmethod
-    def get_pump_state(data: dict) -> str:
-        if data.get("pump_high"):
-            return "high"
-        if data.get("pump_low"):
-            return "low"
-        return "off"
+    def get_jets_state(data: dict) -> str:
+        return data.get("jets", "off")
 
     @staticmethod
     def get_temp_command(target_celsius: int) -> bytes | None:
@@ -143,7 +139,7 @@ async def test_light_switch_sends_toggle(entry: SimpleNamespace) -> None:
 
 @pytest.mark.asyncio
 async def test_heater_and_blower_switch_commands(entry: SimpleNamespace) -> None:
-    coordinator = DummyCoordinator(data={"heater_state": "off", "blower": False})
+    coordinator = DummyCoordinator(data={"status": "off", "blower": False})
     heater = SpaHeaterSwitch(coordinator, entry)
     blower = SpaBlowerSwitch(coordinator, entry)
 
@@ -151,7 +147,7 @@ async def test_heater_and_blower_switch_commands(entry: SimpleNamespace) -> None
     await blower.async_turn_on()
     coordinator.data["blower"] = True
     await blower.async_turn_off()
-    coordinator.data["heater_state"] = "heating"
+    coordinator.data["status"] = "heating"
     await heater.async_turn_off()
 
     sent = [call.args[0] for call in coordinator.async_send_command.await_args_list]
@@ -162,7 +158,7 @@ async def test_heater_and_blower_switch_commands(entry: SimpleNamespace) -> None
 
 
 def test_fan_reports_power_features(entry: SimpleNamespace) -> None:
-    coordinator = DummyCoordinator(data={"pump_low": False, "pump_high": False})
+    coordinator = DummyCoordinator(data={"jets": "off"})
     fan = SpaPumpFan(coordinator, entry)
 
     assert fan.supported_features & FanEntityFeature.PRESET_MODE
@@ -171,9 +167,9 @@ def test_fan_reports_power_features(entry: SimpleNamespace) -> None:
 
 
 def test_climate_action_mapping(entry: SimpleNamespace) -> None:
-    heating = SpaClimate(DummyCoordinator(data={"heater_state": "heating"}), entry)
-    circulation = SpaClimate(DummyCoordinator(data={"heater_state": "circulation"}), entry)
-    idle = SpaClimate(DummyCoordinator(data={"heater_state": "off"}), entry)
+    heating = SpaClimate(DummyCoordinator(data={"status": "heating"}), entry)
+    circulation = SpaClimate(DummyCoordinator(data={"status": "circulation"}), entry)
+    idle = SpaClimate(DummyCoordinator(data={"status": "off"}), entry)
 
     assert heating.hvac_action == HVACAction.HEATING
     assert circulation.hvac_action == HVACAction.PREHEATING
@@ -182,7 +178,7 @@ def test_climate_action_mapping(entry: SimpleNamespace) -> None:
 
 @pytest.mark.asyncio
 async def test_climate_rejects_unsupported_hvac_mode(entry: SimpleNamespace) -> None:
-    climate = SpaClimate(DummyCoordinator(data={"heater_state": "off"}), entry)
+    climate = SpaClimate(DummyCoordinator(data={"status": "off"}), entry)
 
     with pytest.raises(HomeAssistantError):
         await climate.async_set_hvac_mode(HVACMode.OFF)
