@@ -20,8 +20,9 @@
   "entity": {
     "sensor": {
       "water_temperature": { "name": "Wassertemperatur" },
-      "heater_state": {
-        "name": "Heizstatus",
+      "setpoint": { "name": "Solltemperatur" },
+      "status": {
+        "name": "Status",
         "state": {
           "off": "Aus",
           "circulation": "Zirkulation",
@@ -30,17 +31,15 @@
           "unknown": "Unbekannt"
         }
       },
-      "pump_state": {
-        "name": "Pumpenstatus",
+      "jets": {
+        "name": "Düsen",
         "state": {
           "off": "Aus",
           "low": "Leicht",
           "high": "Stark"
         }
       },
-      "spa_datetime": { "name": "Datum & Uhrzeit" },
-      "raw_pump_byte": { "name": "Pumpenbyte-Rohdaten" },
-      "raw_heater_byte": { "name": "Heizungsbyte-Rohdaten" }
+      "spa_datetime": { "name": "Datum & Uhrzeit" }
     },
     "binary_sensor": {
       "bridge_connectivity": { "name": "RS485-Bridge" }
@@ -48,6 +47,7 @@
     "switch": {
       "light": { "name": "Licht" },
       "heater": { "name": "Heizung" },
+      "filter": { "name": "Filtration" },
       "blower": { "name": "Gebläse" },
       "heat_slot1_enabled": { "name": "Heiz-Slot 1" },
       "heat_slot2_enabled": { "name": "Heiz-Slot 2" },

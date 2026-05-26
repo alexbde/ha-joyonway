@@ -20,8 +20,9 @@
   "entity": {
     "sensor": {
       "water_temperature": { "name": "Température de l'eau" },
-      "heater_state": {
-        "name": "État du chauffage",
+      "setpoint": { "name": "Température de consigne" },
+      "status": {
+        "name": "Statut",
         "state": {
           "off": "Arrêt",
           "circulation": "Circulation",
@@ -30,17 +31,15 @@
           "unknown": "Inconnu"
         }
       },
-      "pump_state": {
-        "name": "État de la pompe",
+      "jets": {
+        "name": "Jets",
         "state": {
           "off": "Arrêt",
           "low": "Faible",
           "high": "Fort"
         }
       },
-      "spa_datetime": { "name": "Date & heure" },
-      "raw_pump_byte": { "name": "Octet pompe brut" },
-      "raw_heater_byte": { "name": "Octet chauffage brut" }
+      "spa_datetime": { "name": "Date & heure" }
     },
     "binary_sensor": {
       "bridge_connectivity": { "name": "Pont RS485" }
@@ -48,6 +47,7 @@
     "switch": {
       "light": { "name": "Lumière" },
       "heater": { "name": "Chauffage" },
+      "filter": { "name": "Filtration" },
       "blower": { "name": "Soufflerie" },
       "heat_slot1_enabled": { "name": "Chauffage créneau 1" },
       "heat_slot2_enabled": { "name": "Chauffage créneau 2" },

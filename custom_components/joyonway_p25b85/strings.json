@@ -20,8 +20,9 @@
   "entity": {
     "sensor": {
       "water_temperature": { "name": "Water temperature" },
-      "heater_state": {
-        "name": "Heater state",
+      "setpoint": { "name": "Setpoint temperature" },
+      "status": {
+        "name": "Status",
         "state": {
           "off": "Off",
           "circulation": "Circulation",
@@ -30,24 +31,23 @@
           "unknown": "Unknown"
         }
       },
-      "pump_state": {
-        "name": "Pump state",
+      "jets": {
+        "name": "Jets",
         "state": {
           "off": "Off",
           "low": "Low",
           "high": "High"
         }
       },
-      "spa_datetime": { "name": "Date & time" },
-      "raw_pump_byte": { "name": "Raw pump byte" },
-      "raw_heater_byte": { "name": "Raw heater byte" }
+      "spa_datetime": { "name": "Date & time" }
     },
     "binary_sensor": {
       "bridge_connectivity": { "name": "RS485 bridge" }
     },
     "switch": {
       "light": { "name": "Light" },
-      "heater": { "name": "Heater" },
+      "heater": { "name": "Heating" },
+      "filter": { "name": "Filtration" },
       "blower": { "name": "Blower" },
       "heat_slot1_enabled": { "name": "Heat slot 1" },
       "heat_slot2_enabled": { "name": "Heat slot 2" },

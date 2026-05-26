@@ -18,6 +18,8 @@ from .adapters.p25b85 import (
     CMD_HEATER_OFF,
     CMD_HEATER_ON,
     CMD_LIGHT_TOGGLE,
+    CMD_PUMP_HIGH_TO_OFF,
+    CMD_PUMP_OFF_TO_LOW,
 )
 from .const import DOMAIN
 from .coordinator import JoyonwayP25B85Coordinator
@@ -32,8 +34,9 @@ async def async_setup_entry(
     coordinator: JoyonwayP25B85Coordinator = hass.data[DOMAIN][entry.entry_id]
 
     entities: list[SwitchEntity] = [
-        SpaLightSwitch(coordinator, entry),
         SpaHeaterSwitch(coordinator, entry),
+        SpaFilterSwitch(coordinator, entry),
+        SpaLightSwitch(coordinator, entry),
         SpaBlowerSwitch(coordinator, entry),
         SpaScheduleSlotSwitch(coordinator, entry, "heat", 1),
         SpaScheduleSlotSwitch(coordinator, entry, "heat", 2),
@@ -125,10 +128,10 @@ class SpaHeaterSwitch(CoordinatorEntity, SwitchEntity):
         """Return True if the heater is active (circulation or heating)."""
         if self.coordinator.data is None:
             return None
-        heater_state = self.coordinator.data.get("heater_state")
-        if heater_state is None:
+        status = self.coordinator.data.get("status")
+        if status is None:
             return None
-        return heater_state in ("circulation", "heating")
+        return status in ("circulation", "heating")
 
     async def async_turn_on(self, **kwargs) -> None:
         """Turn the heater on."""
@@ -156,7 +159,7 @@ class SpaBlowerSwitch(CoordinatorEntity, SwitchEntity):
 
     _attr_has_entity_name = True
     _attr_translation_key = "blower"
-    _attr_icon = "mdi:fan"
+    _attr_icon = "mdi:chart-bubble"
 
     def __init__(
         self,
@@ -193,6 +196,52 @@ class SpaBlowerSwitch(CoordinatorEntity, SwitchEntity):
         success = await coordinator.async_send_command(CMD_BLOWER_OFF)
         if not success:
             raise HomeAssistantError("Failed to send blower OFF command")
+        await coordinator.async_request_refresh()
+
+
+class SpaFilterSwitch(CoordinatorEntity, SwitchEntity):
+    """Switch entity for manual filtration (pump low = filtration)."""
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "filter"
+    _attr_icon = "mdi:air-filter"
+
+    def __init__(
+        self,
+        coordinator: JoyonwayP25B85Coordinator,
+        entry: ConfigEntry,
+    ) -> None:
+        """Initialize the filter switch."""
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_filter_switch"
+        self._attr_device_info = device_info(entry)
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return True if filtration is running (pump low)."""
+        if self.coordinator.data is None:
+            return None
+        jets = self.coordinator.data.get("jets", "off")
+        return jets == "low"
+
+    async def async_turn_on(self, **kwargs) -> None:
+        """Start filtration (pump low)."""
+        if self.is_on:
+            return
+        coordinator: JoyonwayP25B85Coordinator = self.coordinator
+        success = await coordinator.async_send_command(CMD_PUMP_OFF_TO_LOW)
+        if not success:
+            raise HomeAssistantError("Failed to send filtration ON command")
+        await coordinator.async_request_refresh()
+
+    async def async_turn_off(self, **kwargs) -> None:
+        """Stop filtration (pump off)."""
+        if self.is_on is False:
+            return
+        coordinator: JoyonwayP25B85Coordinator = self.coordinator
+        success = await coordinator.async_send_command(CMD_PUMP_HIGH_TO_OFF)
+        if not success:
+            raise HomeAssistantError("Failed to send filtration OFF command")
         await coordinator.async_request_refresh()
 
 

@@ -225,34 +225,27 @@ class P25B85Adapter:
         light_byte = frame[IDX_LIGHT_FLAGS]
         activity_byte = frame[IDX_UV_FLAG]
 
-        heater_state = HEATER_STATE_MAP.get(heater_byte, "unknown")
+        status = HEATER_STATE_MAP.get(heater_byte, "unknown")
 
-        # Derive pump state string
+        # Derive jets state string
         if pump_byte & MASK_PUMP_HIGH:
-            pump_state = "high"
+            jets = "high"
         elif pump_byte & MASK_PUMP_LOW:
-            pump_state = "low"
+            jets = "low"
         else:
-            pump_state = "off"
+            jets = "off"
 
         result: dict = {
             "water_temperature": _fahrenheit_to_celsius(water_temp_f),
             "setpoint": _fahrenheit_to_celsius(setpoint_f),
             "pump_low": bool(pump_byte & MASK_PUMP_LOW),
             "pump_high": bool(pump_byte & MASK_PUMP_HIGH),
-            "pump_state": pump_state,
+            "jets": jets,
             "light": bool(light_byte & MASK_LIGHT),
             "heater_active": heater_byte in (HEATER_HEATING, HEATER_HEATING_ALT),
-            "heater_state": heater_state,
+            "status": status,
             "disinfection_active": heater_byte in (HEATER_DISINFECTION, HEATER_DISINFECTION_ALT),
             "blower": bool(activity_byte & MASK_BLOWER),
-            # Raw diagnostic values
-            "raw_pump_byte": pump_byte,
-            "raw_heater_byte": heater_byte,
-            "raw_light_byte": light_byte,
-            "raw_activity_byte": activity_byte,
-            "raw_water_temp_f": water_temp_f,
-            "raw_setpoint_f": setpoint_f,
         }
 
         # Parse datetime if frame is long enough.
@@ -305,13 +298,9 @@ class P25B85Adapter:
         """Return entity descriptions for P25B85."""
         return _P25B85_ENTITIES
 
-    def get_pump_state(self, data: dict) -> str:
-        """Return current pump state as 'off', 'low', or 'high'."""
-        if data.get("pump_high"):
-            return "high"
-        if data.get("pump_low"):
-            return "low"
-        return "off"
+    def get_jets_state(self, data: dict) -> str:
+        """Return current jets state as 'off', 'low', or 'high'."""
+        return data.get("jets", "off")
 
     def get_pump_command(self, current_state: str, target_state: str) -> bytes | None:
         """Return command frame to transition pump from current to target state.
@@ -331,7 +320,7 @@ class P25B85Adapter:
 
     def get_pump_cycle_command(self, data: dict) -> bytes | None:
         """Return command to advance pump to next state in cycle."""
-        current = self.get_pump_state(data)
+        current = self.get_jets_state(data)
         entry = PUMP_CYCLE_MAP.get(current)
         return entry[0] if entry else None
 
@@ -436,17 +425,33 @@ _P25B85_ENTITIES: list[SpaEntityDescription] = [
     ),
     SpaEntityDescription(
         platform="sensor",
-        key="heater_state",
-        name="Heater state",
-        icon="mdi:fire",
+        key="setpoint",
+        name="Setpoint temperature",
+        icon="mdi:thermometer-check",
+        device_class="temperature",
+        state_class="measurement",
+        native_unit="°C",
+    ),
+    SpaEntityDescription(
+        platform="sensor",
+        key="status",
+        name="Status",
+        icon="mdi:waves",
+        icon_map={
+            "off": "mdi:waves",
+            "circulation": "mdi:pump",
+            "heating": "mdi:fire",
+            "disinfection": "mdi:shield-sun",
+            "unknown": "mdi:help-circle-outline",
+        },
         device_class="enum",
         options=["off", "circulation", "heating", "disinfection", "unknown"],
     ),
     SpaEntityDescription(
         platform="sensor",
-        key="pump_state",
-        name="Pump state",
-        icon="mdi:pump",
+        key="jets",
+        name="Jets",
+        icon="mdi:weather-windy",
         device_class="enum",
         options=["off", "low", "high"],
     ),
@@ -456,23 +461,6 @@ _P25B85_ENTITIES: list[SpaEntityDescription] = [
         name="Spa clock",
         icon="mdi:clock-outline",
         device_class="timestamp",
-        entity_category="diagnostic",
-        enabled_by_default=False,
-    ),
-    # Diagnostic raw values (disabled by default)
-    SpaEntityDescription(
-        platform="sensor",
-        key="raw_pump_byte",
-        name="Raw pump byte",
-        icon="mdi:memory",
-        entity_category="diagnostic",
-        enabled_by_default=False,
-    ),
-    SpaEntityDescription(
-        platform="sensor",
-        key="raw_heater_byte",
-        name="Raw heater byte",
-        icon="mdi:memory",
         entity_category="diagnostic",
         enabled_by_default=False,
     ),

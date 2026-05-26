@@ -37,6 +37,7 @@ class SpaSyncClockButton(CoordinatorEntity, ButtonEntity):
     _attr_has_entity_name = True
     _attr_translation_key = "sync_clock"
     _attr_icon = "mdi:clock-check"
+    _attr_entity_registry_enabled_default = False
 
     def __init__(
         self,
@@ -68,4 +69,5 @@ class SpaSyncClockButton(CoordinatorEntity, ButtonEntity):
 
         _LOGGER.info("Spa clock synced to %s", now.strftime("%Y-%m-%d %H:%M:%S"))
         await self.coordinator.async_request_refresh()
+
 
