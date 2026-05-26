@@ -13,6 +13,7 @@ class SpaEntityDescription:
     key: str  # e.g. "water_temperature"
     name: str  # user-facing name
     icon: str | None = None
+    icon_map: dict[str, str] | None = None  # state → icon for dynamic icons
     device_class: str | None = None
     state_class: str | None = None
     native_unit: str | None = None
