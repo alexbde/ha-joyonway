@@ -218,11 +218,11 @@ custom_components/joyonway_p25b85/
 ## 5. Next Steps
 
 ### Priority 1: Live testing
-1. **Restart HA** with updated integration
-2. **Test each entity**: light, heater, blower, jets, thermostat, schedule times, sync clock
-3. **Verify schedule writes**: change a time slot, confirm broadcast updates
-4. **Verify schedule enable/disable**: toggle a slot switch, check broadcast
-5. **Verify clock sync**: press button, check spa_datetime sensor updates
+1. **Run `tools/guided_write_test.py`** — round-trip write tests (direct TCP, no HA)
+2. **Restart HA** with updated integration
+3. **Test each entity via HA UI**: light, heater, filter, blower, jets, thermostat, schedule times
+4. **Verify schedule writes**: change a time slot, confirm broadcast updates
+5. **Verify schedule enable/disable**: toggle a slot switch, check broadcast
 
 ### Priority 2: Replace temperature lookup table
 - `TEMP_COMMAND_TABLE` (31 entries) can be replaced with `build_frame()`
@@ -241,6 +241,8 @@ custom_components/joyonway_p25b85/
 ### Priority 3: Capture backlog (single source for script work)
 
 Use this section as the capture TODO list and script target specification.
+
+**Script:** `tools/guided_capture_phase6.py` — interactive guided capture for all targets below.
 
 **Capture targets (in order):**
 1. **Schedule slot enable encoding**
@@ -344,5 +346,6 @@ Use this section as the capture TODO list and script target specification.
   captures confirm an explicit enable flag/field, remove the `00:00` disable
   convention and use the confirmed flag encoding.
 - **EW11 connection limit**: 4 concurrent TCP clients. HA uses 1, tools can use up to 3 more.
-- **Tools**: `guided_write_test.py` (live write tests), `show_layout.py` (dashboard preview),
+- **Tools**: `guided_write_test.py` (live write tests), `guided_capture_phase6.py` (capture tool for
+  schedule enable, ozone, light mode, panel-local candidates), `show_layout.py` (dashboard preview),
   `read_schedule_datetime.py`, `dump_broadcast_bytes.py`, capture/analysis tools in `tools/`
