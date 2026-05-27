@@ -392,8 +392,12 @@ async def run_tests() -> None:
         orig_he1 = state.get("heat_slot1_end", (0, 0)) if state else (0, 0)
         orig_hs2 = state.get("heat_slot2_start", (0, 0)) if state else (0, 0)
         orig_he2 = state.get("heat_slot2_end", (0, 0)) if state else (0, 0)
-        info(f"Current: slot1={orig_hs1[0]:02d}:{orig_hs1[1]:02d}-{orig_he1[0]:02d}:{orig_he1[1]:02d}, "
-             f"slot2={orig_hs2[0]:02d}:{orig_hs2[1]:02d}-{orig_he2[0]:02d}:{orig_he2[1]:02d}")
+        orig_s1_en = state.get("heat_slot1_enabled", True) if state else True
+        orig_s2_en = state.get("heat_slot2_enabled", True) if state else True
+        info(f"Current: slot1={orig_hs1[0]:02d}:{orig_hs1[1]:02d}-{orig_he1[0]:02d}:{orig_he1[1]:02d} "
+             f"({'ON' if orig_s1_en else 'OFF'}), "
+             f"slot2={orig_hs2[0]:02d}:{orig_hs2[1]:02d}-{orig_he2[0]:02d}:{orig_he2[1]:02d} "
+             f"({'ON' if orig_s2_en else 'OFF'})")
 
         test_hs1, test_he1 = (11, 30), (15, 30)
         test_hs2, test_he2 = (19, 0), (21, 0)
@@ -401,8 +405,11 @@ async def run_tests() -> None:
         if not ask(f"Write test schedule ({test_hs1[0]:02d}:{test_hs1[1]:02d}-{test_he1[0]:02d}:{test_he1[1]:02d}), then restore?"):
             results.append(("Heat schedule", None))
         else:
-            frame = adapter.build_schedule_command("heat", test_hs1, test_he1, test_hs2, test_he2)
-            await send_command(writer, frame, "HEAT_SCHEDULE → test values")
+            frame = adapter.build_schedule_command(
+                "heat", test_hs1, test_he1, test_hs2, test_he2,
+                slot1_enabled=True, slot2_enabled=True,
+            )
+            await send_command(writer, frame, "HEAT_SCHEDULE → test values (both enabled)")
             state = await read_broadcast(reader)
             sched_pass = False
             if state:
@@ -418,7 +425,10 @@ async def run_tests() -> None:
             wait_enter("Check panel shows new heat schedule, then press ENTER")
 
             info("Restoring original heat schedule...")
-            frame = adapter.build_schedule_command("heat", orig_hs1, orig_he1, orig_hs2, orig_he2)
+            frame = adapter.build_schedule_command(
+                "heat", orig_hs1, orig_he1, orig_hs2, orig_he2,
+                slot1_enabled=orig_s1_en, slot2_enabled=orig_s2_en,
+            )
             await send_command(writer, frame, "HEAT_SCHEDULE → restore original")
             state = await read_broadcast(reader)
             if state:
@@ -454,14 +464,16 @@ async def run_tests() -> None:
         else:
             fsched_pass = True
 
-            # Step 1: Write test values with specific hours AND minutes
-            # Use odd minutes to verify minute fields are written correctly
+            # Step 1: Write test values with both slots enabled and specific hours+minutes
             test_fs1, test_fe1 = (5, 45), (9, 15)
             test_fs2, test_fe2 = (16, 30), (18, 55)
             info(f"Writing: slot1={test_fs1[0]:02d}:{test_fs1[1]:02d}-{test_fe1[0]:02d}:{test_fe1[1]:02d}, "
-                 f"slot2={test_fs2[0]:02d}:{test_fs2[1]:02d}-{test_fe2[0]:02d}:{test_fe2[1]:02d}")
-            frame = adapter.build_schedule_command("filter", test_fs1, test_fe1, test_fs2, test_fe2)
-            await send_command(writer, frame, "FILTER_SCHEDULE → test values")
+                 f"slot2={test_fs2[0]:02d}:{test_fs2[1]:02d}-{test_fe2[0]:02d}:{test_fe2[1]:02d} (both ON)")
+            frame = adapter.build_schedule_command(
+                "filter", test_fs1, test_fe1, test_fs2, test_fe2,
+                slot1_enabled=True, slot2_enabled=True,
+            )
+            await send_command(writer, frame, "FILTER_SCHEDULE → test values (both enabled)")
             state = await read_broadcast(reader)
             if state:
                 s1 = state.get("filter_slot1_start", (0, 0))
@@ -486,43 +498,81 @@ async def run_tests() -> None:
                         fail(f"{field_name}: expected {expected}, got {actual}")
                         fsched_pass = False
 
-                # Check enabled flags
+                # Check enabled flags — both should be ON
                 s1_en = state.get("filter_slot1_enabled", None)
                 s2_en = state.get("filter_slot2_enabled", None)
-                info(f"Slot enabled flags: slot1={'ON' if s1_en else 'OFF'}, slot2={'ON' if s2_en else 'OFF'}")
+                if s1_en is True:
+                    ok("Slot 1 enabled: True")
+                else:
+                    fail(f"Slot 1 enabled: expected True, got {s1_en}")
+                    fsched_pass = False
+                if s2_en is True:
+                    ok("Slot 2 enabled: True")
+                else:
+                    fail(f"Slot 2 enabled: expected True, got {s2_en}")
+                    fsched_pass = False
             else:
                 fail("No broadcast after schedule write")
                 fsched_pass = False
             wait_enter("Check panel: filter schedule shows new times? Press ENTER")
 
-            # Step 2: Write with slot 1 disabled (hour = 0, no enable flag)
-            # According to protocol: start hour without 0x40 bit = disabled
-            info("Testing slot disable: writing slot1 as 00:00-00:00 (disabled)...")
+            # Step 2: Disable slot 1 using flags byte (times stay the same)
+            info("Testing slot disable: disabling slot 1 via flags byte (times unchanged)...")
             frame = adapter.build_schedule_command(
-                "filter", (0, 0), (0, 0), test_fs2, test_fe2
+                "filter", test_fs1, test_fe1, test_fs2, test_fe2,
+                slot1_enabled=False, slot2_enabled=True,
             )
-            await send_command(writer, frame, "FILTER_SCHEDULE → slot1 disabled")
+            await send_command(writer, frame, "FILTER_SCHEDULE → slot1 disabled via flags")
             state = await read_broadcast(reader)
             if state:
                 s1_en = state.get("filter_slot1_enabled", None)
                 s2_en = state.get("filter_slot2_enabled", None)
+                s1 = state.get("filter_slot1_start", (0, 0))
                 if s1_en is False:
                     ok("Slot 1 disabled confirmed in broadcast")
                 else:
-                    warn(f"Slot 1 enabled flag = {s1_en} (expected False)")
+                    fail(f"Slot 1 enabled flag = {s1_en} (expected False)")
                     fsched_pass = False
-                if s2_en is True or s2_en is None:
-                    ok(f"Slot 2 still enabled: {s2_en}")
+                if s2_en is True:
+                    ok("Slot 2 still enabled")
                 else:
                     warn(f"Slot 2 enabled flag = {s2_en} (expected True)")
+                # Verify times are preserved despite disable
+                if s1[0] == test_fs1[0] and s1[1] == test_fs1[1]:
+                    ok(f"Slot 1 times preserved: {s1[0]:02d}:{s1[1]:02d}")
+                else:
+                    warn(f"Slot 1 times changed after disable: {s1}")
             else:
                 fail("No broadcast")
                 fsched_pass = False
-            wait_enter("Check panel: filter slot 1 disabled? Press ENTER")
+            wait_enter("Check panel: filter slot 1 disabled (times still visible)? Press ENTER")
 
-            # Step 3: Restore original
+            # Step 3: Re-enable slot 1
+            info("Re-enabling slot 1...")
+            frame = adapter.build_schedule_command(
+                "filter", test_fs1, test_fe1, test_fs2, test_fe2,
+                slot1_enabled=True, slot2_enabled=True,
+            )
+            await send_command(writer, frame, "FILTER_SCHEDULE → slot1 re-enabled")
+            state = await read_broadcast(reader)
+            if state:
+                s1_en = state.get("filter_slot1_enabled", None)
+                if s1_en is True:
+                    ok("Slot 1 re-enabled confirmed")
+                else:
+                    fail(f"Slot 1 re-enable failed: {s1_en}")
+                    fsched_pass = False
+            else:
+                fail("No broadcast")
+                fsched_pass = False
+            wait_enter("Check panel: filter slot 1 enabled again? Press ENTER")
+
+            # Step 4: Restore original
             info("Restoring original filter schedule...")
-            frame = adapter.build_schedule_command("filter", orig_fs1, orig_fe1, orig_fs2, orig_fe2)
+            frame = adapter.build_schedule_command(
+                "filter", orig_fs1, orig_fe1, orig_fs2, orig_fe2,
+                slot1_enabled=orig_s1_enabled, slot2_enabled=orig_s2_enabled,
+            )
             await send_command(writer, frame, "FILTER_SCHEDULE → restore original")
             state = await read_broadcast(reader)
             if state:
