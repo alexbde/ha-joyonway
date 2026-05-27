@@ -52,7 +52,7 @@
 - **Light:** RGB LED, 9 states cycling via button
 - **Heater:** 2 kW resistive, thermostat-controlled
 - **Ozone port:** Connector on PCB ("Ozonauslass"), byte 14=`0xC1` is the
-  disinfection cycle state. PB554 has two modes: **Auto** (schedule) and
+  ozone cycle state. PB554 has two modes: **Auto** (schedule) and
   **Manual** (user-triggerable). Command frames captured for mode switch
   and manual ON/OFF (Phase 6). Broadcast: heater byte `0x40`↔`0xC1`.
 - **Blower:** air blower, connector on PCB, button on PB554 panel.
@@ -120,8 +120,8 @@ custom_components/joyonway_p25b85/
 
 - **Terminology: "Ozone"** — matches the hardware manual ("Ozonauslass") and community
   usage. Ozone is distinct from filtration: the ozone/UV port is a separate device that
-  forces the filter pump on when active. Internal data key is `disinfection_active` (broader
-  term covering both ozone generators and UV lamps in the same port).
+  forces the filter pump on when active. Data key `ozone_active`, status enum
+  `"ozone"`, constants `HEATER_OZONE` / `HEATER_OZONE_ALT` — all consistent.
 - **All commands built dynamically** — CRC-32 cracked (P=0x04C11DB7, word32-swap);
   no replay-only frames. `_build_button_command()` is the universal builder for
   type-0xA1 commands (light, heater, blower, pump, temp, ozone).
@@ -214,9 +214,8 @@ accessible via RS485 at all. Exposing them as integration options would improve 
     `get_pump_cycle_command()` aliases deleted. climate.py calls
     `build_temp_command()` directly.
   - **Terminology standardized** — hardware term "Ozone" (from manual's
-    "Ozonauslass") used everywhere in UI. Internal data key `disinfection_active`
-    kept (broader, covers ozone+UV). Status sensor enum value `"disinfection"`
-    kept for internal consistency but displayed as "Ozone" via translations.
+    "Ozonauslass") used everywhere: UI labels, data keys (`ozone_active`),
+    constants (`HEATER_OZONE`), status enum (`"ozone"`), translations.
   - **Ozone ≠ filtration** — confirmed from manual and community: ozone/UV is
     a separate device on the "Ozone Connection" port. It forces the filter pump
     on when active, but is distinct from timed filtration (command type 0xA4).

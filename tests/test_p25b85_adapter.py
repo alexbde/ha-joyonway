@@ -44,7 +44,7 @@ IDX_DATETIME_START = adapters_p25b85.IDX_DATETIME_START
 HEATER_OFF = adapters_p25b85.HEATER_OFF
 HEATER_HEATING = adapters_p25b85.HEATER_HEATING
 HEATER_CIRCULATION = adapters_p25b85.HEATER_CIRCULATION
-HEATER_DISINFECTION = adapters_p25b85.HEATER_DISINFECTION
+HEATER_OZONE = adapters_p25b85.HEATER_OZONE
 fahrenheit_to_celsius = adapters_p25b85._fahrenheit_to_celsius
 celsius_to_fahrenheit = adapters_p25b85._celsius_to_fahrenheit
 
@@ -131,14 +131,14 @@ def test_parse_rejects_wrong_signature(adapter: P25B85Adapter, logical_frame: by
 
 
 @pytest.mark.parametrize(
-    ("heater_byte", "state", "active", "disinfection"),
+    ("heater_byte", "state", "active", "ozone"),
     [
         (HEATER_OFF, "off", False, False),
         (HEATER_CIRCULATION, "circulation", False, False),
         (HEATER_HEATING, "heating", True, False),
         (0x54, "heating", True, False),
-        (HEATER_DISINFECTION, "disinfection", False, True),
-        (0xC1, "disinfection", False, True),
+        (HEATER_OZONE, "ozone", False, True),
+        (0xC1, "ozone", False, True),
         (0x99, "unknown", False, False),
     ],
 )
@@ -148,14 +148,14 @@ def test_heater_state_mapping(
     heater_byte: int,
     state: str,
     active: bool,
-    disinfection: bool,
+    ozone: bool,
 ) -> None:
     modified = bytearray(logical_frame)
     modified[IDX_HEATER_STATE] = heater_byte
     result = adapter.parse_status(bytes(modified))
     assert result["status"] == state
     assert result["heater_active"] is active
-    assert result["disinfection_active"] is disinfection
+    assert result["ozone_active"] is ozone
 
 
 def test_entity_descriptions(adapter: P25B85Adapter) -> None:

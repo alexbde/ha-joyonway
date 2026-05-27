@@ -116,8 +116,8 @@ HEATER_CIRCULATION = 0x50  # Circulation pump pre-heating (KDy: "circulation") �
 HEATER_HEATING_STANDBY = 0x51  # Heating standby (circ started, heater engaging) ✅ Phase 6
 HEATER_HEATING = 0x55     # Actively heating (our capture) ✅ confirmed
 HEATER_HEATING_ALT = 0x54  # Actively heating (KDy's value, differs by bit 0)
-HEATER_DISINFECTION = 0x41    # Scheduled disinfection cycle (our capture) ✅ confirmed
-HEATER_DISINFECTION_ALT = 0xC1  # Manual disinfection / KDy variant ✅ Phase 6
+HEATER_OZONE = 0x41          # Ozone cycle — scheduled (our capture) ✅ confirmed
+HEATER_OZONE_ALT = 0xC1     # Ozone cycle — manual / KDy variant ✅ Phase 6
 
 HEATER_STATE_MAP: dict[int, str] = {
     HEATER_OFF: "off",
@@ -126,8 +126,8 @@ HEATER_STATE_MAP: dict[int, str] = {
     HEATER_HEATING_STANDBY: "heating",  # about to heat → report as heating
     HEATER_HEATING: "heating",
     HEATER_HEATING_ALT: "heating",      # KDy variant
-    HEATER_DISINFECTION: "disinfection",
-    HEATER_DISINFECTION_ALT: "disinfection",   # KDy variant / manual ozone
+    HEATER_OZONE: "ozone",
+    HEATER_OZONE_ALT: "ozone",         # KDy variant / manual ozone
 }
 
 # ──────────────────────────────────────────────────────────────
@@ -217,7 +217,7 @@ class P25B85Adapter:
             "light": bool(light_byte & MASK_LIGHT),
             "heater_active": heater_byte in (HEATER_HEATING, HEATER_HEATING_ALT),
             "status": status,
-            "disinfection_active": heater_byte in (HEATER_DISINFECTION, HEATER_DISINFECTION_ALT),
+            "ozone_active": heater_byte in (HEATER_OZONE, HEATER_OZONE_ALT),
             "blower": bool(activity_byte & MASK_BLOWER),
         }
 
@@ -504,11 +504,11 @@ _P25B85_ENTITIES: list[SpaEntityDescription] = [
             "off": "mdi:waves",
             "circulation": "mdi:pump",
             "heating": "mdi:fire",
-            "disinfection": "mdi:shield-sun",
+            "ozone": "mdi:shield-sun",
             "unknown": "mdi:help-circle-outline",
         },
         device_class="enum",
-        options=["off", "circulation", "heating", "disinfection", "unknown"],
+        options=["off", "circulation", "heating", "ozone", "unknown"],
     ),
     SpaEntityDescription(
         platform="sensor",

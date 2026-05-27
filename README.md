@@ -35,7 +35,7 @@ The P25B85 controls spas like the **Home Deluxe White Marble** outdoor whirlpool
 | **Pump**         | 1× dual-speed (low = filtration, high = massage jets)         |
 | **Light**        | RGB LED (9 colour states via button press)                    |
 | **Heater**       | 2 kW resistive, thermostat-controlled                         |
-| **Ozone port**   | Ozone/UV disinfection (Auto or Manual mode via RS485)       |
+| **Ozone port**   | Ozone/UV (Auto or Manual mode via RS485)                    |
 
 ## Features
 
@@ -136,7 +136,7 @@ The integration performs a TCP connection test before saving.
 | Entity             | Description                                   |
 |--------------------|-----------------------------------------------|
 | Heater             | Heater manual on/off                          |
-| Ozone              | Ozone (disinfection) on/off — two-step control|
+| Ozone              | Ozone on/off — two-step control               |
 | Light              | Light on/off (toggle with state guard)        |
 | Blower             | Air blower on/off                             |
 | Heat slot 1 / 2   | Enable/disable heating schedule slots         |

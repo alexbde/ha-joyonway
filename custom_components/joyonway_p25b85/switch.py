@@ -199,7 +199,7 @@ class SpaBlowerSwitch(CoordinatorEntity, SwitchEntity):
 
 
 class SpaOzoneSwitch(CoordinatorEntity, SwitchEntity):
-    """Switch entity for ozone / disinfection control.
+    """Switch entity for ozone control.
 
     Two-step ON process:
       1. Set ozone mode to Manual (enables RS485 control)
@@ -229,13 +229,13 @@ class SpaOzoneSwitch(CoordinatorEntity, SwitchEntity):
 
     @property
     def is_on(self) -> bool | None:
-        """Return True if ozone/disinfection cycle is active."""
+        """Return True if ozone cycle is active."""
         if self.coordinator.data is None:
             return None
-        return self.coordinator.data.get("disinfection_active")
+        return self.coordinator.data.get("ozone_active")
 
     async def async_turn_on(self, **kwargs) -> None:
-        """Start ozone disinfection (mode→Manual, then manual ON)."""
+        """Start ozone (mode→Manual, then manual ON)."""
         if self.is_on:
             return
 
@@ -260,7 +260,7 @@ class SpaOzoneSwitch(CoordinatorEntity, SwitchEntity):
         await coordinator.async_request_refresh()
 
     async def async_turn_off(self, **kwargs) -> None:
-        """Stop ozone disinfection (manual OFF, then mode→Auto)."""
+        """Stop ozone (manual OFF, then mode→Auto)."""
         if self.is_on is False:
             return
 

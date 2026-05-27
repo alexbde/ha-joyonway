@@ -27,7 +27,7 @@
           "off": "Off",
           "circulation": "Circulation",
           "heating": "Heating",
-          "disinfection": "Ozone",
+          "ozone": "Ozone",
           "unknown": "Unknown"
         }
       },
