@@ -140,10 +140,16 @@ HEATER_STATE_MAP: dict[int, str] = {
 _CMD_HEADER = bytes([0x01, 0x20, 0x10, 0x3C, 0xA1, 0x10, 0xA1])
 
 # Pump transition encodings — (pump_b7, pump_b8)
+# Captured transitions: off→low, low→high, high→off (panel button cycle).
+# Additional direct transitions use the same target-state bytes — the
+# controller appears to accept any transition regardless of current state.
 _PUMP_TRANSITIONS: dict[tuple[str, str], tuple[int, int]] = {
     ("off", "low"):   (0x02, 0x02),
+    ("off", "high"):  (0x06, 0x04),
     ("low", "high"):  (0x06, 0x04),
+    ("low", "off"):   (0x04, 0x00),
     ("high", "off"):  (0x04, 0x00),
+    ("high", "low"):  (0x02, 0x02),
 }
 
 TEMP_MIN_C = 10

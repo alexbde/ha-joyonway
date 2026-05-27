@@ -397,7 +397,13 @@ def test_build_pump_commands(adapter: P25B85Adapter) -> None:
     p3 = _frame_payload(f3)
     assert p3[7] == 0x04 and p3[8] == 0x00
 
-    assert adapter.build_pump_command("off", "high") is None
+    assert adapter.build_pump_command("off", "high") is not None
+    f4 = adapter.build_pump_command("off", "high")
+    p4 = _frame_payload(f4)
+    assert p4[7] == 0x06 and p4[8] == 0x04
+
+    assert adapter.build_pump_command("low", "off") is not None
+    assert adapter.build_pump_command("high", "low") is not None
     assert adapter.build_pump_command("low", "low") is None
 
 
