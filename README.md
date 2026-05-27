@@ -49,7 +49,8 @@ The P25B85 controls spas like the **Home Deluxe White Marble** outdoor whirlpool
 - **Blower** on/off
 - **Heat schedule** — 2 time slots with start/end times and enable/disable
 - **Filter schedule** — 2 time slots with start/end times and enable/disable
-- **Clock sync** — sync spa clock to Home Assistant time (disabled by default)
+- **Clock sync** — automatic (when drift > 30s) or manual button
+- **Options flow** — ozone mode (Auto/Manual) and auto clock sync toggle
 - **Status sensor** — off / circulation / heating / ozone (with dynamic icons)
 - **Jets sensor** — off / low / high
 - All commands built dynamically via cracked CRC-32 (no replay tables)
@@ -58,8 +59,7 @@ The P25B85 controls spas like the **Home Deluxe White Marble** outdoor whirlpool
 
 ### What this integration does NOT do
 
-- ❌ No automatic clock sync yet (manual button only; option planned)
-- ❌ No options flow for ozone mode (Auto/Manual selection planned)
+- ❌ Not yet fully live-tested (pump direct transitions, ozone, thermostat writes pending)
 
 ## Safety Philosophy
 
@@ -110,6 +110,15 @@ After restart, go to **Settings → Devices & Services → Add integration** and
 | TCP port | `8899` (default) |
 
 The integration performs a TCP connection test before saving.
+
+### Options
+
+After setup, go to **Settings → Devices & Services → Joyonway P25B85 → Configure** to access options:
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| Ozone mode | Auto | **Auto**: ozone runs on its schedule only (ozone switch hidden). **Manual**: enables the ozone switch for RS485 control. |
+| Auto-sync clock | ON | Automatically syncs the spa clock when drift exceeds 30 seconds (1-hour cooldown). |
 
 > **⚠️ Connection note:** The Elfin EW11 supports up to 4 simultaneous TCP connections. Home Assistant uses one; you can still use debug/capture tools in parallel.
 
@@ -182,7 +191,7 @@ Current high-level status:
 - All commands: dynamic frame generation via cracked CRC-32
 - Schedule enable/disable: flags byte lookup table (cracked and implemented)
 - Ozone control: two-step switch (mode switch + manual ON/OFF), verified against captures
-- Next: live spa testing, then options flow (ozone mode, auto-clock-sync)
+- Next: finish live spa testing, then polish and release
 
 ## Testing
 
