@@ -75,9 +75,21 @@ IDX_FILTER_SLOT2_START_M = 34  # Filter slot 2 start minute
 IDX_FILTER_SLOT2_END_H = 35   # Filter slot 2 end hour
 IDX_FILTER_SLOT2_END_M = 36   # Filter slot 2 end minute
 
-# Schedule command flags bytes (byte 7 of command payload)
-HEAT_SCHEDULE_FLAGS = 0x62
-FILTER_SCHEDULE_FLAGS = 0xAA
+# Schedule command flags byte (byte 7 of command payload)
+# Phase 6 finding: flags byte encodes slot enable state, NOT schedule type.
+# The same encoding is used for both heat (0xA3) and filter (0xA4) commands.
+# Encoding uses 2-bit pairs per slot (not single-bit flags).
+# Verified against Phase 6 captures:
+#   0xAA = both enabled         (heat_schedule_enable, filter_schedule_enable)
+#   0x62 = s1 on, s2 off        (heat_schedule_disable, filter_schedule_disable)
+#   0x9A = s1 off, s2 on        (heat_schedule_change)
+#   0x52 = both off             (computed: 0xAA ^ 0xC8 ^ 0x30)
+SCHED_FLAGS_TABLE: dict[tuple[bool, bool], int] = {
+    (True, True): 0xAA,
+    (True, False): 0x62,
+    (False, True): 0x9A,
+    (False, False): 0x52,
+}
 
 # Pump masks
 MASK_PUMP_LOW = 0x02   # filtration / circulation ✅
@@ -99,19 +111,23 @@ MASK_BLOWER = 0x08
 # Our captures confirm 0x40 and 0x50; heating and UV differ by 1 bit
 # from KDy's values (firmware variant or sub-state). Both sets are mapped.
 HEATER_OFF = 0x40    # Idle/off (KDy called this "cooldown") ✅ confirmed
+HEATER_BLOWER = 0x48       # Blower active (0x40 + bit 3) ✅ Phase 6 confirmed
 HEATER_CIRCULATION = 0x50  # Circulation pump pre-heating (KDy: "circulation") ✅ confirmed
+HEATER_HEATING_STANDBY = 0x51  # Heating standby (circ started, heater engaging) ✅ Phase 6
 HEATER_HEATING = 0x55     # Actively heating (our capture) ✅ confirmed
 HEATER_HEATING_ALT = 0x54  # Actively heating (KDy's value, differs by bit 0)
 HEATER_DISINFECTION = 0x41    # Scheduled disinfection cycle (our capture) ✅ confirmed
-HEATER_DISINFECTION_ALT = 0xC1  # KDy variant (differs by bit 7)
+HEATER_DISINFECTION_ALT = 0xC1  # Manual disinfection / KDy variant ✅ Phase 6
 
 HEATER_STATE_MAP: dict[int, str] = {
     HEATER_OFF: "off",
+    HEATER_BLOWER: "off",              # blower doesn't change heater status
     HEATER_CIRCULATION: "circulation",
+    HEATER_HEATING_STANDBY: "heating",  # about to heat → report as heating
     HEATER_HEATING: "heating",
     HEATER_HEATING_ALT: "heating",      # KDy variant
     HEATER_DISINFECTION: "disinfection",
-    HEATER_DISINFECTION_ALT: "disinfection",   # KDy variant
+    HEATER_DISINFECTION_ALT: "disinfection",   # KDy variant / manual ozone
 }
 
 # ──────────────────────────────────────────────────────────────
@@ -338,6 +354,8 @@ class P25B85Adapter:
         slot1_end: tuple[int, int],
         slot2_start: tuple[int, int],
         slot2_end: tuple[int, int],
+        slot1_enabled: bool = True,
+        slot2_enabled: bool = True,
     ) -> bytes:
         """Build a schedule command frame with CRC.
 
@@ -347,6 +365,8 @@ class P25B85Adapter:
             slot1_end: (hour, minute) for slot 1 end
             slot2_start: (hour, minute) for slot 2 start
             slot2_end: (hour, minute) for slot 2 end
+            slot1_enabled: whether slot 1 is enabled
+            slot2_enabled: whether slot 2 is enabled
 
         Returns:
             Wire-ready frame bytes.
@@ -355,12 +375,13 @@ class P25B85Adapter:
 
         if schedule_type == "heat":
             cmd_type = 0xA3
-            flags = HEAT_SCHEDULE_FLAGS
         elif schedule_type == "filter":
             cmd_type = 0xA4
-            flags = FILTER_SCHEDULE_FLAGS
         else:
             raise ValueError(f"Unsupported schedule type: {schedule_type}")
+
+        # Compute flags byte from enable state
+        flags = SCHED_FLAGS_TABLE[(slot1_enabled, slot2_enabled)]
 
         # Command payload (16 bytes):
         # [0-6] header, [7] flags, [8-15] slot times
