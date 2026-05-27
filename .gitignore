@@ -17,6 +17,7 @@ __pycache__/
 captures/
 captures_phase4/
 captures_phase5/
+captures_phase6/
 captures_crc/
 captures_temp/
 *.bin
