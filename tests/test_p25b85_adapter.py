@@ -217,8 +217,7 @@ def test_parse_schedule_from_live_frame(adapter: P25B85Adapter) -> None:
 
 def test_build_schedule_command(adapter: P25B85Adapter) -> None:
     """Test building schedule command frames with CRC."""
-    # Build a heat schedule command matching the captured frame
-    # Captured: heat slot1 start=12:00, end=16:00, slot2 start=20:00, end=22:00
+    # Build a heat schedule command with both slots enabled (default)
     frame = adapter.build_schedule_command(
         "heat",
         slot1_start=(12, 0),
@@ -232,24 +231,12 @@ def test_build_schedule_command(adapter: P25B85Adapter) -> None:
     # Must be a valid wire frame
     assert len(frame) >= 22  # 1 + 20 (escaped) + 1
 
-    # Build a filter schedule command
-    frame2 = adapter.build_schedule_command(
-        "filter",
-        slot1_start=(12, 0),
-        slot1_end=(12, 0),
-        slot2_start=(17, 0),
-        slot2_end=(18, 0),
-    )
-    assert frame2[0] == 0x1A
-    assert frame2[-1] == 0x1D
-
-    # Verify the captured heat schedule frame matches our generation
-    # Captured session 2: payload 0120103ca310a1620c001000140016 00
-    # Our frame with same times should produce the same payload
+    # Verify payload structure
     inner = pseudo_unescape(frame[1:-1])
     payload = inner[:16]
-    # Check command type byte
     assert payload[4] == 0xA3  # heat schedule
+    # Default: both slots enabled → flags = 0xAA
+    assert payload[7] == 0xAA
     # Check times in payload
     assert payload[8] == 12   # slot1 start hour
     assert payload[9] == 0    # slot1 start minute
@@ -259,6 +246,96 @@ def test_build_schedule_command(adapter: P25B85Adapter) -> None:
     assert payload[13] == 0   # slot2 start minute
     assert payload[14] == 22  # slot2 end hour
     assert payload[15] == 0   # slot2 end minute
+
+    # Build a filter schedule command with both slots enabled
+    frame2 = adapter.build_schedule_command(
+        "filter",
+        slot1_start=(12, 0),
+        slot1_end=(12, 0),
+        slot2_start=(17, 0),
+        slot2_end=(18, 0),
+    )
+    assert frame2[0] == 0x1A
+    assert frame2[-1] == 0x1D
+    inner2 = pseudo_unescape(frame2[1:-1])
+    assert inner2[4] == 0xA4  # filter schedule
+    assert inner2[7] == 0xAA  # both enabled
+
+
+def test_build_schedule_command_enable_flags(adapter: P25B85Adapter) -> None:
+    """Test that the flags byte correctly encodes slot enable state."""
+    times = dict(
+        slot1_start=(12, 0), slot1_end=(16, 0),
+        slot2_start=(20, 0), slot2_end=(22, 0),
+    )
+
+    # Both enabled → 0xAA
+    frame = adapter.build_schedule_command("heat", **times, slot1_enabled=True, slot2_enabled=True)
+    inner = pseudo_unescape(frame[1:-1])
+    assert inner[7] == 0xAA
+
+    # Slot 1 on, slot 2 off → 0x62 (confirmed Phase 6: heat_schedule_disable)
+    frame = adapter.build_schedule_command("heat", **times, slot1_enabled=True, slot2_enabled=False)
+    inner = pseudo_unescape(frame[1:-1])
+    assert inner[7] == 0x62
+
+    # Slot 1 off, slot 2 on → 0x9A (confirmed Phase 6: heat_schedule_change)
+    frame = adapter.build_schedule_command("heat", **times, slot1_enabled=False, slot2_enabled=True)
+    inner = pseudo_unescape(frame[1:-1])
+    assert inner[7] == 0x9A
+
+    # Both disabled → 0x52
+    frame = adapter.build_schedule_command("heat", **times, slot1_enabled=False, slot2_enabled=False)
+    inner = pseudo_unescape(frame[1:-1])
+    assert inner[7] == 0x52
+
+    # Same encoding for filter
+    frame = adapter.build_schedule_command("filter", **times, slot1_enabled=True, slot2_enabled=False)
+    inner = pseudo_unescape(frame[1:-1])
+    assert inner[7] == 0x62
+
+
+def test_build_schedule_command_phase6_match(adapter: P25B85Adapter) -> None:
+    """Verify build_schedule_command matches Phase 6 captured frames byte-for-byte."""
+    # Phase 6 capture: heat_schedule_enable — both slots enabled
+    # Wire: 1a0120103ca310a1aa0c001000150016003efb8dd91d
+    frame = adapter.build_schedule_command(
+        "heat",
+        slot1_start=(12, 0), slot1_end=(16, 0),
+        slot2_start=(21, 0), slot2_end=(22, 0),
+        slot1_enabled=True, slot2_enabled=True,
+    )
+    assert frame == bytes.fromhex("1a0120103ca310a1aa0c001000150016003efb8dd91d")
+
+    # Phase 6 capture: heat_schedule_disable (slot2 disabled)
+    # Wire: 1a0120103ca310a1620c00100015001600e09a71e91d
+    frame = adapter.build_schedule_command(
+        "heat",
+        slot1_start=(12, 0), slot1_end=(16, 0),
+        slot2_start=(21, 0), slot2_end=(22, 0),
+        slot1_enabled=True, slot2_enabled=False,
+    )
+    assert frame == bytes.fromhex("1a0120103ca310a1620c00100015001600e09a71e91d")
+
+    # Phase 6 capture: filter_schedule_enable (both enabled)
+    # Wire: 1a0120103ca410a1aa0b000d00110012007e2109021d
+    frame = adapter.build_schedule_command(
+        "filter",
+        slot1_start=(11, 0), slot1_end=(13, 0),
+        slot2_start=(17, 0), slot2_end=(18, 0),
+        slot1_enabled=True, slot2_enabled=True,
+    )
+    assert frame == bytes.fromhex("1a0120103ca410a1aa0b000d00110012007e2109021d")
+
+    # Phase 6 capture: filter_schedule_disable (slot2 disabled)
+    # Wire: 1a0120103ca410a1620b000d0011001200a040f5321d
+    frame = adapter.build_schedule_command(
+        "filter",
+        slot1_start=(11, 0), slot1_end=(13, 0),
+        slot2_start=(17, 0), slot2_end=(18, 0),
+        slot1_enabled=True, slot2_enabled=False,
+    )
+    assert frame == bytes.fromhex("1a0120103ca410a1620b000d0011001200a040f5321d")
 
 
 def test_build_schedule_command_rejects_invalid_type(adapter: P25B85Adapter) -> None:
