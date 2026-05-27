@@ -14,7 +14,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import DOMAIN, OPT_OZONE_MODE, OZONE_MODE_MANUAL
 from .coordinator import JoyonwayP25B85Coordinator
 from .entity import device_info
 
@@ -34,8 +34,8 @@ async def async_setup_entry(
 
     entities: list[SwitchEntity] = [
         SpaHeaterSwitch(coordinator, entry),
-        SpaOzoneSwitch(coordinator, entry),
         SpaLightSwitch(coordinator, entry),
+        SpaOzoneSwitch(coordinator, entry),
         SpaBlowerSwitch(coordinator, entry),
         SpaScheduleSlotSwitch(coordinator, entry, "heat", 1),
         SpaScheduleSlotSwitch(coordinator, entry, "heat", 2),
@@ -226,6 +226,14 @@ class SpaOzoneSwitch(CoordinatorEntity, SwitchEntity):
         # Keep the old unique_id suffix for migration from the dummy "filter" entity
         self._attr_unique_id = f"{entry.entry_id}_filter_switch"
         self._attr_device_info = device_info(entry)
+        self._entry = entry
+
+    @property
+    def available(self) -> bool:
+        """Only available when ozone mode is Manual."""
+        if self.coordinator.ozone_mode != OZONE_MODE_MANUAL:
+            return False
+        return super().available
 
     @property
     def is_on(self) -> bool | None:
