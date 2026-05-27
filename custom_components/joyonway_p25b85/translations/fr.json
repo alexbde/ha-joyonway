@@ -27,7 +27,7 @@
           "off": "Arrêt",
           "circulation": "Circulation",
           "heating": "Chauffage",
-          "disinfection": "Désinfection",
+          "disinfection": "Ozone",
           "unknown": "Inconnu"
         }
       },
@@ -47,7 +47,7 @@
     "switch": {
       "light": { "name": "Lumière" },
       "heater": { "name": "Chauffage" },
-      "filter": { "name": "Filtration" },
+      "ozone": { "name": "Ozone" },
       "blower": { "name": "Soufflerie" },
       "heat_slot1_enabled": { "name": "Chauffage créneau 1" },
       "heat_slot2_enabled": { "name": "Chauffage créneau 2" },

@@ -27,7 +27,7 @@
           "off": "Aus",
           "circulation": "Zirkulation",
           "heating": "Heizen",
-          "disinfection": "Desinfektion",
+          "disinfection": "Ozon",
           "unknown": "Unbekannt"
         }
       },
@@ -47,7 +47,7 @@
     "switch": {
       "light": { "name": "Licht" },
       "heater": { "name": "Heizung" },
-      "filter": { "name": "Filtration" },
+      "ozone": { "name": "Ozon" },
       "blower": { "name": "Gebläse" },
       "heat_slot1_enabled": { "name": "Heiz-Slot 1" },
       "heat_slot2_enabled": { "name": "Heiz-Slot 2" },
