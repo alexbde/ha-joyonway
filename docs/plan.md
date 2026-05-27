@@ -60,84 +60,7 @@
 
 ## 2. Protocol Summary
 
-### Framing
-
-- 38400 8N1, start `0x1A`, end `0x1D`
-- Pseudo-escape: `0x1B XX` sequences (see escape table in code)
-- P25B85: full-frame unescape. P23B32: tail-only (bytes 55+).
-- Frame boundaries detected on raw bytes FIRST, then unescape applied.
-
-### Broadcast byte map (P25B85, logical frame after unescape)
-
-| Byte | Content |
-|------|---------|
-| 8 | Model ID (`0x03` = P25B85) |
-| **9** | Water temperature (°F) |
-| **12** | Pump status (`0x02`=low, `0x04`=high) |
-| **14** | Heater/blower state (see below) |
-| **16** | Setpoint (°F) |
-| **17** | Light flags (bit 0 = light ON) |
-| **19–26** | Heat schedule (4 pairs: start_h, start_m, end_h, end_m per slot) |
-| **28** | Activity flags (bit 3=blower, bit 5=activity/disinfection) |
-| **29–36** | Filter schedule (same layout as heat) |
-| 53–58 | Date/time (year, month, day, hour, minute, second) |
-
-**Schedule encoding:** Start-hour bytes (19, 23, 29, 33) use bit 6 (0x40) as
-slot-enabled flag. Hour = byte & 0x3F. Minutes are in the next byte.
-
-**Byte 14 values:**
-- `0x40` = off, `0x48` = blower active, `0x50` = circulation
-- `0x51` = heating standby, `0x55`/`0x54` = heating active
-- `0x41`/`0xC1` = disinfection, `0x58` = blower + circulation
-
-### Command frame types (byte[4] distinguishes type)
-
-| byte[4] | Type | Description |
-|---------|------|-------------|
-| 0xA1 | Button command | Light/pump/heater/blower (22 bytes) |
-| 0xA2 | DateTime set | Set spa clock (22 bytes) |
-| 0xA3 | Heat schedule | Program heating time slots (22 bytes) |
-| 0xA4 | Filter schedule | Program filtration time slots (22 bytes) |
-
-### Schedule command payload (0xA3 / 0xA4)
-
-```
-[0-6]  Header: 01 20 10 3C [A3|A4] 10 A1
-[7]    Flags: encodes slot enable state (see below)
-[8-9]  Slot 1 start: hour, minute
-[10-11] Slot 1 end: hour, minute
-[12-13] Slot 2 start: hour, minute
-[14-15] Slot 2 end: hour, minute
-```
-
-**Flags byte encoding (byte 7) — CRACKED (Phase 6):**
-- `0xAA` = both slots enabled
-- `0x62` = slot 1 enabled, slot 2 disabled
-- `0x9A` = slot 1 disabled, slot 2 enabled
-- `0x52` = both disabled (derived by XOR, CRC-verified)
-- Uses 2-bit-pair encoding per slot, same for heat and filter
-
-### DateTime command payload (0xA2)
-
-```
-[0-6]  Header: 01 20 10 3C A2 10 A1
-[7]    0x50 (fixed prefix)
-[8]    Year (offset from 2000)
-[9]    Month
-[10]   Day
-[11]   Hour (24h)
-[12]   Minute
-[13]   Second
-[14-15] 0x00 0x00
-```
-
-### CRC — CRACKED ✅
-
-- **Algorithm:** CRC-32 (0x04C11DB7), non-reflected, init=0, xor_out=0x552D22C8
-- **Preprocessing:** 32-bit word byte-swap of payload before CRC
-- **Storage:** little-endian at payload bytes 16–19
-- **Implementation:** `protocol.py` → `compute_crc()` and `build_frame()`
-- **Verification:** 44/44 unique frames verified (21 session-1 + 23 phase-6)
+All protocol details—including framing, byte maps, command payloads, schedule encoding, and the verified CRC-32 algorithm—have been moved to `docs/protocol.md`, which is the canonical protocol reference.
 
 ## 3. Current Implementation
 
@@ -239,7 +162,7 @@ custom_components/joyonway_p25b85/
 - Byte 10 variants (0x80/0x98/0x99) need live test to confirm which works
 - Would allow ANY °F setpoint, not just the 31 captured values
 
-### Priority 2b: Automatic clock sync
+### Priority 3: Automatic clock sync
 - Currently manual via a button (disabled by default).
 - **Idea:** Add a config flow option "Auto-sync clock" (boolean, default ON).
   When enabled, the coordinator compares `spa_datetime` to HA time on each
@@ -248,28 +171,8 @@ custom_components/joyonway_p25b85/
   but a built-in option is more user-friendly.
 - Keep the manual button as a fallback (disabled by default).
 
-### Priority 3: Capture backlog — ✅ COMPLETED (Phase 6)
-
-All capture targets completed on 2026-05-27. Results in `tools/captures_phase6/`,
-analysis report at `tools/captures_phase6/analysis_report.md`.
-
-**Completed targets:**
-1. ✅ **Schedule slot enable encoding** — flags byte cracked: 4-value lookup
-   (`0xAA`/`0x62`/`0x9A`/`0x52`). Implemented in `SCHED_FLAGS_TABLE`.
-2. ✅ **Ozone manual control** — mode Auto/Manual + manual ON/OFF captured.
-   Mode switch = byte[11]=0x80, byte[12]=0xC0(auto)/0x40(manual).
-   Manual ON = byte[9]=0x01,byte[10]=0x01. OFF = byte[9]=0x01,byte[10]=0x10.
-3. ⏭ **Light mode config** — skipped during Phase 6 session.
-4. ✅ **Panel-local candidates** — Auto Lock, Brightness, Screen Flip confirmed
-   panel-local (no RS485 frames, no broadcast changes).
-
-**Remaining capture targets:**
-- Light mode config (On-Off vs RGB cycling) — still unknown if RS485 or panel-local.
-
-**Out of scope / not planned:**
-- Heater priority (DIP switch A2/A3/A5) and frost protection (controller-internal).
-- PB554 "Modes" presets (economy/standard/boost) as entities; users can compose
-  equivalent behavior via HA automations/scenes.
+### Priority 4: Ozone / Disinfection entity
+- Implement the two-step ozone control via an entity.
 
 ### Priority 5: Polish & release
 - Version bump, README final review, HACS release
@@ -277,40 +180,12 @@ analysis report at `tools/captures_phase6/analysis_report.md`.
 ## 6. Technical Notes for Next Session
 
 - **Session outcomes (latest — 2026-05-27):**
-  - **Phase 6 full capture completed** — 70 segments, 25 actions, all CRC verified
-  - **Schedule flags byte CRACKED:** byte[7] encodes slot enables via lookup:
-    - `0xAA` = both on, `0x62` = s1 on/s2 off, `0x9A` = s1 off/s2 on, `0x52` = both off
-    - Uses 2-bit-pair encoding per slot (not single-bit flags)
-    - Same table for heat (0xA3) and filter (0xA4) commands
-    - ✅ `build_schedule_command()` updated with `slot1_enabled`/`slot2_enabled` params
-    - ✅ `switch.py` rewritten: schedule slot switch sends flags byte, no more 00:00 hack
-    - ✅ `time.py` updated: preserves enable state when changing times
-    - ✅ Tests: 3 new tests including byte-for-byte Phase 6 frame match (67 total)
+  - **Phase 6 full capture completed**
+  - **Schedule flags byte CRACKED:** byte[7] encodes slot enables via lookup table.
   - **Ozone commands captured:**
-    - Mode Auto: `btn=0x00, modifier=0x80, byte[12]=0xC0`
-    - Mode Manual: `btn=0x00, modifier=0x80, byte[12]=0x40`
-    - Manual ON: `pump_b9=0x01, btn=0x01, byte[12]=0x40`
-    - Manual OFF: `pump_b9=0x01, btn=0x10, byte[12]=0x40`
     - Broadcast: `0x40` → `0xC1` (disinfection on), `0xC1` → `0x40` (off)
-    - **TODO:** implement ozone switch entity (requires 2-step: set mode
-      to Manual first, then send ON/OFF)
-  - **New heater byte values confirmed:**
-    - `0x48` = blower active (0x40 + bit 3) — matches byte[28] bit 3
-    - `0x51` = heating standby (circulation started, heater about to engage)
-    - ✅ `0x48` and `0x51` added to `HEATER_STATE_MAP` in p25b85.py
   - **Panel-local confirmed:** Auto Lock, Brightness, Screen Flip = no RS485
-  - **New command frame variants** for heater/blower/pump captured with different
-    byte[10] values than previous sessions — all CRC verified, controller accepts
-    both variants
-  - **Light mode capture** was skipped (user didn't do it)
-  - **Analysis script created:** `tools/analyze_phase6.py` — reads captures +
-    manifest, decodes frames, diffs states, verifies CRC, generates markdown report
-  - **Analysis report at:** `tools/captures_phase6/analysis_report.md`
-
-- **Previous session outcomes (2026-05-26):**
-  - Major entity refactor (pre-release, no backwards compat needed)
-  - `SpaEntityDescription.icon_map` added for state-dependent icons
-  - Guided write test script created: `tools/guided_write_test.py`
+  - **New command frame variants** for heater/blower/pump captured.
 
 - **`.env` file** holds bridge IP (gitignored). Tools auto-load it.
 - **Restart required** after any code change to the integration.
