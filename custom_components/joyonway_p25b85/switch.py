@@ -266,7 +266,6 @@ class SpaScheduleSlotSwitch(CoordinatorEntity, SwitchEntity):
         self._attr_device_info = device_info(entry)
         self._attr_translation_key = self._key
         self._attr_icon = "mdi:calendar-check" if schedule_type == "heat" else "mdi:air-filter"
-        self._last_slot_times: tuple[tuple[int, int], tuple[int, int]] | None = None
 
     @property
     def is_on(self) -> bool | None:
@@ -288,11 +287,10 @@ class SpaScheduleSlotSwitch(CoordinatorEntity, SwitchEntity):
         await self._send_schedule(enabled=False)
 
     async def _send_schedule(self, enabled: bool) -> None:
-        """Send the full schedule command with updated slot values.
+        """Send the full schedule command with the slot's enable flag toggled.
 
-        Until live testing confirms an explicit enable bit in command payload,
-        disable is modeled as 00:00-00:00. To keep the toggle reversible,
-        the last non-zero slot times are cached and restored on enable.
+        The flags byte (byte 7) in the command payload encodes which slots are
+        enabled. Times are sent unchanged — only the enable flag changes.
         """
         data = self.coordinator.data
         if data is None:
@@ -303,34 +301,19 @@ class SpaScheduleSlotSwitch(CoordinatorEntity, SwitchEntity):
         s1_end = data.get(f"{prefix}_slot1_end", (0, 0))
         s2_start = data.get(f"{prefix}_slot2_start", (0, 0))
         s2_end = data.get(f"{prefix}_slot2_end", (0, 0))
+        s1_enabled = data.get(f"{prefix}_slot1_enabled", False)
+        s2_enabled = data.get(f"{prefix}_slot2_enabled", False)
 
+        # Update the enable flag for the slot being toggled
         if self._slot == 1:
-            slot_start, slot_end = s1_start, s1_end
+            s1_enabled = enabled
         else:
-            slot_start, slot_end = s2_start, s2_end
-
-        if not enabled:
-            if slot_start != (0, 0) or slot_end != (0, 0):
-                self._last_slot_times = (slot_start, slot_end)
-            if self._slot == 1:
-                s1_start = (0, 0)
-                s1_end = (0, 0)
-            else:
-                s2_start = (0, 0)
-                s2_end = (0, 0)
-        elif slot_start == (0, 0) and slot_end == (0, 0):
-            if self._last_slot_times is None:
-                raise HomeAssistantError(
-                    "Cannot enable slot with unknown times; set start/end times first"
-                )
-            if self._slot == 1:
-                s1_start, s1_end = self._last_slot_times
-            else:
-                s2_start, s2_end = self._last_slot_times
+            s2_enabled = enabled
 
         adapter = self.coordinator.adapter
         frame = adapter.build_schedule_command(
-            self._schedule_type, s1_start, s1_end, s2_start, s2_end
+            self._schedule_type, s1_start, s1_end, s2_start, s2_end,
+            slot1_enabled=s1_enabled, slot2_enabled=s2_enabled,
         )
 
         coordinator: JoyonwayP25B85Coordinator = self.coordinator

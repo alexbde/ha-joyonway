@@ -103,6 +103,8 @@ class SpaScheduleTime(CoordinatorEntity, TimeEntity):
         s1_end = data.get(f"{prefix}_slot1_end", (0, 0))
         s2_start = data.get(f"{prefix}_slot2_start", (0, 0))
         s2_end = data.get(f"{prefix}_slot2_end", (0, 0))
+        s1_enabled = data.get(f"{prefix}_slot1_enabled", True)
+        s2_enabled = data.get(f"{prefix}_slot2_enabled", True)
 
         # Replace the one being changed
         new_val = (value.hour, value.minute)
@@ -115,10 +117,11 @@ class SpaScheduleTime(CoordinatorEntity, TimeEntity):
         elif self._slot == 2 and self._field == "end":
             s2_end = new_val
 
-        # Build and send the schedule command
+        # Build and send the schedule command (preserving current enable state)
         adapter = self.coordinator.adapter
         frame = adapter.build_schedule_command(
-            self._schedule_type, s1_start, s1_end, s2_start, s2_end
+            self._schedule_type, s1_start, s1_end, s2_start, s2_end,
+            slot1_enabled=s1_enabled, slot2_enabled=s2_enabled,
         )
 
         success = await self.coordinator.async_send_command(frame)
