@@ -3,8 +3,7 @@
 The spa has a single dual-speed pump (off / low / high).
 Exposed as a fan entity with preset modes for natural HA integration.
 
-Uses replay-only command frames captured from the PB554 panel.
-No CRC computation — only verbatim captured frames are sent.
+All command frames are built dynamically via CRC computation.
 """
 from __future__ import annotations
 
@@ -17,11 +16,6 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .adapters.p25b85 import (
-    CMD_PUMP_HIGH_TO_OFF,
-    CMD_PUMP_LOW_TO_HIGH,
-    CMD_PUMP_OFF_TO_LOW,
-)
 from .const import DOMAIN
 from .coordinator import JoyonwayP25B85Coordinator
 from .entity import device_info
@@ -101,12 +95,14 @@ class SpaPumpFan(CoordinatorEntity, FanEntity):
             return
 
         if current == "high":
-            success = await coordinator.async_send_command(CMD_PUMP_HIGH_TO_OFF)
+            cmd = adapter.build_pump_command("high", "off")
+            success = await coordinator.async_send_command(cmd)
             if not success:
                 raise HomeAssistantError("Failed to send pump high->off command")
         elif current == "low":
             # Must go low→high→off (no direct low→off command)
-            success = await coordinator.async_send_command(CMD_PUMP_LOW_TO_HIGH)
+            cmd = adapter.build_pump_command("low", "high")
+            success = await coordinator.async_send_command(cmd)
             if not success:
                 raise HomeAssistantError("Failed to send pump low->high command")
 
@@ -115,7 +111,8 @@ class SpaPumpFan(CoordinatorEntity, FanEntity):
                     "Pump transition low->high not confirmed; refusing high->off step"
                 )
 
-            success = await coordinator.async_send_command(CMD_PUMP_HIGH_TO_OFF)
+            cmd = adapter.build_pump_command("high", "off")
+            success = await coordinator.async_send_command(cmd)
             if not success:
                 raise HomeAssistantError("Failed to send pump high->off command")
 
@@ -140,12 +137,14 @@ class SpaPumpFan(CoordinatorEntity, FanEntity):
 
         if target == PRESET_LOW:
             if current == "off":
-                success = await coordinator.async_send_command(CMD_PUMP_OFF_TO_LOW)
+                cmd = adapter.build_pump_command("off", "low")
+                success = await coordinator.async_send_command(cmd)
                 if not success:
                     raise HomeAssistantError("Failed to send pump off->low command")
             elif current == "high":
                 # high→off→low (two steps)
-                success = await coordinator.async_send_command(CMD_PUMP_HIGH_TO_OFF)
+                cmd = adapter.build_pump_command("high", "off")
+                success = await coordinator.async_send_command(cmd)
                 if not success:
                     raise HomeAssistantError("Failed to send pump high->off command")
 
@@ -154,13 +153,15 @@ class SpaPumpFan(CoordinatorEntity, FanEntity):
                         "Pump transition high->off not confirmed; refusing off->low step"
                     )
 
-                success = await coordinator.async_send_command(CMD_PUMP_OFF_TO_LOW)
+                cmd = adapter.build_pump_command("off", "low")
+                success = await coordinator.async_send_command(cmd)
                 if not success:
                     raise HomeAssistantError("Failed to send pump off->low command")
         elif target == PRESET_HIGH:
             if current == "off":
                 # off→low→high (two steps)
-                success = await coordinator.async_send_command(CMD_PUMP_OFF_TO_LOW)
+                cmd = adapter.build_pump_command("off", "low")
+                success = await coordinator.async_send_command(cmd)
                 if not success:
                     raise HomeAssistantError("Failed to send pump off->low command")
 
@@ -169,11 +170,13 @@ class SpaPumpFan(CoordinatorEntity, FanEntity):
                         "Pump transition off->low not confirmed; refusing low->high step"
                     )
 
-                success = await coordinator.async_send_command(CMD_PUMP_LOW_TO_HIGH)
+                cmd = adapter.build_pump_command("low", "high")
+                success = await coordinator.async_send_command(cmd)
                 if not success:
                     raise HomeAssistantError("Failed to send pump low->high command")
             elif current == "low":
-                success = await coordinator.async_send_command(CMD_PUMP_LOW_TO_HIGH)
+                cmd = adapter.build_pump_command("low", "high")
+                success = await coordinator.async_send_command(cmd)
                 if not success:
                     raise HomeAssistantError("Failed to send pump low->high command")
 

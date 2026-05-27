@@ -1,8 +1,7 @@
 """Climate platform for Joyonway P25B85 — spa thermostat control.
 
-Uses replay-only command frames captured from the PB554 panel.
-No CRC computation — only verbatim captured frames are sent.
 Supports setpoint temperatures from 10°C to 40°C in 1°C steps.
+All command frames are built dynamically via CRC computation.
 
 Includes debouncing for the temperature slider: rapid successive
 set_temperature calls (e.g., from dragging the slider) are coalesced
@@ -162,7 +161,7 @@ class SpaClimate(CoordinatorEntity, ClimateEntity):
 
             coordinator: JoyonwayP25B85Coordinator = self.coordinator
             adapter = coordinator.adapter
-            command = adapter.get_temp_command(scheduled_target)
+            command = adapter.build_temp_command(scheduled_target)
 
             if command is None:
                 _LOGGER.warning(

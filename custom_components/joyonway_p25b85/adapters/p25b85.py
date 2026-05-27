@@ -131,73 +131,19 @@ HEATER_STATE_MAP: dict[int, str] = {
 }
 
 # ──────────────────────────────────────────────────────────────
-# Command frames (captured from PB554 panel, replay-only)
-# CRC algorithm is proprietary; we ONLY replay verbatim frames.
+# Command payload constants
+# All commands are built dynamically via build_frame() + CRC.
+# Payload layout (16 bytes): see docs/protocol.md §4.1
 # ──────────────────────────────────────────────────────────────
 
-# Light toggle — same frame for ON and OFF (it's a toggle)
-CMD_LIGHT_TOGGLE = bytes.fromhex("1a0120103ca110a10000404000c00056003031eeb21d")
+# Common command header (bytes 0-6, shared across all type-0xA1 commands)
+_CMD_HEADER = bytes([0x01, 0x20, 0x10, 0x3C, 0xA1, 0x10, 0xA1])
 
-# Pump transitions (must match current state → target state)
-CMD_PUMP_OFF_TO_LOW = bytes.fromhex("1a0120103ca110a10202000000c00056007dd2146b1d")
-CMD_PUMP_LOW_TO_HIGH = bytes.fromhex("1a0120103ca110a10604000000c0005600fc1221c61d")
-CMD_PUMP_HIGH_TO_OFF = bytes.fromhex("1a0120103ca110a10400000000c0005600735738e91d")
-
-# Heater manual ON/OFF (Phase 5 captures)
-# byte[10-11] = 0x08,0x08 for ON; 0x08,0x00 for OFF
-# byte[15] = 0x64 (100°F) was the setpoint at capture time
-CMD_HEATER_ON = bytes.fromhex("1a0120103ca110a10000080800c0006400d3cab4791d")
-CMD_HEATER_OFF = bytes.fromhex("1a0120103ca110a10000080000c000640035b18d0a1d")
-
-# Blower ON/OFF (Phase 5 captures)
-# byte[10-11] = 0x04,0x0C for ON; 0x04,0x08 for OFF
-# Broadcast: byte[14] bit 3 (0x08) = blower active, byte[28] bit 3 (0x08) = blower
-CMD_BLOWER_ON = bytes.fromhex("1a0120103ca110a10000040c00c00064000029c8f51d")
-CMD_BLOWER_OFF = bytes.fromhex("1a0120103ca110a10000040800c0006400f39454cc1d")
-
-# Pump state → next command mapping for cycling
-PUMP_CYCLE_MAP: dict[str, tuple[bytes, str]] = {
-    "off": (CMD_PUMP_OFF_TO_LOW, "low"),
-    "low": (CMD_PUMP_LOW_TO_HIGH, "high"),
-    "high": (CMD_PUMP_HIGH_TO_OFF, "off"),
-}
-
-# Temperature setpoint command frames (captured from PB554 panel).
-# Keys are target °C; values are raw wire-format hex frames (replay verbatim).
-# 31 frames covering 10°C (50°F) to 40°C (104°F) in 1°C steps.
-# The °C→°F mapping follows the panel's +1,+2,+2,+2,+2 repeating pattern.
-TEMP_COMMAND_TABLE: dict[int, bytes] = {
-    10: bytes.fromhex("1a0120103ca110a10000809800c0003200cb80efa11d"),   # 50°F
-    11: bytes.fromhex("1a0120103ca110a10000808800c000330080db45461d"),   # 51°F
-    12: bytes.fromhex("1a0120103ca110a10000808800c0003500923096421d"),   # 53°F
-    13: bytes.fromhex("1a0120103ca110a10000808800c00037009c6927411d"),   # 55°F
-    14: bytes.fromhex("1a0120103ca110a10000808800c0003900b6e6314b1d"),   # 57°F
-    15: bytes.fromhex("1a0120103ca110a10000808800c0003b00b8bf80481d"),   # 59°F
-    16: bytes.fromhex("1a0120103ca110a10000808800c0003c002df88b4d1d"),   # 60°F
-    17: bytes.fromhex("1a0120103ca110a10000808800c0003e0023a13a4e1d"),   # 62°F
-    18: bytes.fromhex("1a0120103ca110a10000808800c0004000595798141d"),   # 64°F
-    19: bytes.fromhex("1a0120103ca110a10000808800c0004200570e29171d"),   # 66°F
-    20: bytes.fromhex("1a0120103ca110a10000808800c000440045e5fa131d"),   # 68°F
-    21: bytes.fromhex("1a0120103ca110a10000808800c0004500c24922121d"),   # 69°F
-    22: bytes.fromhex("1a0120103ca110a10000808800c0004700cc1093111d"),   # 71°F
-    23: bytes.fromhex("1a0120103ca110a10000808800c0004900e69f851b0b1d"),  # 73°F (escaped CRC)
-    24: bytes.fromhex("1a0120103ca110a10000808800c0004b00e8c634181d"),   # 75°F
-    25: bytes.fromhex("1a0120103ca110a10000809800c0004d0036da95fa1d"),   # 77°F
-    26: bytes.fromhex("1a0120103ca110a10000809800c0004e00bf2ffcf81d"),   # 78°F
-    27: bytes.fromhex("1a0120103ca110a10000808800c0005000299f12091d"),   # 80°F
-    28: bytes.fromhex("1a0120103ca110a10000808800c000520027c6a30a1d"),   # 82°F
-    29: bytes.fromhex("1a0120103ca110a10000808800c0005400352d700e1d"),   # 84°F
-    30: bytes.fromhex("1a0120103ca110a10000808800c00056003b74c10d1d"),   # 86°F
-    31: bytes.fromhex("1a0120103ca110a10000808800c0005700bcd8190c1d"),   # 87°F
-    32: bytes.fromhex("1a0120103ca110a10000809900c00059004bc82aaf1d"),   # 89°F
-    33: bytes.fromhex("1a0120103ca110a10000809900c0005b0045919bac1d"),   # 91°F
-    34: bytes.fromhex("1a0120103ca110a10000809900c0005d00577a48a81d"),   # 93°F
-    35: bytes.fromhex("1a0120103ca110a10000809900c0005f005923f9ab1d"),   # 95°F
-    36: bytes.fromhex("1a0120103ca110a10000809900c00060006458a8861d"),   # 96°F
-    37: bytes.fromhex("1a0120103ca110a10000809900c00062006a0119851d"),   # 98°F
-    38: bytes.fromhex("1a0120103ca110a10000809900c000640078eaca811d"),   # 100°F
-    39: bytes.fromhex("1a0120103ca110a10000809900c000660076b37b821d"),   # 102°F
-    40: bytes.fromhex("1a0120103ca110a10000809900c00068005c3c6d881d"),   # 104°F
+# Pump transition encodings — (pump_b7, pump_b8)
+_PUMP_TRANSITIONS: dict[tuple[str, str], tuple[int, int]] = {
+    ("off", "low"):   (0x02, 0x02),
+    ("low", "high"):  (0x06, 0x04),
+    ("high", "off"):  (0x04, 0x00),
 }
 
 TEMP_MIN_C = 10
@@ -215,13 +161,24 @@ def _fahrenheit_to_celsius(f: int) -> int | None:
     return round((f - 32) * 5 / 9)
 
 
+def _celsius_to_fahrenheit(c: int) -> int:
+    """Convert Celsius to Fahrenheit (integer, standard rounding)."""
+    return round(c * 9 / 5 + 32)
+
+
 class P25B85Adapter:
-    """Adapter for the Joyonway P25B85 controller."""
+    """Adapter for the Joyonway P25B85 controller.
+
+    All command frames are built dynamically using the cracked CRC-32.
+    No replay-only frames — every command is computed from payload + CRC.
+    """
 
     model: str = "P25B85"
     broadcast_signature: bytes = P25B85_SIGNATURE
     unescape_full_frame: bool = True
     supports_writes: bool = True
+
+    # ── Broadcast parsing ─────────────────────────────────────
 
     def parse_status(self, frame: bytes) -> dict | None:
         """Extract state dict from an unescaped broadcast frame.
@@ -314,38 +271,123 @@ class P25B85Adapter:
         """Return entity descriptions for P25B85."""
         return _P25B85_ENTITIES
 
+    # ── Jets / pump helpers ───────────────────────────────────
+
     def get_jets_state(self, data: dict) -> str:
         """Return current jets state as 'off', 'low', or 'high'."""
         return data.get("jets", "off")
 
-    def get_pump_command(self, current_state: str, target_state: str) -> bytes | None:
-        """Return command frame to transition pump from current to target state.
+    # ── Dynamic command builders ──────────────────────────────
+    # All commands use build_frame() to compute CRC dynamically.
 
-        Returns None if transition is not directly possible (need intermediate steps).
+    def _build_button_command(
+        self,
+        pump_b7: int = 0x00,
+        pump_b8: int = 0x00,
+        btn_group: int = 0x00,
+        btn_action: int = 0x00,
+        modifier: int = 0x00,
+        context: int = 0xC0,
+        setpoint_f: int = 0x62,
+    ) -> bytes:
+        """Build a type-0xA1 button command frame with CRC.
+
+        Args:
+            pump_b7/b8: pump transition bytes (non-zero for pump commands)
+            btn_group: button group identifier
+            btn_action: button action value
+            modifier: modifier byte (0x80 for ozone mode)
+            context: context byte (0xC0 normal, 0x40 ozone manual)
+            setpoint_f: current setpoint in °F (embedded for panel compat)
         """
-        if current_state == target_state:
+        from ..protocol import build_frame
+
+        payload = bytearray([
+            0x01, 0x20, 0x10, 0x3C, 0xA1, 0x10, 0xA1,
+            pump_b7, pump_b8,
+            btn_group, btn_action,
+            modifier, context,
+            0x00,
+            setpoint_f,
+            0x00,
+        ])
+        return build_frame(bytes(payload))
+
+    def build_light_toggle_command(self) -> bytes:
+        """Build a light toggle command."""
+        return self._build_button_command(btn_group=0x40, btn_action=0x40)
+
+    def build_pump_command(self, current: str, target: str) -> bytes | None:
+        """Build a pump transition command.
+
+        Returns None if no direct transition exists.
+        """
+        key = (current, target)
+        if key not in _PUMP_TRANSITIONS:
             return None
+        b7, b8 = _PUMP_TRANSITIONS[key]
+        return self._build_button_command(pump_b7=b7, pump_b8=b8)
 
-        # Direct transitions
-        transitions = {
-            ("off", "low"): CMD_PUMP_OFF_TO_LOW,
-            ("low", "high"): CMD_PUMP_LOW_TO_HIGH,
-            ("high", "off"): CMD_PUMP_HIGH_TO_OFF,
-        }
-        return transitions.get((current_state, target_state))
+    def build_heater_command(self, on: bool) -> bytes:
+        """Build a heater ON or OFF command."""
+        return self._build_button_command(
+            btn_group=0x08,
+            btn_action=0x08 if on else 0x00,
+        )
 
-    def get_pump_cycle_command(self, data: dict) -> bytes | None:
-        """Return command to advance pump to next state in cycle."""
-        current = self.get_jets_state(data)
-        entry = PUMP_CYCLE_MAP.get(current)
-        return entry[0] if entry else None
+    def build_blower_command(self, on: bool) -> bytes:
+        """Build a blower ON or OFF command."""
+        return self._build_button_command(
+            btn_group=0x04,
+            btn_action=0x0C if on else 0x08,
+        )
 
-    def get_temp_command(self, target_celsius: int) -> bytes | None:
-        """Return the command frame for a target temperature in °C.
+    def build_temp_command(self, target_celsius: int) -> bytes | None:
+        """Build a temperature setpoint command frame with CRC.
 
-        Returns None if the temperature is out of range (10-40°C).
+        Converts °C to °F and builds the command dynamically.
+        Returns None if out of range.
         """
-        return TEMP_COMMAND_TABLE.get(target_celsius)
+        if target_celsius < TEMP_MIN_C or target_celsius > TEMP_MAX_C:
+            return None
+        target_f = _celsius_to_fahrenheit(target_celsius)
+        return self._build_button_command(
+            btn_group=0x80,
+            btn_action=0x88,
+            setpoint_f=target_f,
+        )
+
+    def build_ozone_mode_command(self, mode: str, setpoint_f: int = 0x62) -> bytes:
+        """Build an ozone mode switch command (Auto or Manual).
+
+        Args:
+            mode: "auto" or "manual"
+            setpoint_f: current setpoint in °F (controller ignores)
+        """
+        if mode == "auto":
+            context = 0xC0
+        elif mode == "manual":
+            context = 0x40
+        else:
+            raise ValueError(f"Unsupported ozone mode: {mode}")
+
+        return self._build_button_command(
+            modifier=0x80,
+            context=context,
+            setpoint_f=setpoint_f,
+        )
+
+    def build_ozone_manual_command(self, on: bool, setpoint_f: int = 0x62) -> bytes:
+        """Build an ozone manual ON/OFF command.
+
+        Requires ozone mode to be set to Manual first.
+        """
+        return self._build_button_command(
+            btn_group=0x01,
+            btn_action=0x01 if on else 0x10,
+            context=0x40,
+            setpoint_f=setpoint_f,
+        )
 
     def build_schedule_command(
         self,
