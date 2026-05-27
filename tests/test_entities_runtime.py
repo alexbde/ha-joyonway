@@ -55,7 +55,7 @@ class DummyAdapter:
         return data.get("jets", "off")
 
     @staticmethod
-    def get_temp_command(target_celsius: int) -> bytes | None:
+    def build_temp_command(target_celsius: int) -> bytes | None:
         return b"\xAA" if 10 <= target_celsius <= 40 else None
 
 
