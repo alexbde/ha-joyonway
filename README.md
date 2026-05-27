@@ -19,8 +19,9 @@ The P25B85 controls spas like the **Home Deluxe White Marble** outdoor whirlpool
 > **Status: Entities and write control implemented** — the P25B85 byte map has
 > been validated against local RS485 captures for temperature, setpoint, pump,
 > light, heater, blower, and disinfection states. CRC-32 is cracked and verified
-> (21/21 unique frames) and implemented in `protocol.py`; current entity writes
-> still use captured replay frames / lookup tables (is-state).
+> (44/44 unique frames) and implemented in `protocol.py`. Schedule enable/disable
+> uses the cracked flags byte encoding. Temperature writes still use captured
+> replay frames / lookup tables.
 
 > **Discussion thread:** [JoyOnWay Spa Control — Home Assistant Community](https://community.home-assistant.io/t/joyonway-spa-control/582344)
 
@@ -36,7 +37,7 @@ The P25B85 controls spas like the **Home Deluxe White Marble** outdoor whirlpool
 | **Pump**         | 1× dual-speed (low = filtration, high = massage jets)         |
 | **Light**        | RGB LED (9 colour states via button press)                    |
 | **Heater**       | 2 kW resistive, thermostat-controlled                         |
-| **UV/ozone port**| Scheduled disinfection cycle state (not user-toggleable)      |
+| **UV/ozone port**| Disinfection cycle (Auto or Manual mode controllable via RS485) |
 
 ## Features
 
@@ -58,19 +59,19 @@ The P25B85 controls spas like the **Home Deluxe White Marble** outdoor whirlpool
 
 ### What this integration does NOT do
 
-- ❌ No ozone/disinfection manual control yet (panel supports it in "Manual" mode — capture needed)
-- ❌ Schedule slot enable encoding is not fully confirmed yet (current implementation uses a zero-time disable convention with restore-on-enable fallback; capture validation pending)
+- ❌ No ozone/disinfection manual control entity yet (command frames captured, implementation pending)
+- ❌ Temperature commands still use replay lookup table (dynamic generation possible but needs live testing)
 
 ## Safety Philosophy
 
-The P25B85 uses a 4-byte CRC-32 on all command frames. The CRC algorithm has been fully reverse-engineered (standard CRC-32 polynomial `0x04C11DB7` with word-swap preprocessing) and verified against 21 unique captured frames covering all command types.
+The P25B85 uses a 4-byte CRC-32 on all command frames. The CRC algorithm has been fully reverse-engineered (standard CRC-32 polynomial `0x04C11DB7` with word-swap preprocessing) and verified against 44 unique captured frames covering all command types.
 
 - ✅ CRC algorithm is implemented and verified for dynamic frame building
 - ✅ Current runtime writes send captured frames with known-good CRC bytes
 - ✅ All commands are validated against observed state changes from physical captures
 - ✅ Write pacing enforces a 1-second cooldown between commands
 
-> **Note:** KDy documented that sending a frame with an invalid CRC can activate the heater unexpectedly. This integration currently sends captured commands with known-good CRC; dynamic CRC generation is verified and available for future migration.
+> **Note:** KDy documented that sending a frame with an invalid CRC can activate the heater unexpectedly. This integration uses the verified CRC algorithm for schedule writes and captured commands with known-good CRC for button actions.
 
 ## Requirements
 
@@ -142,13 +143,8 @@ The integration performs a TCP connection test before saving.
 | Heat slot 1 / 2   | Enable/disable heating schedule slots         |
 | Filter slot 1 / 2 | Enable/disable filtration schedule slots      |
 
-> **Schedule note:** Slot disable/enable currently follows observed behavior and
-> live-safe heuristics, but byte-level enable encoding in schedule command frames
-> is still under capture validation.
->
-> **Rule:** `00:00` is a temporary fallback only. If captures confirm an
-> explicit enable flag/field, remove the `00:00` disable convention and use
-> the confirmed flag encoding.
+> **Schedule enable/disable** uses a dedicated flags byte in the command payload
+> (cracked from Phase 6 RS485 captures). Slot times are preserved when toggling.
 
 ### Fan
 
@@ -181,11 +177,13 @@ Roadmap and session handoff live in `docs/plan.md`.
 
 Current high-level status:
 
-- Capture + byte-map validation: done
+- Capture + byte-map validation: done (Phase 6 complete)
 - Integration entities: implemented (including schedule time/switch entities)
-- CRC cracking + protocol implementation: done
-- Schedule writes: dynamic frame generation with verified CRC
+- CRC cracking + protocol implementation: done (44/44 frames verified)
+- Schedule writes: dynamic frame generation with flags byte enable/disable
+- Schedule enable/disable: flags byte lookup table (cracked and implemented)
 - Button/heater/blower writes: replay frames (is-state)
+- Ozone control: command frames captured, entity not yet implemented
 - Next: live spa testing, then migrate remaining writes to algorithm-based frames
 
 ## Testing
