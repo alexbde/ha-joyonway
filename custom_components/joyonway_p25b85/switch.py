@@ -92,12 +92,18 @@ class SpaLightSwitch(CoordinatorEntity, SwitchEntity):
             await self._send_toggle()
 
     async def _send_toggle(self) -> None:
-        """Send the light toggle command and refresh state."""
+        """Send the light toggle command and refresh state.
+
+        A short delay before refresh ensures the next broadcast reflects
+        the new light state — the controller needs one broadcast cycle
+        (~1s) to update after receiving the toggle.
+        """
         coordinator: JoyonwayP25B85Coordinator = self.coordinator
         cmd = coordinator.adapter.build_light_toggle_command()
         success = await coordinator.async_send_command(cmd)
         if not success:
             raise HomeAssistantError("Failed to send light command")
+        await asyncio.sleep(1.0)
         await coordinator.async_request_refresh()
 
 
