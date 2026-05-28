@@ -64,12 +64,19 @@ _load("joyonway_p25b85.protocol", _comp_dir / "protocol.py")
 _load("joyonway_p25b85.adapters.p25b85", _comp_dir / "adapters" / "p25b85.py")
 
 from joyonway_p25b85.adapters.p25b85 import P25B85Adapter  # noqa: E402
-from joyonway_p25b85.protocol import unescape_frame  # noqa: E402
+from joyonway_p25b85.protocol import (  # noqa: E402
+    find_frames,
+    is_broadcast,
+    unescape_frame,
+    validate_frame,
+)
 
 HOST = os.environ.get("SPA_BRIDGE_HOST")
 PORT = int(os.environ.get("SPA_BRIDGE_PORT", "8899"))
 BROADCAST_TIMEOUT = 5.0  # seconds to wait for a valid broadcast
-POST_COMMAND_DELAY = 2.0  # seconds to wait after sending before reading
+POST_COMMAND_DELAY = 2.5  # seconds to wait after sending before reading
+# The broadcast interval is ~2s, so 2.5s ensures the controller has time
+# to process the command and include the new state in the next broadcast.
 
 adapter = P25B85Adapter()
 
@@ -175,40 +182,84 @@ def confirm(prompt: str) -> bool:
     return True  # ENTER or y
 
 
-async def read_broadcast(reader: asyncio.StreamReader) -> dict | None:
-    """Read from TCP stream until we get a valid P25B85 broadcast frame."""
+async def drain_stale(reader: asyncio.StreamReader) -> None:
+    """Drain any buffered data from the TCP socket so next read gets fresh data."""
+    while True:
+        try:
+            chunk = await asyncio.wait_for(reader.read(4096), timeout=0.05)
+            if not chunk:
+                break
+        except asyncio.TimeoutError:
+            break
+
+
+async def read_broadcast(
+    reader: asyncio.StreamReader, drain_first: bool = False
+) -> dict | None:
+    """Read from TCP stream until we get a valid P25B85 broadcast frame.
+
+    Uses the same frame-parsing pipeline as the real coordinator:
+      find_frames() → validate_frame() → is_broadcast() →
+      unescape_frame() → adapter.parse_status()
+
+    If drain_first is True, discard all currently buffered data before waiting
+    for a fresh frame.  This is critical after sending a command: without it
+    we would read a stale pre-command broadcast that was buffered during the
+    POST_COMMAND_DELAY sleep.
+
+    Returns the LAST valid broadcast from all buffered data (not the first).
+    """
+    if drain_first:
+        await drain_stale(reader)
+
     deadline = time.monotonic() + BROADCAST_TIMEOUT
-    buf = b""
+    buf = bytearray()
+    latest_result: dict | None = None
+
     while time.monotonic() < deadline:
         try:
             chunk = await asyncio.wait_for(
-                reader.read(1024),
+                reader.read(4096),
                 timeout=deadline - time.monotonic(),
             )
         except asyncio.TimeoutError:
             break
         if not chunk:
             break
-        buf += chunk
+        buf.extend(chunk)
 
-        # Look for complete frames (0x1A ... 0x1D)
-        while b"\x1a" in buf and b"\x1d" in buf:
-            start = buf.index(b"\x1a")
-            end_idx = buf.index(b"\x1d", start)
-            raw_frame = buf[start : end_idx + 1]
-            buf = buf[end_idx + 1 :]
+        # Use the same frame-finding logic as the real coordinator
+        raw_frames = find_frames(bytes(buf))
+        if not raw_frames:
+            continue
 
-            # Unescape and parse
+        # Advance buffer past the last frame we found
+        last_end = bytes(buf).rfind(b"\x1d")
+        if last_end >= 0:
+            buf = buf[last_end + 1:]
+
+        for raw_frame in raw_frames:
+            if not validate_frame(raw_frame):
+                continue
+            if not is_broadcast(raw_frame):
+                continue
+
             try:
-                logical = unescape_frame(raw_frame, full=True)
+                logical = unescape_frame(
+                    raw_frame, full=adapter.unescape_full_frame
+                )
                 result = adapter.parse_status(logical)
                 if result is not None:
-                    # Log to capture file — serialise only JSON-safe values
                     _log_broadcast(raw_frame, logical, result)
-                    return result
+                    latest_result = result
             except Exception:
                 continue
-    return None
+
+        # If we have a valid result and buffer is empty, we're done.
+        if latest_result is not None and not buf:
+            break
+
+    return latest_result
 
 
 def _log_broadcast(raw: bytes, logical: bytes, parsed: dict) -> None:
@@ -232,9 +283,17 @@ def _log_broadcast(raw: bytes, logical: bytes, parsed: dict) -> None:
 
 
 async def send_command(
-    writer: asyncio.StreamWriter, cmd: bytes, description: str
+    reader: asyncio.StreamReader,
+    writer: asyncio.StreamWriter,
+    cmd: bytes,
+    description: str,
 ) -> None:
-    """Send a command frame to the bridge."""
+    """Send a command frame to the bridge.
+
+    Drains stale buffered broadcasts BEFORE sending so that the next
+    read_broadcast() call gets a fresh post-command frame.
+    """
+    await drain_stale(reader)
     info(f"Sending: {description}")
     _log_event("command", description=description, cmd_hex=cmd.hex())
     writer.write(cmd)
@@ -407,7 +466,7 @@ async def _run_test_sequence(
 
         step_pass = True
         for cmd, label, checker, confirm_msg in steps:
-            await send_command(writer, cmd, f"{test_name} → {label}")
+            await send_command(reader, writer, cmd, f"{test_name} → {label}")
             new_state = await read_broadcast(reader)
             if new_state:
                 state = new_state
@@ -467,7 +526,7 @@ async def _run_test_sequence(
                 ]
 
             for cmd, label in steps:
-                await send_command(writer, cmd, f"Heater → {label}")
+                await send_command(reader, writer, cmd, f"Heater → {label}")
 
                 # Read multiple broadcasts to capture state transitions
                 # (heater typically goes off → circulation → heating over 2-5s)
@@ -527,26 +586,71 @@ async def _run_test_sequence(
 
             results.append(("Heater", heater_pass))
 
-    # ─── TEST 3: Blower ──────────────────────────────────────────
+    # ─── TEST 3: Blower (with min-run-time handling) ────────────
 
     if "blower" in selected:
-        await round_trip_toggle(
-            test_name="Blower",
-            field="blower",
-            cmd_on=adapter.build_blower_command(on=True),
-            cmd_off=adapter.build_blower_command(on=False),
-            check_on=lambda v: v is True,
-            check_off=lambda v: v is False,
-        )
+        print(f"\n{'─'*60}")
+        print(f"  {BOLD}TEST: Blower (ON/OFF with extended OFF delay){RESET}")
+        _log_event("test_start", test="Blower")
 
-    # ─── TEST 4: Jets (pump cycle) ───────────────────────────────
+        current_blower = state.get("blower", False) if state else False
+        info(f"Current blower = {current_blower}")
+        info("Note: blower may have a minimum run time. OFF will be "
+             "tested after a 10s delay.")
+
+        if not ask("Run blower round-trip test?"):
+            results.append(("Blower", None))
+        else:
+            blower_pass = True
+
+            if current_blower:
+                # Already on → test OFF first, then restore ON
+                steps = [
+                    (adapter.build_blower_command(on=False), False, "OFF", 0),
+                    (adapter.build_blower_command(on=True), True, "ON (restore)", 0),
+                ]
+            else:
+                # Currently off → turn ON, wait, then OFF
+                steps = [
+                    (adapter.build_blower_command(on=True), True, "ON", 10),
+                    (adapter.build_blower_command(on=False), False, "OFF (restore)", 0),
+                ]
+
+            for cmd, expected_val, label, extra_wait in steps:
+                await send_command(reader, writer, cmd, f"Blower → {label}")
+                if extra_wait > 0:
+                    info(f"Waiting {extra_wait}s for blower min-run-time...")
+                    await asyncio.sleep(extra_wait)
+                    await drain_stale(reader)
+                state = await read_broadcast(reader)
+                if state:
+                    val = state.get("blower")
+                    hb = state.get("heater_byte", 0)
+                    if val == expected_val:
+                        ok(f"Broadcast confirms blower={val} "
+                           f"(heater_byte=0x{hb:02X})")
+                    else:
+                        fail(f"Expected blower={expected_val}, got {val} "
+                             f"(heater_byte=0x{hb:02X})")
+                        blower_pass = False
+                else:
+                    fail("No broadcast received")
+                    blower_pass = False
+                if not confirm(f"Confirm blower is {label} on panel?"):
+                    fail(f"User reports blower did NOT change to {label}")
+                    blower_pass = False
+
+            results.append(("Blower", blower_pass))
+
+    # ─── TEST 4: Jets (pump cycle with retry) ───────────────────
 
     if "jets" in selected:
         print(f"\n{'─'*60}")
-        print(f"  {BOLD}TEST: Jets (full cycle){RESET}")
+        print(f"  {BOLD}TEST: Jets (full cycle with retry){RESET}")
         _log_event("test_start", test="Jets cycle")
         current_jets = state.get("jets", "off") if state else "off"
         info(f"Current jets = {current_jets}")
+        info("Each transition retries up to 3× to handle RS485 bus collisions.")
 
         if not ask("Run jets full-cycle round-trip test?"):
             results.append(("Jets cycle", None))
@@ -554,49 +658,74 @@ async def _run_test_sequence(
             # Define the cycle based on current state to end where we started
             if current_jets == "off":
                 cycle = [
-                    (adapter.build_pump_command("off", "low"), "low", "Confirm pump LOW on panel"),
-                    (adapter.build_pump_command("low", "high"), "high", "Confirm pump HIGH on panel"),
-                    (adapter.build_pump_command("high", "off"), "off", "Confirm pump OFF (restored) on panel"),
+                    ("off", "low", "Confirm pump LOW on panel"),
+                    ("low", "high", "Confirm pump HIGH on panel"),
+                    ("high", "off", "Confirm pump OFF (restored) on panel"),
                 ]
             elif current_jets == "low":
                 cycle = [
-                    (adapter.build_pump_command("low", "high"), "high", "Confirm pump HIGH on panel"),
-                    (adapter.build_pump_command("high", "off"), "off", "Confirm pump OFF on panel"),
-                    (adapter.build_pump_command("off", "low"), "low", "Confirm pump LOW (restored) on panel"),
+                    ("low", "high", "Confirm pump HIGH on panel"),
+                    ("high", "off", "Confirm pump OFF on panel"),
+                    ("off", "low", "Confirm pump LOW (restored) on panel"),
                 ]
             else:  # high
                 cycle = [
-                    (adapter.build_pump_command("high", "off"), "off", "Confirm pump OFF on panel"),
-                    (adapter.build_pump_command("off", "low"), "low", "Confirm pump LOW on panel"),
-                    (adapter.build_pump_command("low", "high"), "high", "Confirm pump HIGH (restored) on panel"),
+                    ("high", "off", "Confirm pump OFF on panel"),
+                    ("off", "low", "Confirm pump LOW on panel"),
+                    ("low", "high", "Confirm pump HIGH (restored) on panel"),
                 ]
 
             jets_pass = True
-            for cmd, expected, confirm_msg in cycle:
-                await send_command(writer, cmd, f"Jets → {expected}")
-                state = await read_broadcast(reader)
-                if state and state.get("jets") == expected:
-                    ok(f"Broadcast confirms jets={expected}")
-                else:
-                    fail(f"Expected jets={expected}, got {state.get('jets') if state else 'N/A'}")
-                    # Don't fail the whole test if the spa safely intervened (e.g. heater is on so pump stayed low)
-                    warn("State did not match exact expected state (spa safety intervention?)")
+            actual_jets = current_jets
+            for from_state, expected, confirm_msg in cycle:
+                cmd = adapter.build_pump_command(actual_jets, expected)
+                if cmd is None:
+                    fail(f"No pump command for {actual_jets}→{expected}")
+                    jets_pass = False
+                    break
+
+                # Retry up to 3 times — RS485 bus collisions can cause
+                # commands to be lost (our frame sent while controller
+                # is mid-broadcast → both garbled on the wire).
+                MAX_RETRIES = 3
+                succeeded = False
+                for attempt in range(1, MAX_RETRIES + 1):
+                    if attempt > 1:
+                        warn(f"Retry {attempt}/{MAX_RETRIES} for {actual_jets}→{expected}...")
+                        await asyncio.sleep(1.0)  # extra gap before retry
+                    await send_command(reader, writer, cmd, f"Jets → {expected} (attempt {attempt})")
+                    state = await read_broadcast(reader)
+                    if state and state.get("jets") == expected:
+                        ok(f"Broadcast confirms jets={expected}"
+                           + (f" (took {attempt} attempt(s))" if attempt > 1 else ""))
+                        actual_jets = expected
+                        succeeded = True
+                        break
+                    else:
+                        got = state.get('jets') if state else 'N/A'
+                        if attempt < MAX_RETRIES:
+                            warn(f"jets={got} (expected {expected}), retrying...")
+                        else:
+                            fail(f"jets={got} after {MAX_RETRIES} attempts "
+                                 f"(expected {expected})")
+
+                if not succeeded:
+                    # Update actual_jets from latest broadcast for next step
+                    if state:
+                        actual_jets = state.get("jets", actual_jets)
                 if not confirm(confirm_msg):
                     fail(f"User reports jets did NOT change to {expected}")
                     jets_pass = False
 
-            results.append(("Jets cycle", True))
+            results.append(("Jets cycle", jets_pass))
 
-    # ─── TEST 4b: Temperature Setpoint variants ──────────────────
+    # ─── TEST 4b: Temperature Setpoint ───────────────────────────
 
     if "temperature" in selected:
         print(f"\n{'─'*60}")
-        print(f"  {BOLD}TEST: Temperature setpoint (dynamic frame variants){RESET}")
+        print(f"  {BOLD}TEST: Temperature setpoint (via adapter.build_temp_command){RESET}")
         _log_event("test_start", test="Temperature setpoint")
 
-        from joyonway_p25b85.protocol import build_frame
-        
-        orig_setpoint_f = state.get('setpoint_f') if state and 'setpoint_f' in state else None
         orig_setpoint_c = state.get('setpoint')
 
         if not orig_setpoint_c:
@@ -607,47 +736,34 @@ async def _run_test_sequence(
             
             # Decide on a test target (+1 deg, unless it's >39, then -1 deg)
             test_c = orig_setpoint_c + 1 if orig_setpoint_c < 39 else orig_setpoint_c - 1
-            test_f = round(test_c * 9/5 + 32)
             
-            if not ask(f"Test dynamic temperature setpoint commands (targeting {test_c}°C / ~{test_f}°F)?"):
+            if not ask(f"Test temperature setpoint command (targeting {test_c}°C)?"):
                 results.append(("Temperature setpoint", None))
             else:
-                variants = [0x80, 0x98, 0x99]
                 temp_pass = False
-                working_variant = None
 
-                for variant in variants:
-                    info(f"Trying byte[10] variant: 0x{variant:02X}")
-                    # standard payload: 01 20 10 3C A1 10 A1 00 00 80 [variant] 00 C0 00 [temp_f] 00
-                    payload = bytes([
-                        0x01, 0x20, 0x10, 0x3C, 0xA1, 0x10, 0xA1,
-                        0x00, 0x00, 0x80, variant, 0x00, 0xC0, 0x00, test_f, 0x00
-                    ])
-                    frame = build_frame(payload)
-                    await send_command(writer, frame, f"TEMP SETPOINT → {test_c}°C (variant 0x{variant:02X})")
+                # Use the adapter's build_temp_command (btn_action=0x98, confirmed working)
+                frame = adapter.build_temp_command(test_c)
+                if frame is None:
+                    fail(f"build_temp_command returned None for {test_c}°C")
+                else:
+                    await send_command(reader, writer, frame, f"TEMP SETPOINT → {test_c}°C")
                     state = await read_broadcast(reader)
                     
                     if state and state.get('setpoint') == test_c:
-                        ok(f"Variant 0x{variant:02X} successfully updated target to {test_c}°C!")
-                        working_variant = variant
+                        ok(f"Setpoint updated to {test_c}°C!")
                         temp_pass = True
-                        break
                     else:
                         actual = state.get('setpoint') if state else None
-                        fail(f"Variant 0x{variant:02X} failed. Setpoint returned: {actual}°C")
-                        wait_enter(f"Press ENTER to try next variant")
+                        fail(f"Setpoint failed. Expected {test_c}°C, got {actual}°C")
 
                 if temp_pass:
                     if not confirm(f"Confirm panel shows new target {test_c}°C?"):
                         fail("User reports panel did NOT update setpoint")
                         temp_pass = False
                     # Restore original
-                    orig_f = round(orig_setpoint_c * 9/5 + 32)
-                    payload = bytes([
-                        0x01, 0x20, 0x10, 0x3C, 0xA1, 0x10, 0xA1,
-                        0x00, 0x00, 0x80, working_variant, 0x00, 0xC0, 0x00, orig_f, 0x00
-                    ])
-                    await send_command(writer, build_frame(payload), f"TEMP SETPOINT → restoring {orig_setpoint_c}°C")
+                    frame = adapter.build_temp_command(orig_setpoint_c)
+                    await send_command(reader, writer, frame, f"TEMP SETPOINT → restoring {orig_setpoint_c}°C")
                     state = await read_broadcast(reader)
                     if state and state.get('setpoint') == orig_setpoint_c:
                         ok(f"Restored setpoint to {orig_setpoint_c}°C!")
@@ -655,8 +771,6 @@ async def _run_test_sequence(
                         warn("Failed to automatically confirm restore in broadcast.")
                         if not confirm(f"Manually verify panel restored to {orig_setpoint_c}°C?"):
                             warn("User reports restore failed")
-                else:
-                    fail("All dynamic temperature frame variants failed!")
                 
                 results.append(("Temperature setpoint", temp_pass))
 
@@ -678,27 +792,54 @@ async def _run_test_sequence(
              f"slot2={orig_hs2[0]:02d}:{orig_hs2[1]:02d}-{orig_he2[0]:02d}:{orig_he2[1]:02d} "
              f"({'ON' if orig_s2_en else 'OFF'})")
 
-        test_hs1, test_he1 = (11, 30), (15, 30)
-        test_hs2, test_he2 = (19, 0), (21, 0)
+        # Compute test values that DIFFER from current state (shift hours by +2, toggle minutes)
+        test_hs1 = ((orig_hs1[0] + 2) % 24, 15 if orig_hs1[1] != 15 else 45)
+        test_he1 = ((orig_he1[0] + 2) % 24, 30 if orig_he1[1] != 30 else 0)
+        test_hs2 = ((orig_hs2[0] + 2) % 24, 15 if orig_hs2[1] != 15 else 45)
+        test_he2 = ((orig_he2[0] + 2) % 24, 30 if orig_he2[1] != 30 else 0)
+        test_s1_en = not orig_s1_en  # toggle enable state
+        test_s2_en = not orig_s2_en
 
-        if not ask(f"Write test schedule ({test_hs1[0]:02d}:{test_hs1[1]:02d}-{test_he1[0]:02d}:{test_he1[1]:02d}), then restore?"):
+        info(f"Test values (all different from current):")
+        info(f"  slot1={test_hs1[0]:02d}:{test_hs1[1]:02d}-{test_he1[0]:02d}:{test_he1[1]:02d} "
+             f"({'ON' if test_s1_en else 'OFF'}), "
+             f"slot2={test_hs2[0]:02d}:{test_hs2[1]:02d}-{test_he2[0]:02d}:{test_he2[1]:02d} "
+             f"({'ON' if test_s2_en else 'OFF'})")
+
+        if not ask(f"Write test schedule, then restore?"):
             results.append(("Heat schedule", None))
         else:
             frame = adapter.build_schedule_command(
                 "heat", test_hs1, test_he1, test_hs2, test_he2,
-                slot1_enabled=True, slot2_enabled=True,
+                slot1_enabled=test_s1_en, slot2_enabled=test_s2_en,
             )
-            await send_command(writer, frame, "HEAT_SCHEDULE → test values (both enabled)")
+            await send_command(reader, writer, frame, "HEAT_SCHEDULE → test values")
             state = await read_broadcast(reader)
             sched_pass = False
             if state:
                 s1 = state.get("heat_slot1_start", (0, 0))
                 e1 = state.get("heat_slot1_end", (0, 0))
-                if s1 == test_hs1 and e1 == test_he1:
-                    ok(f"Broadcast confirms test schedule: {s1[0]:02d}:{s1[1]:02d}-{e1[0]:02d}:{e1[1]:02d}")
-                    sched_pass = True
-                else:
-                    fail(f"Expected {test_hs1}, got {s1}")
+                s2 = state.get("heat_slot2_start", (0, 0))
+                e2 = state.get("heat_slot2_end", (0, 0))
+                s1_en = state.get("heat_slot1_enabled")
+                s2_en = state.get("heat_slot2_enabled")
+                # Check each field
+                checks = [
+                    (s1, test_hs1, "slot1 start"),
+                    (e1, test_he1, "slot1 end"),
+                    (s2, test_hs2, "slot2 start"),
+                    (e2, test_he2, "slot2 end"),
+                    (s1_en, test_s1_en, "slot1 enabled"),
+                    (s2_en, test_s2_en, "slot2 enabled"),
+                ]
+                all_ok = True
+                for actual, expected, field_name in checks:
+                    if actual == expected:
+                        ok(f"{field_name}: {actual}")
+                    else:
+                        fail(f"{field_name}: expected {expected}, got {actual}")
+                        all_ok = False
+                sched_pass = all_ok
             else:
                 fail("No broadcast after schedule write")
             if not confirm("Panel shows new heat schedule?"):
@@ -710,7 +851,7 @@ async def _run_test_sequence(
                 "heat", orig_hs1, orig_he1, orig_hs2, orig_he2,
                 slot1_enabled=orig_s1_en, slot2_enabled=orig_s2_en,
             )
-            await send_command(writer, frame, "HEAT_SCHEDULE → restore original")
+            await send_command(reader, writer, frame, "HEAT_SCHEDULE → restore original")
             state = await read_broadcast(reader)
             if state:
                 s1 = state.get("heat_slot1_start", (0, 0))
@@ -748,16 +889,19 @@ async def _run_test_sequence(
         else:
             fsched_pass = True
 
-            # Step 1: Write test values with both slots enabled and specific hours+minutes
-            test_fs1, test_fe1 = (5, 45), (9, 15)
-            test_fs2, test_fe2 = (16, 30), (18, 55)
-            info(f"Writing: slot1={test_fs1[0]:02d}:{test_fs1[1]:02d}-{test_fe1[0]:02d}:{test_fe1[1]:02d}, "
+            # Step 1: Compute test values that DIFFER from current state
+            test_fs1 = ((orig_fs1[0] + 3) % 24, 15 if orig_fs1[1] != 15 else 45)
+            test_fe1 = ((orig_fe1[0] + 3) % 24, 30 if orig_fe1[1] != 30 else 0)
+            test_fs2 = ((orig_fs2[0] + 3) % 24, 15 if orig_fs2[1] != 15 else 45)
+            test_fe2 = ((orig_fe2[0] + 3) % 24, 30 if orig_fe2[1] != 30 else 0)
+            info(f"Test values (all different from current):")
+            info(f"  slot1={test_fs1[0]:02d}:{test_fs1[1]:02d}-{test_fe1[0]:02d}:{test_fe1[1]:02d}, "
                  f"slot2={test_fs2[0]:02d}:{test_fs2[1]:02d}-{test_fe2[0]:02d}:{test_fe2[1]:02d} (both ON)")
             frame = adapter.build_schedule_command(
                 "filter", test_fs1, test_fe1, test_fs2, test_fe2,
                 slot1_enabled=True, slot2_enabled=True,
             )
-            await send_command(writer, frame, "FILTER_SCHEDULE → test values (both enabled)")
+            await send_command(reader, writer, frame, "FILTER_SCHEDULE → test values (both enabled)")
             state = await read_broadcast(reader)
             if state:
                 s1 = state.get("filter_slot1_start", (0, 0))
@@ -808,7 +952,7 @@ async def _run_test_sequence(
                 "filter", test_fs1, test_fe1, test_fs2, test_fe2,
                 slot1_enabled=False, slot2_enabled=True,
             )
-            await send_command(writer, frame, "FILTER_SCHEDULE → slot1 disabled via flags")
+            await send_command(reader, writer, frame, "FILTER_SCHEDULE → slot1 disabled via flags")
             state = await read_broadcast(reader)
             if state:
                 s1_en = state.get("filter_slot1_enabled", None)
@@ -841,7 +985,7 @@ async def _run_test_sequence(
                 "filter", test_fs1, test_fe1, test_fs2, test_fe2,
                 slot1_enabled=True, slot2_enabled=True,
             )
-            await send_command(writer, frame, "FILTER_SCHEDULE → slot1 re-enabled")
+            await send_command(reader, writer, frame, "FILTER_SCHEDULE → slot1 re-enabled")
             state = await read_broadcast(reader)
             if state:
                 s1_en = state.get("filter_slot1_enabled", None)
@@ -863,7 +1007,7 @@ async def _run_test_sequence(
                 "filter", orig_fs1, orig_fe1, orig_fs2, orig_fe2,
                 slot1_enabled=orig_s1_enabled, slot2_enabled=orig_s2_enabled,
             )
-            await send_command(writer, frame, "FILTER_SCHEDULE → restore original")
+            await send_command(reader, writer, frame, "FILTER_SCHEDULE → restore original")
             state = await read_broadcast(reader)
             if state:
                 s1 = state.get("filter_slot1_start", (0, 0))
@@ -878,13 +1022,14 @@ async def _run_test_sequence(
                 fsched_pass = False
             results.append(("Filter schedule", fsched_pass))
 
-    # ─── TEST 7: Clock (write specific date/time) ────────────────
+    # ─── TEST 7: Clock (write time — date is read-only) ─────────
 
     if "clock" in selected:
         print(f"\n{'─'*60}")
-        print(f"  {BOLD}TEST: Clock write (verify Y/M/D H:m:s){RESET}")
+        print(f"  {BOLD}TEST: Clock write (time only — date not settable via RS485){RESET}")
         _log_event("test_start", test="Clock write")
-        info("Writes a known date/time, reads back each field, then restores current time.")
+        info("Writes a known time, reads back H:M:S fields, then restores current time.")
+        info("Note: controller ignores date bytes (Y/M/D) — only time is settable.")
 
         if not ask("Run clock write test?"):
             results.append(("Clock write", None))
@@ -892,28 +1037,24 @@ async def _run_test_sequence(
             from datetime import datetime
             clock_pass = True
 
-            # Write a distinctive test time: 2025-03-15 14:37:52
-            # Each field is unique so we can detect field swaps
-            test_year, test_month, test_day = 2025, 3, 15
+            # Write a distinctive test time with unique H:M:S values
             test_hour, test_minute, test_second = 14, 37, 52
-            info(f"Writing: {test_year}-{test_month:02d}-{test_day:02d} "
-                 f"{test_hour:02d}:{test_minute:02d}:{test_second:02d}")
+            # Use current date (controller ignores date bytes anyway)
+            now = datetime.now()
+            info(f"Writing time: {test_hour:02d}:{test_minute:02d}:{test_second:02d}")
 
             frame = adapter.build_datetime_command(
-                test_year, test_month, test_day, test_hour, test_minute, test_second
+                now.year, now.month, now.day, test_hour, test_minute, test_second
             )
-            await send_command(writer, frame, "DATETIME_SET → test value")
+            await send_command(reader, writer, frame, "DATETIME_SET → test time")
             state = await read_broadcast(reader)
 
             if state and state.get("spa_datetime"):
                 spa_dt = state["spa_datetime"]
                 info(f"Broadcast spa_datetime: {spa_dt}")
 
-                # Check each field
+                # Only check time fields — date is not settable via 0xA2 command
                 checks = [
-                    (spa_dt.year, test_year, "year"),
-                    (spa_dt.month, test_month, "month"),
-                    (spa_dt.day, test_day, "day"),
                     (spa_dt.hour, test_hour, "hour"),
                     (spa_dt.minute, test_minute, "minute"),
                     # Second may drift by 1-2s due to broadcast delay
@@ -925,11 +1066,14 @@ async def _run_test_sequence(
                     else:
                         fail(f"{field_name}: expected {expected}, got {actual}")
                         clock_pass = False
+
+                # Informational: show what happened to date fields
+                info(f"Date fields (read-only): {spa_dt.year}-{spa_dt.month:02d}-{spa_dt.day:02d}")
             else:
                 fail("No spa_datetime in broadcast after write")
                 clock_pass = False
 
-            if not confirm("Panel shows 2025-03-15 14:37:xx?"):
+            if not confirm(f"Panel shows time ~{test_hour:02d}:{test_minute:02d}?"):
                 fail("User reports clock did NOT update")
                 clock_pass = False
 
@@ -939,7 +1083,7 @@ async def _run_test_sequence(
             frame = adapter.build_datetime_command(
                 now.year, now.month, now.day, now.hour, now.minute, now.second
             )
-            await send_command(writer, frame, f"DATETIME_SET → restore ({now.strftime('%Y-%m-%d %H:%M:%S')})")
+            await send_command(reader, writer, frame, f"DATETIME_SET → restore ({now.strftime('%Y-%m-%d %H:%M:%S')})")
             state = await read_broadcast(reader)
             if state and state.get("spa_datetime"):
                 ok(f"Clock restored to: {state['spa_datetime']}")
