@@ -9,9 +9,8 @@
 >
 > **Integration domain:** `joyonway_p25b85`
 > **Hardware:** P25B85 + PB554 + Elfin EW11
-> **Status:** All 8 write tests pass (session 5). Date-write solved (session 6).
-> Critical community feedback received: integration corrupted one user's spa
-> (factory reset required). Safety fixes needed before release.
+> **Status:** All 8 write tests pass. Community safety fixes applied (session 7).
+> Ozone mode broadcast byte discovered. Ready for live ozone test.
 
 > **Documentation policy:** `docs/protocol.md` is the canonical protocol spec.
 > This `docs/plan.md` is progress/handoff only.
@@ -103,12 +102,12 @@ custom_components/joyonway_p25b85/
 | **Jets** (Düsen) | sensor | `jets` | Enum: off / low / high |
 | **Thermostat** | climate | `thermostat` | Water temp + setpoint + status; slider with 1.5s debounce |
 | **Heater** | switch | `heater` | On/off; dynamic command via CRC |
-| **Ozone** | switch | `ozone` | Ozone on/off; two-step: mode→Manual + manual ON/OFF |
+| **Ozone** | switch | `ozone` | Manual on/off (only visible when mode=Manual) |
 | **Light** | switch | `light` | On/off via toggle (state guard: refuses when unknown) |
 | **Blower** | switch | `blower` | On/off; dynamic command via CRC; byte[28] bit 3 = state |
 | **Heat slot 1 / 2** | switch | `heat_slot{n}_enabled` | Enable/disable heat schedule slots |
 | **Filter slot 1 / 2** | switch | `filter_slot{n}_enabled` | Enable/disable filter schedule slots |
-| **Jets** (Düsen) | fan | `jets` | Off/low/high via preset_modes; handles multi-step transitions |
+| **Jets** (Düsen) | fan | `jets` | Off/low/high via preset_modes; sends target state directly |
 | **Heat slot 1/2 start/end** | time | `heat_slot{n}_{start\|end}` | Read+write heat schedule times (HH:MM) |
 | **Filter slot 1/2 start/end** | time | `filter_slot{n}_{start\|end}` | Read+write filter schedule times (HH:MM) |
 | Sync clock | button | `sync_clock` | Sends current HA time to spa controller (disabled by default) |
@@ -123,100 +122,69 @@ custom_components/joyonway_p25b85/
 - **All commands built dynamically** — no replay-only frames.
   `_build_button_command()` is the universal builder for type-0xA1 commands.
 - **Temperature setpoint**: `btn_action=0x98` confirmed working via live test.
-  `0x80` was tested and does NOT work.
-- **Ozone two-step control** — ON: send mode→Manual, delay 1.5s, send manual ON.
-  OFF: send manual OFF, delay 1.5s, send mode→Auto.
-- **Ozone switch availability** — controlled by options flow. When ozone mode is
-  "auto" (default), the switch is unavailable (grayed out). When "manual", the
-  switch becomes available for RS485 control.
-- **Fan = "Jets" / "Düsen"** — matches spa manual terminology.
+- **Pump commands** — target-state based (not transition-based). Controller
+  accepts `off=(0x04,0x00)`, `low=(0x02,0x02)`, `high=(0x06,0x04)` regardless
+  of current state.
+- **Ozone control** — mode (Auto/Manual) set via options flow, synced to spa.
+  Switch only sends manual ON/OFF. Mode readable from broadcast byte 13 bit 7.
+- **Ozone mode sync** — coordinator reads byte 13 from broadcast; if it differs
+  from config option, updates the option to match. Options flow sends mode
+  command when user changes the setting.
 - **Fan entity retry logic** — pump commands retry up to 3× with state check.
-  RS485 bus collisions can cause commands to be lost. Retry handles this.
-- **Light toggle** — `_send_toggle()` has 1.0s delay before refresh to avoid
-  reading a stale broadcast (race condition fix).
+  RS485 bus collisions can cause commands to be lost.
+- **Light toggle** — `_send_toggle()` has 1.0s delay before refresh.
 - **Heater byte blower-flag fix** — `parse_status()` strips blower bit via
   `heater_base = heater_byte & ~MASK_HEATER_BLOWER` before status lookup.
 - **Climate debounce**: 1.5s coalescing for slider drags.
 - **Coordinator write pacing**: global 1.0s command cooldown.
 - **Temperatures as integers** — spa only shows whole °C.
 - **Schedule** — `time` entities for pickers, `switch` entities for enables.
-- **Clock write** — uses `set_date=True` (prefix=0x05) by default, writing both
-  date and time. Pass `set_date=False` for time-only sync.
-- **Options flow** — two options: ozone mode (Auto/Manual) and auto clock sync
-  (bool, default ON). Stored in `entry.options`, reload on change.
-- **Auto clock sync** — coordinator compares `spa_datetime` to HA time after
-  each broadcast parse. Syncs if drift > 30s, with 1-hour cooldown.
+  Schedule sends REFUSE if any data key is missing (prevents overwrite with zeros).
+- **Clock write** — uses `set_date=True` (prefix=0x05) by default.
+- **Options flow** — ozone mode (Auto/Manual) and auto clock sync (bool, default OFF).
+- **Auto clock sync** — disabled by default. When enabled, syncs if drift > 30s
+  with 1-hour cooldown.
+- **No auto commands on startup** — all writes are user-initiated only.
+- **Consistent logging** — all write entities log at debug before send and
+  error on failure, using `"Entity: action"` format.
 
 ## 4. Phase Status
 
 | Phase | Status | Notes |
 |-------|--------|-------|
 | 1–6 | ✅ Done | Capture, integration, byte map, writes, temp control |
-| 7. Live test writes | **Mostly done** | See live test results below |
+| 7. Live test writes | ✅ Done | All 8 tests pass |
 | 8–16 | ✅ Done | Schedule, CRC, DateTime, ozone, dynamic commands |
 | 17. Options flow | ✅ Done | Ozone mode + auto clock sync |
-| 18. Polish & release | Planned | After remaining items verified |
-
-### Live test results (session 5, 2026-05-28 evening — ALL PASS)
-
-| Test | Result | Notes |
-|------|--------|-------|
-| Light | ✅ PASS | Toggle ON/OFF both confirmed |
-| Heater | ✅ PASS | ON (circulation) and OFF confirmed |
-| Blower | ✅ PASS | ON (`0x0C`) and OFF (`0x00`) both confirmed |
-| Jets | ✅ PASS | off→low ✅, low→high ✅, high→off ✅ (needed 1 retry — RS485 collision) |
-| Temperature | ✅ PASS | `btn_action=0x98` works, 37→38→37 round-trip |
-| Heat schedule | ✅ PASS | All fields + enable/disable confirmed |
-| Filter schedule | ✅ PASS | All fields + enable/disable + restore confirmed |
-| Clock | ✅ PASS | H:M:S confirmed (session 5). Date+time confirmed (prefix=0x05, session 6) |
-
-**Date write — SOLVED:** The prefix byte controls behaviour. `0x50` = time-only
-(what we were sending previously), `0x05` = date+time (what the panel sends).
-Captured from PB554 panel and verified. Integration updated to use `0x05`.
-See [`docs/protocol.md` §4.2](protocol.md#42-datetime-set-type-0xa2) for details.
+| 18. Safety fixes | ✅ Done | Session 7: no auto writes, schedule guard, pump simplification |
+| 19. Polish & release | **Next** | Live ozone test, version bump, HACS release |
 
 ## 5. Next Steps
 
-### Priority 0: Fix critical community feedback (SAFETY)
-Community users KDy and old-man tested the integration on their spas.
-**KDy's spa required a factory reset** after the integration corrupted his
-configuration. Full analysis and fix list: [`docs/community_feedback_todo.md`](community_feedback_todo.md)
-
-Key fixes needed:
-1. **Never auto-send commands on startup/reload** — audit all write paths
-2. **Schedule overwrite guard** — refuse to send with missing/default data
-3. **Jets OFF** — doesn't work for KDy (model or state-tracking issue)
-4. **Ozone UX** — users don't understand why it's inactive
-
 ### Priority 1: Remaining live tests
-1. **Test ozone** — untested live (auto-cycle was observed passively during session 5)
+1. **Test ozone** — untested live (ozone mode byte 13 detection confirmed from captures)
 2. **Verify auto clock sync** — check logs for "Spa clock drift" messages
 
 ### Priority 2: Polish & release
-- UI feedback delay: after sending a command, there's a ~2s gap before the
-  broadcast updates. Consider optimistic state updates, a spinner, or similar
-  UX to bridge the gap so the UI doesn't feel laggy.
+- UI feedback delay: consider optimistic state updates
 - Version bump, README final review, HACS release
 
 ## 6. Technical Notes for Next Session
 
-- **Session outcomes (latest — 2026-05-28, session 6):**
-  - **Date write SOLVED** — prefix byte `0x05` writes date+time, `0x50` writes
-    time only. Captured 3 panel commands (2 date changes + 1 time-only change)
-    confirming this. `build_datetime_command()` updated with `set_date` kwarg.
-  - **Protocol/plan separation** — moved all byte-level protocol data out of
-    plan.md into protocol.md. Plan now links to protocol for details.
-  - **protocol.md updated** — DateTime §4.2 prefix byte table, button table
-    updated with live-confirmed values (blower `0x0C`, temp `0x98`).
-
-- **Previous sessions:**
-  - Session 5 (2026-05-28 evening): All 8 write tests pass live. Community
-    feedback received (KDy factory reset). `docs/community_feedback_todo.md` created.
-  - Session 4 (2026-05-28 afternoon): TCP buffer fix, temp cmd fixed (0x98),
-    blower OFF → 0x00, jets retry logic.
-  - Session 3 (2026-05-28): Heater byte blower-flag fix, light toggle race fix.
-  - Session 2 (2026-05-27): Options flow, auto clock sync, ozone, translations.
-  - Session 1: Initial integration, byte map, CRC cracking, all entities.
+- **Session 7 outcomes (2026-05-28/29):**
+  - **Safety fixes applied** — no auto-commands on startup (removed
+    `async_apply_ozone_mode()`), auto clock sync default OFF, schedule
+    overwrite guard (refuses to send if data keys missing).
+  - **Pump simplified** — target-state-only commands (no transition map).
+    `build_pump_command(target)` API. Controller accepts any target directly.
+  - **Ozone redesigned** — mode set via options flow (sends command to spa),
+    switch is just manual ON/OFF. No two-step in the switch.
+  - **Ozone mode broadcast byte FOUND** — byte 13 bit 7: 0=Auto, 1=Manual.
+    Confirmed from phase 6 captures (files 52-57). Previously thought to be
+    "no broadcast change" — wrong. The mode IS always readable.
+  - **Coordinator auto-syncs config option** with broadcast byte 13 value.
+    On first install, first broadcast immediately tells the correct mode.
+  - **Consistent logging** added to all write entities.
 
 - **`.env` file** holds bridge IP (gitignored). Tools auto-load it.
 - **Restart required** after any code change to the integration.

@@ -22,13 +22,13 @@ KDy reports the integration **completely changed his spa configuration**:
    Combined with other commands, could confuse the controller.
 
 ### Fix needed:
-- [ ] **Never send write commands automatically on startup/reload**. All writes
-      should be user-initiated only. Audit `__init__.py`, `coordinator.py`, and
-      options flow for anything that sends commands on setup.
-- [ ] Remove or disable auto clock sync by default (it writes to the controller
-      without user action).
-- [ ] Ozone mode should NEVER be sent unless the user explicitly toggles it in HA.
-      The options flow should only control entity visibility, not send commands.
+- [x] **Never send write commands automatically on startup/reload**. All writes
+      should be user-initiated only. Removed `async_apply_ozone_mode()` call from
+      `__init__.py` and the method from `coordinator.py`.
+- [x] Remove or disable auto clock sync by default (changed default to False;
+      users must explicitly enable it in options flow).
+- [x] Ozone mode should NEVER be sent unless the user explicitly toggles it in HA.
+      The options flow now only controls entity visibility, not send commands.
 
 ---
 
@@ -48,9 +48,10 @@ KDy can turn jets ON but OFF doesn't work.
 ### Fix needed:
 - [ ] Verify: does our integration correctly detect pump state on KDy's spa?
       (He says statuses work, so likely yes)
-- [ ] Add logging when jets OFF command is sent to show which transition was used
-- [ ] Consider: allow direct "off" command (0x04, 0x00) regardless of detected
-      current state, as a fallback
+- [x] Add logging when jets OFF command is sent to show which transition was used
+- [x] Consider: allow direct "off" command (0x04, 0x00) regardless of detected
+      current state, as a fallback. Implemented: alternate OFF command tried after
+      retries exhausted, plus fallback when state is unknown.
 
 ---
 
@@ -73,7 +74,9 @@ rather than "set this schedule for later").
 3. **Different flags byte encoding** — KDy's controller might use different values.
 
 ### Fix needed:
-- [ ] Add a guard: don't send schedule commands if we're unsure about the values
+- [x] Add a guard: don't send schedule commands if we're unsure about the values.
+      Both `switch.py` and `time.py` now refuse to send if any required key is
+      missing from coordinator data.
 - [ ] Consider making schedule writes a "confirm" action rather than a simple toggle
 - [ ] Ask KDy: does this happen even with schedule times far in the future?
 
@@ -91,7 +94,7 @@ programmed time.
 3. **Schedule overwrite** — same as the filtration issue above.
 
 ### Fix needed:
-- [ ] Same as above: never auto-send schedule commands.
+- [x] Same as above: never auto-send schedule commands.
 - [ ] Verify the enable flags work correctly on KDy's hardware.
 
 ---
@@ -107,9 +110,9 @@ the last schedule change), we'd send stale/default values, overwriting the real
 schedule times.
 
 ### Fix needed:
-- [ ] Add a guard: refuse to send schedule if `coordinator.data` is None or missing
+- [x] Add a guard: refuse to send schedule if `coordinator.data` is None or missing
       the required keys (raise an error instead of sending defaults)
-- [ ] Remove the `(0, 0)` fallback in `_send_schedule()` — if data is missing,
+- [x] Remove the `(0, 0)` fallback in `_send_schedule()` — if data is missing,
       fail loudly rather than silently sending zeros
 - [ ] Force a fresh broadcast read before building the schedule command
 
@@ -129,7 +132,7 @@ Ozone switch doesn't work for KDy.
 ### Fix needed:
 - [ ] Improve UX: show a warning when ozone switch is in "auto" mode (not just
       gray it out)
-- [ ] Add error logging for each step of the two-step ozone process
+- [x] Add error logging for each step of the two-step ozone process
 
 ---
 
@@ -151,10 +154,10 @@ status sensors only check `pump_low`/`pump_high` from byte 12.
 
 ## Priority order for fixes:
 
-1. **🚨 Safety: Never auto-send commands on startup** (prevents factory reset scenario)
-2. **Schedule overwrite guard** (refuse to send with missing/default data)
-3. **Jets OFF reliability** (add fallback/logging)
-4. **Ozone UX** (better feedback when unavailable)
+1. **🚨 Safety: Never auto-send commands on startup** ✅ FIXED
+2. **Schedule overwrite guard** ✅ FIXED (refuse to send with missing data)
+3. **Jets OFF reliability** ✅ FIXED (fallback + logging added)
+4. **Ozone UX** (partially done — logging added, UI warning still TODO)
 5. **Pump state during heating** (cosmetic improvement)
 
 ---
