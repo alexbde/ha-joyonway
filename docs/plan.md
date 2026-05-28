@@ -9,10 +9,10 @@
 >
 > **Integration domain:** `joyonway_p25b85`
 > **Hardware:** P25B85 + PB554 + Elfin EW11
-> **Status:** All command frames built dynamically via CRC. Options flow
-> implemented (ozone mode, auto clock sync). Live testing in progress.
-> Heater byte blower-flag bug fixed. Light toggle race condition fixed.
-> Guided write-test script ready with full JSONL capture logging.
+> **Status:** Live testing mostly complete. 6/8 tests pass (light, heater,
+> jets, temperature, heat schedule, filter schedule). Blower OFF and clock
+> date-write need further investigation. RS485 bus collision retry logic
+> added to fan entity and test script.
 
 > **Documentation policy:** `docs/protocol.md` is the canonical protocol spec.
 > This `docs/plan.md` is progress/handoff only.
@@ -128,12 +128,17 @@ custom_components/joyonway_p25b85/
 - **All commands built dynamically** — CRC-32 cracked (P=0x04C11DB7, word32-swap);
   no replay-only frames. `_build_button_command()` is the universal builder for
   type-0xA1 commands (light, heater, blower, pump, temp, ozone).
+- **Temperature setpoint**: `btn_action=0x98` confirmed working via live test.
+  `0x80` was tested and does NOT work. Adapter uses `build_temp_command()`.
 - **Ozone two-step control** — ON: send mode→Manual, delay 1.5s, send manual ON.
   OFF: send manual OFF, delay 1.5s, send mode→Auto. Broadcast byte 14 tracks state.
 - **Ozone switch availability** — controlled by options flow. When ozone mode is
   "auto" (default), the switch is unavailable (grayed out). When "manual", the
   switch becomes available for RS485 control.
 - **Fan = "Jets" / "Düsen"** — matches spa manual terminology
+- **Fan entity retry logic** — pump commands retry up to 3× with state check.
+  RS485 bus collisions can cause commands to be lost (our frame sent while
+  controller is mid-broadcast → both garbled on wire). Retry handles this.
 - **Light toggle**: same frame for on/off (confirmed by Phase 6 captures —
   identical bytes for ON and OFF). Not a cycle — single toggle turns off.
   `_send_toggle()` has 1.0s delay before refresh to avoid reading a stale
@@ -143,19 +148,26 @@ custom_components/joyonway_p25b85/
   `heater_base = heater_byte & ~MASK_HEATER_BLOWER` before looking up status.
   Without this, blower+heating = `0x5D` → "unknown" in the UI. Raw byte
   preserved as `heater_byte` in the data dict for diagnostics.
+- **Blower ON**: `btn_action=0x0C` confirmed working.
+  **Blower OFF**: changed from `0x08` (did not work) to `0x00` (matching
+  heater OFF pattern). Needs live verification.
 - **Heater/blower switches**: distinct ON/OFF commands; safe to send
 - **Climate debounce**: 1.5s coalescing for slider drags
 - **Coordinator write pacing**: global 1.0s command cooldown
-- **Pump direct transitions** — all 6 transitions (off↔low↔high) use direct
-  single commands. The controller accepts target-state bytes regardless of
-  current state (no need for multi-step cycling). **Needs live verification
-  for off→high and high→low.**
+- **Pump transitions** — all 6 transitions (off↔low↔high) use direct
+  single commands. The panel cycles off→low→high→off so low→high is
+  definitely supported by the controller. Test failures on low→high were
+  caused by RS485 bus collisions, not protocol issues. Retry logic added.
+  **Confirmed live**: off→low ✅, off→high ✅, low→off ✅ (session 2).
 - **Temperatures as integers** — spa only shows whole °C
 - **Schedule times as `time` entities** — proper HA time pickers, supports HH:MM
 - **Schedule enables as `switch` entities** — toggle slots on/off
 - **Schedule write**: builds full command with all 4 slot values + CRC via `build_frame()`
 - **Schedule enable/disable**: flags byte (byte 7) encodes slot enables via lookup
   table: `0xAA`=both on, `0x62`=s1 on/s2 off, `0x9A`=s1 off/s2 on, `0x52`=both off.
+- **Clock write**: only H:M:S are accepted by the controller. Date bytes (Y:M:D)
+  are included in the payload but the controller ignores them — date is read-only.
+  Auto clock sync still works (only time matters for drift detection).
 - **Options flow** — two options: ozone mode (Auto/Manual) and auto clock sync
   (bool, default ON). Stored in `entry.options`, reload on change.
 - **Auto clock sync** — coordinator compares `spa_datetime` to HA time after
@@ -167,53 +179,73 @@ custom_components/joyonway_p25b85/
 | Phase | Status | Notes |
 |-------|--------|-------|
 | 1–6 | ✅ Done | Capture, integration, byte map, writes, temp control |
-| 7. Live test writes | **In progress** | Jets + blower confirmed. Heater byte bug fixed. Light toggle race fixed. |
+| 7. Live test writes | **Mostly done** | See live test results below |
 | 8–16 | ✅ Done | Schedule, CRC, DateTime, ozone, dynamic commands |
 | 17. Options flow | ✅ Done | Ozone mode + auto clock sync |
-| 18. Polish & release | Planned | After live test complete |
+| 18. Polish & release | Planned | After remaining items verified |
+
+### Live test results (session 4, 2026-05-28)
+
+| Test | Result | Notes |
+|------|--------|-------|
+| Light | ✅ PASS | Toggle ON/OFF both confirmed |
+| Heater | ✅ PASS | ON (circulation) and OFF confirmed |
+| Blower | ❌ FAIL | ON works, OFF (`btn_action=0x08`) did not. Changed to `0x00`, needs re-test |
+| Jets | ✅ PASS* | off→low ✅, off→high ✅ (run 1). low→high failed (RS485 collision). Retry logic added |
+| Temperature | ✅ PASS | `btn_action=0x98` works. `0x80` does NOT. Adapter updated |
+| Heat schedule | ✅ PASS | All fields + enable/disable confirmed (test values were fixed to differ from current) |
+| Filter schedule | ✅ PASS | All fields + enable/disable + restore confirmed |
+| Clock | ✅ PASS* | H:M:S set correctly. Date bytes ignored by controller (test updated to only check time) |
 
 ## 5. Next Steps
 
 ### Priority 1: Continue live testing (at the spa)
-1. Run `tools/guided_write_test.py` — full guided test with JSONL capture log
-2. **Verify pump direct transitions**: off→high and high→low (untested)
-3. **Test light**: turn on then off from HA UI (race condition fix deployed)
-4. **Test heater**: verify status shows correctly when blower is also running
-5. **Test remaining**: ozone, thermostat setpoint, schedule writes
-6. **Verify auto clock sync**: check logs for "Spa clock drift" messages
+1. **Verify blower OFF** — changed `btn_action` from `0x08` to `0x00`; needs re-test
+2. **Re-run jets test** — verify low→high and high→off with retry logic
+3. **Test ozone** — untested live
+4. **Verify auto clock sync** — check logs for "Spa clock drift" messages
 
 ### Priority 2: Polish & release
+- UI feedback delay: after sending a command, there's a ~2s gap before the
+  broadcast updates. Consider optimistic state updates, a spinner, or similar
+  UX to bridge the gap so the UI doesn't feel laggy.
 - Version bump, README final review, HACS release
 
 ## 6. Technical Notes for Next Session
 
-- **Session outcomes (latest — 2026-05-28, session 3):**
-  - **Heater byte blower-flag bug fixed** — bit 3 (`0x08`) of byte 14 is ORed
-    when the blower is active. `parse_status()` now strips it before lookup via
-    `MASK_HEATER_BLOWER`. Without this, blower+heating = `0x5D` mapped to
-    "unknown". Same fix applied to `heater_active` and `ozone_active` flags.
-    `HEATER_BLOWER` constant kept for docs; removed from `HEATER_STATE_MAP`.
-  - **`heater_byte` added to `parse_status()` output** — raw byte value for
-    diagnostics (available in data dict and captured in test logs).
-  - **Light toggle race condition fixed** — `_send_toggle()` now has a 1.0s
-    delay before `async_request_refresh()` so the broadcast reflects the new
-    state. Without this, reading too fast got stale state, causing the UI to
-    still show ON, and a second tap would re-toggle (turn it back on).
-    Phase 6 captures confirm light ON/OFF use the **exact same frame** — it's
-    a simple toggle, not a 9-state cycle via RS485.
-  - **Guided write-test script fixed** — was importing old-style `CMD_*`
-    constants that no longer exist. Updated to use `adapter.build_*()` methods.
-  - **Write-test script enhanced:**
-    - Exit handling: `q`/`quit` at any prompt + Ctrl+C; clean TCP close.
-    - Confirm prompts: y/n/q (user can report physical failures, not just pass).
-    - Extended heater test: monitors state transitions over 10s, logs raw
-      `heater_byte`, detects "unknown" status, shows transition sequence.
-    - JSONL capture log: every broadcast + command logged to
-      `tools/captures_write_test/write_test_YYYYMMDD_HHMMSS.jsonl` with
-      timestamps, raw hex, and parsed state. Covers ALL tests (light, heater,
-      blower, jets, temperature, schedules, clock).
+- **Session outcomes (latest — 2026-05-28, session 4):**
+  - **Guided write-test TCP buffer bug fixed** — the script was reading
+    STALE broadcast frames buffered during POST_COMMAND_DELAY. Root cause:
+    `read_broadcast()` returned the FIRST (oldest) frame instead of the
+    LAST (newest). Two fixes applied:
+    1. `drain_stale()` clears the TCP buffer before every `send_command()`
+    2. `read_broadcast()` returns the LAST valid frame, not the first
+    This was the main reason session 3's test was "a mess" — commands worked
+    at the spa but the script read pre-command data and reported failures.
+  - **Frame parsing aligned with coordinator** — test script now uses the
+    same pipeline as the real HA coordinator: `find_frames()` →
+    `validate_frame()` → `is_broadcast()` → `unescape_frame(full=adapter.unescape_full_frame)` →
+    `adapter.parse_status()`. Previously used manual `buf.index()` parsing.
+  - **Temperature command fixed** — `btn_action=0x98` confirmed working
+    (adapter had untested `0x88`; live test showed `0x80` fails, `0x98` works).
+  - **Blower OFF command changed** — `btn_action` changed from `0x08` (did not
+    work — blower stayed on) to `0x00` (matching heater OFF pattern). Not yet
+    re-tested live.
+  - **Clock write: date is read-only** — the 0xA2 command only sets H:M:S.
+    Y:M:D bytes are sent but controller ignores them. Test and docstring updated.
+  - **Schedule test values now dynamic** — hardcoded test values happened to
+    match the spa's actual schedule, causing false-positive passes. Now computed
+    as offsets from current values (hours +2/+3, minutes toggled, enables inverted).
+  - **Jets test: retry logic** — RS485 bus collisions can cause command frames
+    to be lost. Jets test now retries up to 3× per transition. Fan entity also
+    has retry logic (up to 3 attempts with state check between).
+  - **Jets test: result variable** — was hardcoded `True`, now uses `jets_pass`.
+  - **Blower test: extended delay** — 10s wait after ON before sending OFF
+    (possible minimum run time on blower motor).
 
 - **Previous sessions (kept for reference):**
+  - Session 3 (2026-05-28): Heater byte blower-flag fix (MASK_HEATER_BLOWER),
+    light toggle race condition fix, guided write-test script enhancements.
   - Session 2 (2026-05-27): Options flow, auto clock sync, ozone, pump
     transitions, switch order, translations. Jets off→low and low→off
     confirmed. Blower confirmed.
@@ -230,5 +262,4 @@ custom_components/joyonway_p25b85/
     - `.venv-ha` has `python3.12` + `homeassistant` + `pytest-homeassistant-custom-component`.
 - **Protocol docs**: `docs/protocol.md` — full protocol reference.
 - **EW11 connection limit**: 4 concurrent TCP clients. HA uses 1, tools can use up to 3 more.
-- **Guided write test**: `source .venv/bin/activate && python tools/guided_write_test.py`
-  — interactive, menu-driven, captures to JSONL, safe round-trip (restores state).
+- **Guided write test**: `source .venv/bin

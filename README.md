@@ -16,10 +16,10 @@ This integration brings **local monitoring and control** of a **Joyonway P25B85*
 
 The P25B85 controls spas like the **Home Deluxe White Marble** outdoor whirlpool and similar rigid/hardshell hot tubs with a PB554 colour touchpad.
 
-> **Status: Full control implemented** — all command frames built dynamically
-> via the cracked CRC-32 (44 unique frames verified). Temperature, pump, light,
-> heater, blower, ozone, and schedule commands all use computed CRC. Live testing
-> at the physical spa is the next step.
+> **Status: Live testing in progress** — most write commands verified at the
+> physical spa (light, heater, jets, temperature setpoint, heat/filter schedules,
+> clock sync). RS485 bus collision retry logic added for pump commands.
+> Blower OFF and ozone still pending verification.
 
 > **Discussion thread:** [JoyOnWay Spa Control — Home Assistant Community](https://community.home-assistant.io/t/joyonway-spa-control/582344)
 
@@ -59,7 +59,9 @@ The P25B85 controls spas like the **Home Deluxe White Marble** outdoor whirlpool
 
 ### What this integration does NOT do
 
-- ❌ Not yet fully live-tested (pump direct transitions, ozone, thermostat writes pending)
+- ❌ Blower OFF command not yet verified (changed, pending re-test)
+- ❌ Ozone control not yet live-tested
+- ❌ Date setting via RS485 not possible (controller accepts time only, not date)
 
 ## Safety Philosophy
 
