@@ -4,6 +4,9 @@ Run this at the spa with a direct TCP connection to the EW11 bridge.
 It sends write commands one by one, reads the broadcast to verify state,
 and asks for physical confirmation between tests.
 
+All broadcasts and commands are captured to a JSONL log file for
+post-hoc analysis (saved to tools/captures_write_test/).
+
 Usage:
     source .venv/bin/activate
     python tools/guided_write_test.py
@@ -13,9 +16,11 @@ Requires .env with SPA_BRIDGE_HOST (and optionally SPA_BRIDGE_PORT).
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Load .env
@@ -58,17 +63,7 @@ _load("joyonway_p25b85.adapters.base", _comp_dir / "adapters" / "base.py")
 _load("joyonway_p25b85.protocol", _comp_dir / "protocol.py")
 _load("joyonway_p25b85.adapters.p25b85", _comp_dir / "adapters" / "p25b85.py")
 
-from joyonway_p25b85.adapters.p25b85 import (  # noqa: E402
-    CMD_BLOWER_OFF,
-    CMD_BLOWER_ON,
-    CMD_HEATER_OFF,
-    CMD_HEATER_ON,
-    CMD_LIGHT_TOGGLE,
-    CMD_PUMP_HIGH_TO_OFF,
-    CMD_PUMP_LOW_TO_HIGH,
-    CMD_PUMP_OFF_TO_LOW,
-    P25B85Adapter,
-)
+from joyonway_p25b85.adapters.p25b85 import P25B85Adapter  # noqa: E402
 from joyonway_p25b85.protocol import unescape_frame  # noqa: E402
 
 HOST = os.environ.get("SPA_BRIDGE_HOST")
@@ -77,6 +72,48 @@ BROADCAST_TIMEOUT = 5.0  # seconds to wait for a valid broadcast
 POST_COMMAND_DELAY = 2.0  # seconds to wait after sending before reading
 
 adapter = P25B85Adapter()
+
+# ─── Capture log ─────────────────────────────────────────────────
+# Every broadcast parse and command send is recorded to a JSONL file
+# so issues spotted after a test session can be analyzed offline.
+
+CAPTURE_DIR = Path(__file__).resolve().parent / "captures_write_test"
+CAPTURE_DIR.mkdir(exist_ok=True)
+
+_log_path: Path | None = None
+_log_file = None  # file handle, opened lazily
+
+
+def _init_capture_log() -> Path:
+    """Create a timestamped JSONL capture log and return its path."""
+    global _log_path, _log_file
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    _log_path = CAPTURE_DIR / f"write_test_{ts}.jsonl"
+    _log_file = open(_log_path, "a")
+    return _log_path
+
+
+def _log_event(event_type: str, **kwargs) -> None:
+    """Append one JSON line to the capture log."""
+    if _log_file is None:
+        return
+    record = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "t": time.monotonic(),
+        "event": event_type,
+        **kwargs,
+    }
+    _log_file.write(json.dumps(record) + "\n")
+    _log_file.flush()
+
+
+def _close_capture_log() -> None:
+    """Flush and close the capture log."""
+    global _log_file
+    if _log_file is not None:
+        _log_file.close()
+        _log_file = None
+
 
 # ANSI colors
 GREEN = "\033[92m"
@@ -103,15 +140,39 @@ def warn(msg: str) -> None:
     print(f"  {YELLOW}⚠️  {msg}{RESET}")
 
 
+class UserQuit(Exception):
+    """Raised when user wants to exit the script."""
+
+
 def ask(prompt: str) -> bool:
-    """Ask user for confirmation. Returns True if confirmed."""
-    resp = input(f"\n  {BOLD}>>> {prompt} [y/N]: {RESET}").strip().lower()
+    """Ask user for confirmation. Returns True if confirmed.
+
+    Type 'q' or 'quit' to abort the entire script.
+    """
+    resp = input(f"\n  {BOLD}>>> {prompt} [y/N/q]: {RESET}").strip().lower()
+    if resp in ("q", "quit", "exit"):
+        raise UserQuit()
     return resp in ("y", "yes")
 
 
 def wait_enter(prompt: str) -> None:
-    """Wait for user to press ENTER."""
-    input(f"\n  {BOLD}>>> {prompt} [ENTER]: {RESET}")
+    """Wait for user to press ENTER. Type 'q' to quit."""
+    resp = input(f"\n  {BOLD}>>> {prompt} [ENTER/q]: {RESET}").strip().lower()
+    if resp in ("q", "quit", "exit"):
+        raise UserQuit()
+
+
+def confirm(prompt: str) -> bool:
+    """Ask user to confirm a physical observation. Returns True if confirmed.
+
+    y/ENTER = yes (pass), n = no (fail), q = quit script.
+    """
+    resp = input(f"\n  {BOLD}>>> {prompt} [Y/n/q]: {RESET}").strip().lower()
+    if resp in ("q", "quit", "exit"):
+        raise UserQuit()
+    if resp in ("n", "no"):
+        return False
+    return True  # ENTER or y
 
 
 async def read_broadcast(reader: asyncio.StreamReader) -> dict | None:
@@ -142,10 +203,32 @@ async def read_broadcast(reader: asyncio.StreamReader) -> dict | None:
                 logical = unescape_frame(raw_frame, full=True)
                 result = adapter.parse_status(logical)
                 if result is not None:
+                    # Log to capture file — serialise only JSON-safe values
+                    _log_broadcast(raw_frame, logical, result)
                     return result
             except Exception:
                 continue
     return None
+
+
+def _log_broadcast(raw: bytes, logical: bytes, parsed: dict) -> None:
+    """Log a parsed broadcast frame to the capture log."""
+    safe = {}
+    for k, v in parsed.items():
+        if isinstance(v, (str, int, float, bool)) or v is None:
+            safe[k] = v
+        elif hasattr(v, "isoformat"):
+            safe[k] = v.isoformat()
+        elif isinstance(v, tuple):
+            safe[k] = list(v)
+        else:
+            safe[k] = str(v)
+    _log_event(
+        "broadcast",
+        raw_hex=raw.hex(),
+        logical_hex=logical.hex(),
+        parsed=safe,
+    )
 
 
 async def send_command(
@@ -153,6 +236,7 @@ async def send_command(
 ) -> None:
     """Send a command frame to the bridge."""
     info(f"Sending: {description}")
+    _log_event("command", description=description, cmd_hex=cmd.hex())
     writer.write(cmd)
     await writer.drain()
     await asyncio.sleep(POST_COMMAND_DELAY)
@@ -219,6 +303,11 @@ async def run_tests() -> None:
     selected_names = [label for key, label in ALL_TESTS if key in selected]
     info(f"Running {len(selected_names)} test(s): {', '.join(selected_names)}")
 
+    # ─── CAPTURE LOG ─────────────────────────────────────────────
+    log_path = _init_capture_log()
+    _log_event("session_start", host=HOST, port=PORT, tests=sorted(selected))
+    info(f"Capture log: {log_path}")
+
     # ─── CONNECT ──────────────────────────────────────────────────
     info("Connecting to EW11 bridge...")
     try:
@@ -228,20 +317,53 @@ async def run_tests() -> None:
         return
     ok("Connected")
 
+    results: list[tuple[str, bool | None]] = []
+
+    try:
+        await _run_test_sequence(reader, writer, selected, adapter, results)
+    except (UserQuit, KeyboardInterrupt):
+        print(f"\n\n  {YELLOW}⏹️  Aborted by user.{RESET}")
+    finally:
+        # Log results before closing
+        for name, result in results:
+            _log_event("test_result", test=name,
+                       result="pass" if result is True else "fail" if result is False else "skipped")
+        _log_event("session_end")
+        _close_capture_log()
+        writer.close()
+        _print_summary(results)
+        if _log_path:
+            info(f"Capture log saved: {_log_path}")
+
+
+async def _run_test_sequence(
+    reader: asyncio.StreamReader,
+    writer: asyncio.StreamWriter,
+    selected: set[str],
+    adapter: P25B85Adapter,
+    results: list[tuple[str, bool | None]],
+) -> None:
+    """Run the selected tests. Separated so UserQuit/Ctrl+C are caught cleanly."""
+
     # Initial state read
     info("Reading initial broadcast state...")
     state = await read_broadcast(reader)
     if state is None:
         fail("No valid broadcast received within timeout")
-        writer.close()
         return
     ok(f"Initial state: status={state.get('status')}, jets={state.get('jets')}, "
        f"light={state.get('light')}, blower={state.get('blower')}, "
-       f"water={state.get('water_temperature')}°C, setpoint={state.get('setpoint')}°C")
-
-    results: list[tuple[str, bool | None]] = []
+       f"water={state.get('water_temperature')}°C, setpoint={state.get('setpoint')}°C, "
+        f"heater_byte=0x{state.get('heater_byte', 0):02X}")
 
     # ─── HELPER ──────────────────────────────────────────────────
+
+    def log_heater_state(label: str, st: dict) -> None:
+        """Log detailed heater/status state for diagnostics."""
+        hb = st.get("heater_byte", 0)
+        info(f"{label}: status={st.get('status')!r}, heater_byte=0x{hb:02X}, "
+             f"heater_active={st.get('heater_active')}, ozone_active={st.get('ozone_active')}, "
+             f"blower={st.get('blower')}")
 
     async def round_trip_toggle(
         test_name: str,
@@ -260,6 +382,7 @@ async def run_tests() -> None:
         nonlocal state
         print(f"\n{'─'*60}")
         print(f"  {BOLD}TEST: {test_name}{RESET}")
+        _log_event("test_start", test=test_name)
 
         current = state.get(field) if state else None
         is_on = check_on(current)
@@ -297,7 +420,9 @@ async def run_tests() -> None:
             else:
                 fail("No broadcast received")
                 step_pass = False
-            wait_enter(confirm_msg)
+            if not confirm(confirm_msg):
+                fail(f"User reports {test_name} did NOT change to {label} on panel")
+                step_pass = False
 
         results.append((test_name, step_pass))
 
@@ -307,25 +432,100 @@ async def run_tests() -> None:
         await round_trip_toggle(
             test_name="Light",
             field="light",
-            cmd_on=CMD_LIGHT_TOGGLE,
-            cmd_off=CMD_LIGHT_TOGGLE,
+            cmd_on=adapter.build_light_toggle_command(),
+            cmd_off=adapter.build_light_toggle_command(),
             check_on=lambda v: v is True,
             check_off=lambda v: v is False,
         )
 
-    # ─── TEST 2: Heater ──────────────────────────────────────────
+    # ─── TEST 2: Heater (extended diagnostics) ─────────────────
 
     if "heater" in selected:
-        await round_trip_toggle(
-            test_name="Heater",
-            field="status",
-            cmd_on=CMD_HEATER_ON,
-            cmd_off=CMD_HEATER_OFF,
-            check_on=lambda v: v in ("circulation", "heating"),
-            check_off=lambda v: v == "off",
-            label_on="HEATING",
-            label_off="OFF",
-        )
+        print(f"\n{'─'*60}")
+        print(f"  {BOLD}TEST: Heater (extended — captures raw bytes + transitions){RESET}")
+        _log_event("test_start", test="Heater")
+
+        current_status = state.get("status") if state else None
+        log_heater_state("Before", state)
+        heater_is_on = current_status in ("circulation", "heating")
+
+        if not ask("Run heater round-trip test?"):
+            results.append(("Heater", None))
+        else:
+            heater_pass = True
+
+            # Decide which direction to test first
+            if heater_is_on:
+                steps = [
+                    (adapter.build_heater_command(on=False), "OFF"),
+                    (adapter.build_heater_command(on=True), "ON (restore)"),
+                ]
+            else:
+                steps = [
+                    (adapter.build_heater_command(on=True), "ON"),
+                    (adapter.build_heater_command(on=False), "OFF (restore)"),
+                ]
+
+            for cmd, label in steps:
+                await send_command(writer, cmd, f"Heater → {label}")
+
+                # Read multiple broadcasts to capture state transitions
+                # (heater typically goes off → circulation → heating over 2-5s)
+                info(f"Monitoring heater state transitions (up to 10s)...")
+                seen_states: list[tuple[str, int]] = []
+                t_end = time.monotonic() + 10.0
+                last_status = None
+                while time.monotonic() < t_end:
+                    new_state = await read_broadcast(reader)
+                    if new_state:
+                        state = new_state
+                        hb = new_state.get("heater_byte", 0)
+                        st = new_state.get("status", "?")
+                        if st != last_status:
+                            seen_states.append((st, hb))
+                            last_status = st
+                            info(f"  → status={st!r}  heater_byte=0x{hb:02X}  "
+                                 f"heater_active={new_state.get('heater_active')}  "
+                                 f"ozone_active={new_state.get('ozone_active')}")
+                        # Stop early once we reach the target state
+                        if "ON" in label and st in ("circulation", "heating"):
+                            break
+                        if "OFF" in label and st == "off":
+                            break
+
+                final_status = state.get("status") if state else None
+                final_hb = state.get("heater_byte", 0) if state else 0
+
+                if "ON" in label:
+                    if final_status in ("circulation", "heating"):
+                        ok(f"Heater {label} confirmed: status={final_status!r}, "
+                           f"heater_byte=0x{final_hb:02X}")
+                    else:
+                        fail(f"Heater {label} NOT confirmed: status={final_status!r}, "
+                             f"heater_byte=0x{final_hb:02X}")
+                        heater_pass = False
+                else:
+                    if final_status == "off":
+                        ok(f"Heater {label} confirmed: status={final_status!r}, "
+                           f"heater_byte=0x{final_hb:02X}")
+                    else:
+                        fail(f"Heater {label} NOT confirmed: status={final_status!r}, "
+                             f"heater_byte=0x{final_hb:02X}")
+                        heater_pass = False
+
+                # Flag unknown states
+                if final_status == "unknown":
+                    warn(f"Status is 'unknown' — heater_byte=0x{final_hb:02X} is not "
+                         f"in HEATER_STATE_MAP. This will show as 'unknown' in the UI!")
+
+                if seen_states:
+                    info(f"Transition sequence: {' → '.join(f'{s}(0x{hb:02X})' for s, hb in seen_states)}")
+
+                if not confirm(f"Confirm heater is {label} on panel?"):
+                    fail(f"User reports heater did NOT change to {label}")
+                    heater_pass = False
+
+            results.append(("Heater", heater_pass))
 
     # ─── TEST 3: Blower ──────────────────────────────────────────
 
@@ -333,8 +533,8 @@ async def run_tests() -> None:
         await round_trip_toggle(
             test_name="Blower",
             field="blower",
-            cmd_on=CMD_BLOWER_ON,
-            cmd_off=CMD_BLOWER_OFF,
+            cmd_on=adapter.build_blower_command(on=True),
+            cmd_off=adapter.build_blower_command(on=False),
             check_on=lambda v: v is True,
             check_off=lambda v: v is False,
         )
@@ -344,6 +544,7 @@ async def run_tests() -> None:
     if "jets" in selected:
         print(f"\n{'─'*60}")
         print(f"  {BOLD}TEST: Jets (full cycle){RESET}")
+        _log_event("test_start", test="Jets cycle")
         current_jets = state.get("jets", "off") if state else "off"
         info(f"Current jets = {current_jets}")
 
@@ -353,21 +554,21 @@ async def run_tests() -> None:
             # Define the cycle based on current state to end where we started
             if current_jets == "off":
                 cycle = [
-                    (CMD_PUMP_OFF_TO_LOW, "low", "Confirm pump LOW on panel"),
-                    (CMD_PUMP_LOW_TO_HIGH, "high", "Confirm pump HIGH on panel"),
-                    (CMD_PUMP_HIGH_TO_OFF, "off", "Confirm pump OFF (restored) on panel"),
+                    (adapter.build_pump_command("off", "low"), "low", "Confirm pump LOW on panel"),
+                    (adapter.build_pump_command("low", "high"), "high", "Confirm pump HIGH on panel"),
+                    (adapter.build_pump_command("high", "off"), "off", "Confirm pump OFF (restored) on panel"),
                 ]
             elif current_jets == "low":
                 cycle = [
-                    (CMD_PUMP_LOW_TO_HIGH, "high", "Confirm pump HIGH on panel"),
-                    (CMD_PUMP_HIGH_TO_OFF, "off", "Confirm pump OFF on panel"),
-                    (CMD_PUMP_OFF_TO_LOW, "low", "Confirm pump LOW (restored) on panel"),
+                    (adapter.build_pump_command("low", "high"), "high", "Confirm pump HIGH on panel"),
+                    (adapter.build_pump_command("high", "off"), "off", "Confirm pump OFF on panel"),
+                    (adapter.build_pump_command("off", "low"), "low", "Confirm pump LOW (restored) on panel"),
                 ]
             else:  # high
                 cycle = [
-                    (CMD_PUMP_HIGH_TO_OFF, "off", "Confirm pump OFF on panel"),
-                    (CMD_PUMP_OFF_TO_LOW, "low", "Confirm pump LOW on panel"),
-                    (CMD_PUMP_LOW_TO_HIGH, "high", "Confirm pump HIGH (restored) on panel"),
+                    (adapter.build_pump_command("high", "off"), "off", "Confirm pump OFF on panel"),
+                    (adapter.build_pump_command("off", "low"), "low", "Confirm pump LOW on panel"),
+                    (adapter.build_pump_command("low", "high"), "high", "Confirm pump HIGH (restored) on panel"),
                 ]
 
             jets_pass = True
@@ -380,7 +581,9 @@ async def run_tests() -> None:
                     fail(f"Expected jets={expected}, got {state.get('jets') if state else 'N/A'}")
                     # Don't fail the whole test if the spa safely intervened (e.g. heater is on so pump stayed low)
                     warn("State did not match exact expected state (spa safety intervention?)")
-                wait_enter(confirm_msg)
+                if not confirm(confirm_msg):
+                    fail(f"User reports jets did NOT change to {expected}")
+                    jets_pass = False
 
             results.append(("Jets cycle", True))
 
@@ -389,6 +592,7 @@ async def run_tests() -> None:
     if "temperature" in selected:
         print(f"\n{'─'*60}")
         print(f"  {BOLD}TEST: Temperature setpoint (dynamic frame variants){RESET}")
+        _log_event("test_start", test="Temperature setpoint")
 
         from joyonway_p25b85.protocol import build_frame
         
@@ -431,10 +635,12 @@ async def run_tests() -> None:
                     else:
                         actual = state.get('setpoint') if state else None
                         fail(f"Variant 0x{variant:02X} failed. Setpoint returned: {actual}°C")
-                        wait_enter(f"Check panel. If it did not update to {test_c}°C, press ENTER to try next variant")
+                        wait_enter(f"Press ENTER to try next variant")
 
                 if temp_pass:
-                    wait_enter(f"Confirm panel shows new target {test_c}°C, then press ENTER to restore")
+                    if not confirm(f"Confirm panel shows new target {test_c}°C?"):
+                        fail("User reports panel did NOT update setpoint")
+                        temp_pass = False
                     # Restore original
                     orig_f = round(orig_setpoint_c * 9/5 + 32)
                     payload = bytes([
@@ -447,7 +653,8 @@ async def run_tests() -> None:
                         ok(f"Restored setpoint to {orig_setpoint_c}°C!")
                     else:
                         warn("Failed to automatically confirm restore in broadcast.")
-                        wait_enter(f"Manually verify panel restored to {orig_setpoint_c}°C, then press ENTER")
+                        if not confirm(f"Manually verify panel restored to {orig_setpoint_c}°C?"):
+                            warn("User reports restore failed")
                 else:
                     fail("All dynamic temperature frame variants failed!")
                 
@@ -458,6 +665,7 @@ async def run_tests() -> None:
     if "heat_schedule" in selected:
         print(f"\n{'─'*60}")
         print(f"  {BOLD}TEST: Heat schedule write + restore{RESET}")
+        _log_event("test_start", test="Heat schedule")
 
         orig_hs1 = state.get("heat_slot1_start", (0, 0)) if state else (0, 0)
         orig_he1 = state.get("heat_slot1_end", (0, 0)) if state else (0, 0)
@@ -493,7 +701,9 @@ async def run_tests() -> None:
                     fail(f"Expected {test_hs1}, got {s1}")
             else:
                 fail("No broadcast after schedule write")
-            wait_enter("Check panel shows new heat schedule, then press ENTER")
+            if not confirm("Panel shows new heat schedule?"):
+                fail("User reports heat schedule did NOT update on panel")
+                sched_pass = False
 
             info("Restoring original heat schedule...")
             frame = adapter.build_schedule_command(
@@ -510,7 +720,9 @@ async def run_tests() -> None:
                 else:
                     warn(f"Restore may have failed: got {s1}, expected {orig_hs1}")
                     sched_pass = False
-            wait_enter("Confirm panel shows original heat schedule, then press ENTER")
+            if not confirm("Panel shows original heat schedule?"):
+                fail("User reports heat schedule restore failed")
+                sched_pass = False
             results.append(("Heat schedule", sched_pass))
 
     # ─── TEST 6: Filter schedule ─────────────────────────────────
@@ -518,6 +730,7 @@ async def run_tests() -> None:
     if "filter_schedule" in selected:
         print(f"\n{'─'*60}")
         print(f"  {BOLD}TEST: Filter schedule (all fields + enable/disable){RESET}")
+        _log_event("test_start", test="Filter schedule")
 
         orig_fs1 = state.get("filter_slot1_start", (0, 0)) if state else (0, 0)
         orig_fe1 = state.get("filter_slot1_end", (0, 0)) if state else (0, 0)
@@ -585,7 +798,9 @@ async def run_tests() -> None:
             else:
                 fail("No broadcast after schedule write")
                 fsched_pass = False
-            wait_enter("Check panel: filter schedule shows new times? Press ENTER")
+            if not confirm("Filter schedule shows new times on panel?"):
+                fail("User reports filter schedule did NOT update")
+                fsched_pass = False
 
             # Step 2: Disable slot 1 using flags byte (times stay the same)
             info("Testing slot disable: disabling slot 1 via flags byte (times unchanged)...")
@@ -616,7 +831,9 @@ async def run_tests() -> None:
             else:
                 fail("No broadcast")
                 fsched_pass = False
-            wait_enter("Check panel: filter slot 1 disabled (times still visible)? Press ENTER")
+            if not confirm("Filter slot 1 disabled on panel (times still visible)?"):
+                fail("User reports slot 1 disable did NOT work")
+                fsched_pass = False
 
             # Step 3: Re-enable slot 1
             info("Re-enabling slot 1...")
@@ -636,7 +853,9 @@ async def run_tests() -> None:
             else:
                 fail("No broadcast")
                 fsched_pass = False
-            wait_enter("Check panel: filter slot 1 enabled again? Press ENTER")
+            if not confirm("Filter slot 1 enabled again on panel?"):
+                fail("User reports slot 1 re-enable did NOT work")
+                fsched_pass = False
 
             # Step 4: Restore original
             info("Restoring original filter schedule...")
@@ -654,7 +873,9 @@ async def run_tests() -> None:
                 else:
                     warn(f"Restore may have failed: got {s1}-{e1}, expected {orig_fs1}-{orig_fe1}")
                     fsched_pass = False
-            wait_enter("Confirm panel shows original filter schedule, then press ENTER")
+            if not confirm("Panel shows original filter schedule?"):
+                fail("User reports filter schedule restore failed")
+                fsched_pass = False
             results.append(("Filter schedule", fsched_pass))
 
     # ─── TEST 7: Clock (write specific date/time) ────────────────
@@ -662,6 +883,7 @@ async def run_tests() -> None:
     if "clock" in selected:
         print(f"\n{'─'*60}")
         print(f"  {BOLD}TEST: Clock write (verify Y/M/D H:m:s){RESET}")
+        _log_event("test_start", test="Clock write")
         info("Writes a known date/time, reads back each field, then restores current time.")
 
         if not ask("Run clock write test?"):
@@ -707,7 +929,9 @@ async def run_tests() -> None:
                 fail("No spa_datetime in broadcast after write")
                 clock_pass = False
 
-            wait_enter("Check panel shows 2025-03-15 14:37:xx? Press ENTER")
+            if not confirm("Panel shows 2025-03-15 14:37:xx?"):
+                fail("User reports clock did NOT update")
+                clock_pass = False
 
             # Restore: set current time
             info("Restoring current time...")
@@ -721,28 +945,34 @@ async def run_tests() -> None:
                 ok(f"Clock restored to: {state['spa_datetime']}")
             else:
                 warn("Could not confirm clock restore")
-            wait_enter("Confirm panel clock shows current time, then press ENTER")
+            if not confirm("Panel clock shows current time?"):
+                warn("User reports clock restore may have failed")
             results.append(("Clock write", clock_pass))
 
     # ─── SUMMARY ─────────────────────────────────────────────────
-    writer.close()
 
+
+def _print_summary(results: list[tuple[str, bool | None]]) -> None:
+    """Print test results summary."""
     print(f"\n{'='*60}")
     print(f"  {BOLD}TEST SUMMARY{RESET}")
     print(f"{'='*60}")
-    passed = sum(1 for _, r in results if r is True)
-    failed = sum(1 for _, r in results if r is False)
-    skipped = sum(1 for _, r in results if r is None)
+    if not results:
+        print(f"  {YELLOW}No tests completed.{RESET}")
+    else:
+        passed = sum(1 for _, r in results if r is True)
+        failed = sum(1 for _, r in results if r is False)
+        skipped = sum(1 for _, r in results if r is None)
 
-    for name, result in results:
-        if result is True:
-            print(f"  {GREEN}✅{RESET} {name}")
-        elif result is False:
-            print(f"  {RED}❌{RESET} {name}")
-        else:
-            print(f"  {YELLOW}⏭️{RESET}  {name} (skipped)")
+        for name, result in results:
+            if result is True:
+                print(f"  {GREEN}✅{RESET} {name}")
+            elif result is False:
+                print(f"  {RED}❌{RESET} {name}")
+            else:
+                print(f"  {YELLOW}⏭️{RESET}  {name} (skipped)")
 
-    print(f"\n  {passed} passed, {failed} failed, {skipped} skipped")
+        print(f"\n  {passed} passed, {failed} failed, {skipped} skipped")
     print(f"{'='*60}\n")
 
 
