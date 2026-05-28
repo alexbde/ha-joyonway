@@ -678,9 +678,9 @@ async def _run_test_sequence(
             jets_pass = True
             actual_jets = current_jets
             for from_state, expected, confirm_msg in cycle:
-                cmd = adapter.build_pump_command(actual_jets, expected)
+                cmd = adapter.build_pump_command(expected)
                 if cmd is None:
-                    fail(f"No pump command for {actual_jets}→{expected}")
+                    fail(f"No pump command for target '{expected}'")
                     jets_pass = False
                     break
 

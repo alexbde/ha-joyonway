@@ -40,12 +40,16 @@ P25B85_SIGNATURE = bytes([0x1A, 0xFF, 0x01, 0x3C, 0xD2, 0xB4, 0xFF, 0x08, 0x03])
 # Byte positions in the logical (unescaped) broadcast frame (0-based)
 IDX_WATER_TEMP = 9   # Fahrenheit
 IDX_PUMP_BYTE = 12   # ✅ confirmed: 0x02=low, 0x04=high (KDy "byte 13")
+IDX_OZONE_MODE = 13  # ✅ bit 7: 0=Auto, 1=Manual (confirmed from phase 6 captures)
 IDX_HEATER_STATE = 14  # ✅ confirmed (KDy "byte 15")
 IDX_SETPOINT = 16    # Fahrenheit
 IDX_LIGHT_FLAGS = 17   # ✅ confirmed (KDy "byte 18")
 IDX_ACTIVITY_FLAG = 28  # ✅ confirmed (KDy "byte 29"); set during heating and UV/ozone
 # Legacy alias kept for raw diagnostics/backward compatibility.
 IDX_UV_FLAG = IDX_ACTIVITY_FLAG
+
+# Ozone mode mask (byte 13)
+MASK_OZONE_MODE_MANUAL = 0x80  # bit 7 set = Manual mode
 IDX_DATETIME_START = 53  # bytes 53-58: year, month, day, hour, minute, second
 
 # Schedule byte positions in broadcast frame
@@ -147,17 +151,13 @@ _CMD_HEADER = bytes([0x01, 0x20, 0x10, 0x3C, 0xA1, 0x10, 0xA1])
 # Pump transition encodings — (pump_b7, pump_b8)
 # Captured transitions: off→low, low→high, high→off (panel button cycle).
 # Additional direct transitions use the same target-state bytes — the
-# controller appears to accept any transition regardless of current state.
-# Live test confirmed: off→low ✅, off→high ✅, low→off ✅ (session 2).
-# low→high failed in one test run — suspected timing/bus collision issue,
-# not a protocol problem (the panel successfully cycles off→low→high).
-_PUMP_TRANSITIONS: dict[tuple[str, str], tuple[int, int]] = {
-    ("off", "low"):   (0x02, 0x02),
-    ("off", "high"):  (0x06, 0x04),
-    ("low", "high"):  (0x06, 0x04),
-    ("low", "off"):   (0x04, 0x00),
-    ("high", "off"):  (0x04, 0x00),
-    ("high", "low"):  (0x02, 0x02),
+# Pump target commands — the controller accepts any target regardless of current
+# state. Bytes 7-8 encode the desired pump state, not a transition.
+# Live confirmed: off→low ✅, off→high ✅, low→off ✅, high→off ✅ (sessions 2+5).
+_PUMP_TARGET_BYTES: dict[str, tuple[int, int]] = {
+    "off":  (0x04, 0x00),
+    "low":  (0x02, 0x02),
+    "high": (0x06, 0x04),
 }
 
 TEMP_MIN_C = 10
@@ -208,6 +208,7 @@ class P25B85Adapter:
         water_temp_f = frame[IDX_WATER_TEMP]
         setpoint_f = frame[IDX_SETPOINT]
         pump_byte = frame[IDX_PUMP_BYTE]
+        ozone_mode_byte = frame[IDX_OZONE_MODE]
         heater_byte = frame[IDX_HEATER_STATE]
         light_byte = frame[IDX_LIGHT_FLAGS]
         activity_byte = frame[IDX_UV_FLAG]
@@ -225,6 +226,9 @@ class P25B85Adapter:
         else:
             jets = "off"
 
+        # Ozone mode: bit 7 of byte 13 (0=Auto, 1=Manual)
+        ozone_mode_manual = bool(ozone_mode_byte & MASK_OZONE_MODE_MANUAL)
+
         result: dict = {
             "water_temperature": _fahrenheit_to_celsius(water_temp_f),
             "setpoint": _fahrenheit_to_celsius(setpoint_f),
@@ -236,6 +240,7 @@ class P25B85Adapter:
             "status": status,
             "heater_byte": heater_byte,
             "ozone_active": heater_base in (HEATER_OZONE, HEATER_OZONE_ALT),
+            "ozone_mode": "manual" if ozone_mode_manual else "auto",
             "blower": bool(activity_byte & MASK_BLOWER),
         }
 
@@ -335,15 +340,15 @@ class P25B85Adapter:
         """Build a light toggle command."""
         return self._build_button_command(btn_group=0x40, btn_action=0x40)
 
-    def build_pump_command(self, current: str, target: str) -> bytes | None:
-        """Build a pump transition command.
+    def build_pump_command(self, target: str) -> bytes | None:
+        """Build a pump command for the desired target state.
 
-        Returns None if no direct transition exists.
+        The controller accepts the target state directly — no transition
+        logic needed. Returns None if target is not a valid pump state.
         """
-        key = (current, target)
-        if key not in _PUMP_TRANSITIONS:
+        if target not in _PUMP_TARGET_BYTES:
             return None
-        b7, b8 = _PUMP_TRANSITIONS[key]
+        b7, b8 = _PUMP_TARGET_BYTES[target]
         return self._build_button_command(pump_b7=b7, pump_b8=b8)
 
     def build_heater_command(self, on: bool) -> bytes:

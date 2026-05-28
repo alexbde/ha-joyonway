@@ -101,9 +101,8 @@ class SpaPumpFan(CoordinatorEntity, FanEntity):
     async def _send_pump_command(self, target: str) -> None:
         """Send a pump command with retry for RS485 bus collisions.
 
-        RS485 is half-duplex: if our command frame hits the wire while the
-        controller is mid-broadcast, both are garbled and the command is lost.
-        We retry up to 3 times with a refresh in between to detect success.
+        The controller accepts the target state directly. We retry if the
+        bus was busy (half-duplex collision).
         """
         if target not in ("off", PRESET_LOW, PRESET_HIGH):
             _LOGGER.warning("Unsupported pump target '%s'", target)
@@ -116,39 +115,41 @@ class SpaPumpFan(CoordinatorEntity, FanEntity):
         if current == target:
             return
 
+        cmd = adapter.build_pump_command(target)
+        if cmd is None:
+            raise HomeAssistantError(f"No pump command for target '{target}'")
+
         max_retries = 3
         for attempt in range(1, max_retries + 1):
-            cmd = adapter.build_pump_command(current, target)
-            if cmd is None:
-                raise HomeAssistantError(
-                    f"No pump command for transition {current}->{target}"
-                )
 
+            _LOGGER.debug(
+                "Jets %s→%s: sending command (attempt %d)",
+                current, target, attempt,
+            )
             success = await coordinator.async_send_command(cmd)
             if not success:
                 raise HomeAssistantError(
-                    f"Failed to send pump {current}->{target} command"
+                    f"Failed to send pump command (target={target})"
                 )
             await coordinator.async_request_refresh()
 
-            # Check if the transition took effect
+            # Check if the command took effect
             new_state = adapter.get_jets_state(coordinator.data or {})
             if new_state == target:
                 if attempt > 1:
                     _LOGGER.info(
-                        "Pump %s->%s succeeded on attempt %d",
+                        "Jets %s→%s: succeeded on attempt %d",
                         current, target, attempt,
                     )
                 return
 
             _LOGGER.debug(
-                "Pump %s->%s attempt %d: still at %s, retrying",
+                "Jets %s→%s: attempt %d did not take effect (state=%s)",
                 current, target, attempt, new_state,
             )
-            current = new_state  # update for next retry
 
         _LOGGER.warning(
-            "Pump command %s->%s did not take effect after %d attempts",
+            "Jets %s→%s: command did not take effect after %d attempts",
             current, target, max_retries,
         )
 

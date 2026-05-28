@@ -389,28 +389,24 @@ def test_build_light_toggle(adapter: P25B85Adapter) -> None:
 
 
 def test_build_pump_commands(adapter: P25B85Adapter) -> None:
-    """Pump transition commands encode correct bytes 7-8."""
-    f1 = adapter.build_pump_command("off", "low")
-    assert f1 is not None
-    p1 = _frame_payload(f1)
-    assert p1[7] == 0x02 and p1[8] == 0x02
+    """Pump commands encode correct bytes 7-8 for each target state."""
+    f_low = adapter.build_pump_command("low")
+    assert f_low is not None
+    p_low = _frame_payload(f_low)
+    assert p_low[7] == 0x02 and p_low[8] == 0x02
 
-    f2 = adapter.build_pump_command("low", "high")
-    p2 = _frame_payload(f2)
-    assert p2[7] == 0x06 and p2[8] == 0x04
+    f_high = adapter.build_pump_command("high")
+    assert f_high is not None
+    p_high = _frame_payload(f_high)
+    assert p_high[7] == 0x06 and p_high[8] == 0x04
 
-    f3 = adapter.build_pump_command("high", "off")
-    p3 = _frame_payload(f3)
-    assert p3[7] == 0x04 and p3[8] == 0x00
+    f_off = adapter.build_pump_command("off")
+    assert f_off is not None
+    p_off = _frame_payload(f_off)
+    assert p_off[7] == 0x04 and p_off[8] == 0x00
 
-    assert adapter.build_pump_command("off", "high") is not None
-    f4 = adapter.build_pump_command("off", "high")
-    p4 = _frame_payload(f4)
-    assert p4[7] == 0x06 and p4[8] == 0x04
-
-    assert adapter.build_pump_command("low", "off") is not None
-    assert adapter.build_pump_command("high", "low") is not None
-    assert adapter.build_pump_command("low", "low") is None
+    # Invalid target returns None
+    assert adapter.build_pump_command("turbo") is None
 
 
 def test_build_heater_commands(adapter: P25B85Adapter) -> None:
