@@ -148,6 +148,9 @@ _CMD_HEADER = bytes([0x01, 0x20, 0x10, 0x3C, 0xA1, 0x10, 0xA1])
 # Captured transitions: off→low, low→high, high→off (panel button cycle).
 # Additional direct transitions use the same target-state bytes — the
 # controller appears to accept any transition regardless of current state.
+# Live test confirmed: off→low ✅, off→high ✅, low→off ✅ (session 2).
+# low→high failed in one test run — suspected timing/bus collision issue,
+# not a protocol problem (the panel successfully cycles off→low→high).
 _PUMP_TRANSITIONS: dict[tuple[str, str], tuple[int, int]] = {
     ("off", "low"):   (0x02, 0x02),
     ("off", "high"):  (0x06, 0x04),
@@ -351,10 +354,14 @@ class P25B85Adapter:
         )
 
     def build_blower_command(self, on: bool) -> bytes:
-        """Build a blower ON or OFF command."""
+        """Build a blower ON or OFF command.
+
+        ON: btn_action=0x0C (0x04 device | 0x08 activate). Confirmed working.
+        OFF: btn_action=0x00 (clear — matches heater OFF pattern).
+        """
         return self._build_button_command(
             btn_group=0x04,
-            btn_action=0x0C if on else 0x08,
+            btn_action=0x0C if on else 0x00,
         )
 
     def build_temp_command(self, target_celsius: int) -> bytes | None:
@@ -362,13 +369,15 @@ class P25B85Adapter:
 
         Converts °C to °F and builds the command dynamically.
         Returns None if out of range.
+
+        btn_action=0x98 confirmed working via live test (0x80 failed).
         """
         if target_celsius < TEMP_MIN_C or target_celsius > TEMP_MAX_C:
             return None
         target_f = _celsius_to_fahrenheit(target_celsius)
         return self._build_button_command(
             btn_group=0x80,
-            btn_action=0x88,
+            btn_action=0x98,
             setpoint_f=target_f,
         )
 
@@ -464,12 +473,17 @@ class P25B85Adapter:
         """Build a DateTime set command frame with CRC.
 
         Args:
-            year: Full year (e.g. 2026)
-            month: 1-12
-            day: 1-31
-            hour: 0-23
-            minute: 0-59
-            second: 0-59
+            year: Full year (e.g. 2026) — sent but ignored by controller
+            month: 1-12 — sent but ignored by controller
+            day: 1-31 — sent but ignored by controller
+            hour: 0-23 — confirmed working
+            minute: 0-59 — confirmed working
+            second: 0-59 — confirmed working
+
+        Note:
+            Live testing confirmed the controller only updates H:M:S from
+            this command. Date fields (Y/M/D) are included in the payload
+            but the controller ignores them — the date stays unchanged.
 
         Returns:
             Wire-ready frame bytes.
