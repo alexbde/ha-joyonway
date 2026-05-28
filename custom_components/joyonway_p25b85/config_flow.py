@@ -106,7 +106,7 @@ class JoyonwayP25B85OptionsFlow(OptionsFlowWithConfigEntry):
             return self.async_create_entry(title="", data=user_input)
 
         current_ozone_mode = self.options.get(OPT_OZONE_MODE, OZONE_MODE_AUTO)
-        current_auto_sync = self.options.get(OPT_AUTO_SYNC_CLOCK, True)
+        current_auto_sync = self.options.get(OPT_AUTO_SYNC_CLOCK, False)
 
         schema = vol.Schema(
             {

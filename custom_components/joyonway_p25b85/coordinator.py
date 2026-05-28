@@ -55,6 +55,7 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
         self._command_lock = asyncio.Lock()
         self._last_command_ts = 0.0
         self._last_clock_sync_ts: float = 0.0
+        self.last_detected_ozone_mode: str | None = None
 
     @property
     def available(self) -> bool:
@@ -74,23 +75,7 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
     @property
     def auto_sync_clock(self) -> bool:
         """Return whether automatic clock sync is enabled."""
-        return self.entry.options.get(OPT_AUTO_SYNC_CLOCK, True)
-
-    async def async_apply_ozone_mode(self) -> None:
-        """Send the ozone mode command to match the configured option.
-
-        Called once after setup to ensure the controller state matches.
-        """
-        mode = self.ozone_mode
-        try:
-            cmd = self._adapter.build_ozone_mode_command(mode)
-            success = await self.async_send_command(cmd)
-            if success:
-                _LOGGER.debug("Ozone mode set to %s", mode)
-            else:
-                _LOGGER.warning("Failed to send ozone mode command (%s)", mode)
-        except Exception:
-            _LOGGER.exception("Error sending ozone mode command")
+        return self.entry.options.get(OPT_AUTO_SYNC_CLOCK, False)
 
     async def _async_update_data(self) -> dict:
         """Fetch data from the RS485 bridge.
@@ -104,6 +89,21 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
                 f"No broadcast frame from RS485 bridge {self.host}:{self.port}"
             )
         self._available = True
+
+        # Sync ozone mode config option with the spa's actual setting
+        # (byte 13 bit 7 in the broadcast reports Auto/Manual)
+        spa_ozone_mode = data.get("ozone_mode")
+        if spa_ozone_mode is not None:
+            self.last_detected_ozone_mode = spa_ozone_mode
+            if spa_ozone_mode != self.ozone_mode:
+                _LOGGER.info(
+                    "Ozone mode: spa reports '%s', updating config (was '%s')",
+                    spa_ozone_mode, self.ozone_mode,
+                )
+                new_options = {**self.entry.options, OPT_OZONE_MODE: spa_ozone_mode}
+                self.hass.config_entries.async_update_entry(
+                    self.entry, options=new_options
+                )
 
         # Auto clock sync if enabled
         if self.auto_sync_clock:

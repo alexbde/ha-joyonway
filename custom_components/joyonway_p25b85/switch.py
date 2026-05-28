@@ -20,9 +20,6 @@ from .entity import device_info
 
 _LOGGER = logging.getLogger(__name__)
 
-# Delay between ozone mode switch and manual ON/OFF command
-OZONE_MODE_SWITCH_DELAY = 1.5
-
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -100,8 +97,10 @@ class SpaLightSwitch(CoordinatorEntity, SwitchEntity):
         """
         coordinator: JoyonwayP25B85Coordinator = self.coordinator
         cmd = coordinator.adapter.build_light_toggle_command()
+        _LOGGER.debug("Light: sending toggle command")
         success = await coordinator.async_send_command(cmd)
         if not success:
+            _LOGGER.error("Light: toggle command failed")
             raise HomeAssistantError("Failed to send light command")
         await asyncio.sleep(1.0)
         await coordinator.async_request_refresh()
@@ -140,8 +139,10 @@ class SpaHeaterSwitch(CoordinatorEntity, SwitchEntity):
             return
         coordinator: JoyonwayP25B85Coordinator = self.coordinator
         cmd = coordinator.adapter.build_heater_command(on=True)
+        _LOGGER.debug("Heater: sending ON command")
         success = await coordinator.async_send_command(cmd)
         if not success:
+            _LOGGER.error("Heater: ON command failed")
             raise HomeAssistantError("Failed to send heater ON command")
         await coordinator.async_request_refresh()
 
@@ -151,8 +152,10 @@ class SpaHeaterSwitch(CoordinatorEntity, SwitchEntity):
             return
         coordinator: JoyonwayP25B85Coordinator = self.coordinator
         cmd = coordinator.adapter.build_heater_command(on=False)
+        _LOGGER.debug("Heater: sending OFF command")
         success = await coordinator.async_send_command(cmd)
         if not success:
+            _LOGGER.error("Heater: OFF command failed")
             raise HomeAssistantError("Failed to send heater OFF command")
         await coordinator.async_request_refresh()
 
@@ -187,8 +190,10 @@ class SpaBlowerSwitch(CoordinatorEntity, SwitchEntity):
             return
         coordinator: JoyonwayP25B85Coordinator = self.coordinator
         cmd = coordinator.adapter.build_blower_command(on=True)
+        _LOGGER.debug("Blower: sending ON command")
         success = await coordinator.async_send_command(cmd)
         if not success:
+            _LOGGER.error("Blower: ON command failed")
             raise HomeAssistantError("Failed to send blower ON command")
         await coordinator.async_request_refresh()
 
@@ -198,24 +203,23 @@ class SpaBlowerSwitch(CoordinatorEntity, SwitchEntity):
             return
         coordinator: JoyonwayP25B85Coordinator = self.coordinator
         cmd = coordinator.adapter.build_blower_command(on=False)
+        _LOGGER.debug("Blower: sending OFF command")
         success = await coordinator.async_send_command(cmd)
         if not success:
+            _LOGGER.error("Blower: OFF command failed")
             raise HomeAssistantError("Failed to send blower OFF command")
         await coordinator.async_request_refresh()
 
 
 class SpaOzoneSwitch(CoordinatorEntity, SwitchEntity):
-    """Switch entity for ozone control.
+    """Switch entity for ozone control (manual ON/OFF).
 
-    Two-step ON process:
-      1. Set ozone mode to Manual (enables RS485 control)
-      2. Send ozone manual ON command
-    OFF process:
-      1. Send ozone manual OFF command
-      2. Switch back to Auto mode (restores schedule control)
+    Only available when ozone mode is set to Manual in the integration
+    settings — this mirrors the spa panel behaviour where manual ozone
+    control is only accessible in Manual mode.
 
-    Replaces the former dummy "filter" switch. Uses the same unique_id
-    suffix so existing entity registrations are preserved.
+    The mode itself is synced to the spa via the options flow (settings menu).
+    This switch just starts/stops the ozonator.
     """
 
     _attr_has_entity_name = True
@@ -249,52 +253,32 @@ class SpaOzoneSwitch(CoordinatorEntity, SwitchEntity):
         return self.coordinator.data.get("ozone_active")
 
     async def async_turn_on(self, **kwargs) -> None:
-        """Start ozone (mode→Manual, then manual ON)."""
+        """Start ozone (send manual ON)."""
         if self.is_on:
             return
 
-        adapter = self.coordinator.adapter
         coordinator: JoyonwayP25B85Coordinator = self.coordinator
-
-        # Step 1: Switch to Manual mode
-        mode_cmd = adapter.build_ozone_mode_command("manual")
-        success = await coordinator.async_send_command(mode_cmd)
+        cmd = coordinator.adapter.build_ozone_manual_command(on=True)
+        _LOGGER.debug("Ozone: sending manual ON command")
+        success = await coordinator.async_send_command(cmd)
         if not success:
-            raise HomeAssistantError("Failed to send ozone mode command")
-
-        # Brief delay to let the controller process the mode switch
-        await asyncio.sleep(OZONE_MODE_SWITCH_DELAY)
-
-        # Step 2: Send manual ON
-        on_cmd = adapter.build_ozone_manual_command(on=True)
-        success = await coordinator.async_send_command(on_cmd)
-        if not success:
+            _LOGGER.error("Ozone: manual ON command failed")
             raise HomeAssistantError("Failed to send ozone ON command")
-
         await coordinator.async_request_refresh()
 
     async def async_turn_off(self, **kwargs) -> None:
-        """Stop ozone (manual OFF, then mode→Auto)."""
+        """Stop ozone (send manual OFF)."""
         if self.is_on is False:
             return
 
-        adapter = self.coordinator.adapter
         coordinator: JoyonwayP25B85Coordinator = self.coordinator
-
-        # Step 1: Send manual OFF
-        off_cmd = adapter.build_ozone_manual_command(on=False)
-        success = await coordinator.async_send_command(off_cmd)
+        cmd = coordinator.adapter.build_ozone_manual_command(on=False)
+        _LOGGER.debug("Ozone: sending manual OFF command")
+        success = await coordinator.async_send_command(cmd)
         if not success:
+            _LOGGER.error("Ozone: manual OFF command failed")
             raise HomeAssistantError("Failed to send ozone OFF command")
 
-        # Brief delay before switching back to Auto
-        await asyncio.sleep(OZONE_MODE_SWITCH_DELAY)
-
-        # Step 2: Switch back to Auto mode (restore schedule control)
-        mode_cmd = adapter.build_ozone_mode_command("auto")
-        success = await coordinator.async_send_command(mode_cmd)
-        if not success:
-            _LOGGER.warning("Failed to switch ozone back to Auto mode")
 
         await coordinator.async_request_refresh()
 
@@ -341,18 +325,39 @@ class SpaScheduleSlotSwitch(CoordinatorEntity, SwitchEntity):
         await self._send_schedule(enabled=False)
 
     async def _send_schedule(self, enabled: bool) -> None:
-        """Send the full schedule command with the slot's enable flag toggled."""
+        """Send the full schedule command with the slot's enable flag toggled.
+
+        Refuses to send if any slot time data is missing from the coordinator
+        to prevent overwriting spa schedule with zeros/defaults.
+        """
         data = self.coordinator.data
         if data is None:
             raise HomeAssistantError("No data available from spa")
 
         prefix = self._schedule_type
-        s1_start = data.get(f"{prefix}_slot1_start", (0, 0))
-        s1_end = data.get(f"{prefix}_slot1_end", (0, 0))
-        s2_start = data.get(f"{prefix}_slot2_start", (0, 0))
-        s2_end = data.get(f"{prefix}_slot2_end", (0, 0))
-        s1_enabled = data.get(f"{prefix}_slot1_enabled", False)
-        s2_enabled = data.get(f"{prefix}_slot2_enabled", False)
+
+        # Guard: all four time keys must be present in coordinator data
+        required_keys = [
+            f"{prefix}_slot1_start",
+            f"{prefix}_slot1_end",
+            f"{prefix}_slot2_start",
+            f"{prefix}_slot2_end",
+            f"{prefix}_slot1_enabled",
+            f"{prefix}_slot2_enabled",
+        ]
+        missing = [k for k in required_keys if k not in data]
+        if missing:
+            raise HomeAssistantError(
+                f"Cannot send schedule: missing data keys {missing}. "
+                f"Wait for the spa to report a full broadcast before toggling."
+            )
+
+        s1_start = data[f"{prefix}_slot1_start"]
+        s1_end = data[f"{prefix}_slot1_end"]
+        s2_start = data[f"{prefix}_slot2_start"]
+        s2_end = data[f"{prefix}_slot2_end"]
+        s1_enabled = data[f"{prefix}_slot1_enabled"]
+        s2_enabled = data[f"{prefix}_slot2_enabled"]
 
         if self._slot == 1:
             s1_enabled = enabled
@@ -365,9 +370,17 @@ class SpaScheduleSlotSwitch(CoordinatorEntity, SwitchEntity):
             slot1_enabled=s1_enabled, slot2_enabled=s2_enabled,
         )
 
+        _LOGGER.debug(
+            "Schedule %s slot %d: sending enable=%s",
+            self._schedule_type, self._slot, enabled,
+        )
         coordinator: JoyonwayP25B85Coordinator = self.coordinator
         success = await coordinator.async_send_command(frame)
         if not success:
+            _LOGGER.error(
+                "Schedule %s slot %d: command failed",
+                self._schedule_type, self._slot,
+            )
             raise HomeAssistantError(
                 f"Failed to send {self._schedule_type} schedule command"
             )
