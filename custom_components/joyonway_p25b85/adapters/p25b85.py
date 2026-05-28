@@ -110,6 +110,12 @@ MASK_BLOWER = 0x08
 # KDy describes three heating stages: circulation → heating → cooldown/off
 # Our captures confirm 0x40 and 0x50; heating and UV differ by 1 bit
 # from KDy's values (firmware variant or sub-state). Both sets are mapped.
+#
+# Bit 3 (0x08) is the blower flag — it is ORed onto the heater byte when
+# the blower is active. We strip it before lookup so every heater state
+# works correctly regardless of blower state.
+MASK_HEATER_BLOWER = 0x08  # bit 3 on heater byte = blower running
+
 HEATER_OFF = 0x40    # Idle/off (KDy called this "cooldown") ✅ confirmed
 HEATER_BLOWER = 0x48       # Blower active (0x40 + bit 3) ✅ Phase 6 confirmed
 HEATER_CIRCULATION = 0x50  # Circulation pump pre-heating (KDy: "circulation") ✅ confirmed
@@ -121,7 +127,6 @@ HEATER_OZONE_ALT = 0xC1     # Ozone cycle — manual / KDy variant ✅ Phase 6
 
 HEATER_STATE_MAP: dict[int, str] = {
     HEATER_OFF: "off",
-    HEATER_BLOWER: "off",              # blower doesn't change heater status
     HEATER_CIRCULATION: "circulation",
     HEATER_HEATING_STANDBY: "heating",  # about to heat → report as heating
     HEATER_HEATING: "heating",
@@ -204,7 +209,10 @@ class P25B85Adapter:
         light_byte = frame[IDX_LIGHT_FLAGS]
         activity_byte = frame[IDX_UV_FLAG]
 
-        status = HEATER_STATE_MAP.get(heater_byte, "unknown")
+        # Bit 3 of the heater byte is the blower flag — strip it so the
+        # status lookup works regardless of whether the blower is running.
+        heater_base = heater_byte & ~MASK_HEATER_BLOWER
+        status = HEATER_STATE_MAP.get(heater_base, "unknown")
 
         # Derive jets state string
         if pump_byte & MASK_PUMP_HIGH:
@@ -221,9 +229,10 @@ class P25B85Adapter:
             "pump_high": bool(pump_byte & MASK_PUMP_HIGH),
             "jets": jets,
             "light": bool(light_byte & MASK_LIGHT),
-            "heater_active": heater_byte in (HEATER_HEATING, HEATER_HEATING_ALT),
+            "heater_active": heater_base in (HEATER_HEATING, HEATER_HEATING_ALT),
             "status": status,
-            "ozone_active": heater_byte in (HEATER_OZONE, HEATER_OZONE_ALT),
+            "heater_byte": heater_byte,
+            "ozone_active": heater_base in (HEATER_OZONE, HEATER_OZONE_ALT),
             "blower": bool(activity_byte & MASK_BLOWER),
         }
 
