@@ -63,9 +63,8 @@ The P25B85 controls spas like the **Home Deluxe White Marble** outdoor whirlpool
 
 ### What this integration does NOT do
 
-- ❌ Blower OFF command not yet verified (changed, pending re-test)
 - ❌ Ozone control not yet live-tested
-- ❌ Date setting via RS485 not possible (controller accepts time only, not date)
+- ❌ Light colour mode control (may be panel-local only)
 
 ## Safety Philosophy
 

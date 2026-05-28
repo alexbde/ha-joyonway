@@ -9,9 +9,9 @@
 >
 > **Integration domain:** `joyonway_p25b85`
 > **Hardware:** P25B85 + PB554 + Elfin EW11
-> **Status:** All 8 write tests pass (session 5). Critical community feedback
-> received: integration corrupted one user's spa (factory reset required).
-> Safety fixes needed before release. Date-write still under investigation.
+> **Status:** All 8 write tests pass (session 5). Date-write solved (session 6).
+> Critical community feedback received: integration corrupted one user's spa
+> (factory reset required). Safety fixes needed before release.
 
 > **Documentation policy:** `docs/protocol.md` is the canonical protocol spec.
 > This `docs/plan.md` is progress/handoff only.
@@ -50,13 +50,10 @@
   - All connections receive the **same full RS485 data stream** (multicast)
 - **UART:** 38400 8N1
 - **Pump:** ONE dual-speed (low = filtration, high = massage jets, 20-min auto-off)
-- **Light:** RGB LED, 9 states cycling via panel button; RS485 toggle is
-  simple on/off (same frame turns on or off, confirmed by captures)
+- **Light:** RGB LED, 9 states cycling via panel button; RS485 is simple on/off toggle
 - **Heater:** 2 kW resistive, thermostat-controlled
-- **Ozone port:** Connector on PCB ("Ozonauslass"), byte 14=`0xC1` is the
-  ozone cycle state. PB554 has two modes: **Auto** (schedule) and
-  **Manual** (user-triggerable). Command frames captured for mode switch
-  and manual ON/OFF (Phase 6). Broadcast: heater byte `0x40`↔`0xC1`.
+- **Ozone port:** Connector on PCB ("Ozonauslass"). PB554 has two modes:
+  **Auto** (schedule) and **Manual** (user-triggerable via RS485).
 - **Blower:** air blower, connector on PCB, button on PB554 panel.
 
 ## 2. Protocol Summary
@@ -120,58 +117,35 @@ custom_components/joyonway_p25b85/
 
 ### Key design decisions
 
-- **Terminology: "Ozone"** — matches the hardware manual ("Ozonauslass") and community
-  usage. Ozone is distinct from filtration: the ozone/UV port is a separate device that
-  forces the filter pump on when active. Data key `ozone_active`, status enum
-  `"ozone"`, constants `HEATER_OZONE` / `HEATER_OZONE_ALT` — all consistent.
-- **All commands built dynamically** — CRC-32 cracked (P=0x04C11DB7, word32-swap);
-  no replay-only frames. `_build_button_command()` is the universal builder for
-  type-0xA1 commands (light, heater, blower, pump, temp, ozone).
+> Protocol byte-level details (command payloads, CRC, byte maps) are in
+> [`docs/protocol.md`](protocol.md). This section covers implementation choices only.
+
+- **All commands built dynamically** — no replay-only frames.
+  `_build_button_command()` is the universal builder for type-0xA1 commands.
 - **Temperature setpoint**: `btn_action=0x98` confirmed working via live test.
-  `0x80` was tested and does NOT work. Adapter uses `build_temp_command()`.
+  `0x80` was tested and does NOT work.
 - **Ozone two-step control** — ON: send mode→Manual, delay 1.5s, send manual ON.
-  OFF: send manual OFF, delay 1.5s, send mode→Auto. Broadcast byte 14 tracks state.
+  OFF: send manual OFF, delay 1.5s, send mode→Auto.
 - **Ozone switch availability** — controlled by options flow. When ozone mode is
   "auto" (default), the switch is unavailable (grayed out). When "manual", the
   switch becomes available for RS485 control.
-- **Fan = "Jets" / "Düsen"** — matches spa manual terminology
+- **Fan = "Jets" / "Düsen"** — matches spa manual terminology.
 - **Fan entity retry logic** — pump commands retry up to 3× with state check.
-  RS485 bus collisions can cause commands to be lost (our frame sent while
-  controller is mid-broadcast → both garbled on wire). Retry handles this.
-- **Light toggle**: same frame for on/off (confirmed by Phase 6 captures —
-  identical bytes for ON and OFF). Not a cycle — single toggle turns off.
-  `_send_toggle()` has 1.0s delay before refresh to avoid reading a stale
-  broadcast (race condition that caused turn-off to appear to fail).
-- **Heater byte blower-flag fix**: bit 3 (`0x08`) of byte 14 is the blower
-  flag, ORed onto the heater state. `parse_status()` strips it via
-  `heater_base = heater_byte & ~MASK_HEATER_BLOWER` before looking up status.
-  Without this, blower+heating = `0x5D` → "unknown" in the UI. Raw byte
-  preserved as `heater_byte` in the data dict for diagnostics.
-- **Blower ON**: `btn_action=0x0C` confirmed working.
-  **Blower OFF**: `btn_action=0x00` confirmed working (session 5). Previous
-  attempt with `0x08` did not work.
-- **Heater/blower switches**: distinct ON/OFF commands; safe to send
-- **Climate debounce**: 1.5s coalescing for slider drags
-- **Coordinator write pacing**: global 1.0s command cooldown
-- **Pump transitions** — all 6 transitions (off↔low↔high) use direct
-  single commands. The panel cycles off→low→high→off so low→high is
-  definitely supported by the controller.
-  **Confirmed live (session 5)**: off→low ✅, low→high ✅, high→off ✅.
-  high→off may need 1 retry due to RS485 bus collisions. Retry logic in fan entity handles this.
-- **Temperatures as integers** — spa only shows whole °C
-- **Schedule times as `time` entities** — proper HA time pickers, supports HH:MM
-- **Schedule enables as `switch` entities** — toggle slots on/off
-- **Schedule write**: builds full command with all 4 slot values + CRC via `build_frame()`
-- **Schedule enable/disable**: flags byte (byte 7) encodes slot enables via lookup
-  table: `0xAA`=both on, `0x62`=s1 on/s2 off, `0x9A`=s1 off/s2 on, `0x52`=both off.
-- **Clock write**: only H:M:S are accepted by the controller. Date bytes (Y:M:D)
-  are included in the payload but the controller ignores them — date is read-only.
-  Auto clock sync still works (only time matters for drift detection).
+  RS485 bus collisions can cause commands to be lost. Retry handles this.
+- **Light toggle** — `_send_toggle()` has 1.0s delay before refresh to avoid
+  reading a stale broadcast (race condition fix).
+- **Heater byte blower-flag fix** — `parse_status()` strips blower bit via
+  `heater_base = heater_byte & ~MASK_HEATER_BLOWER` before status lookup.
+- **Climate debounce**: 1.5s coalescing for slider drags.
+- **Coordinator write pacing**: global 1.0s command cooldown.
+- **Temperatures as integers** — spa only shows whole °C.
+- **Schedule** — `time` entities for pickers, `switch` entities for enables.
+- **Clock write** — uses `set_date=True` (prefix=0x05) by default, writing both
+  date and time. Pass `set_date=False` for time-only sync.
 - **Options flow** — two options: ozone mode (Auto/Manual) and auto clock sync
   (bool, default ON). Stored in `entry.options`, reload on change.
 - **Auto clock sync** — coordinator compares `spa_datetime` to HA time after
   each broadcast parse. Syncs if drift > 30s, with 1-hour cooldown.
-- **Switch entity order** — Heizung | Licht, Ozon | Gebläse (dashboard layout)
 
 ## 4. Phase Status
 
@@ -194,11 +168,12 @@ custom_components/joyonway_p25b85/
 | Temperature | ✅ PASS | `btn_action=0x98` works, 37→38→37 round-trip |
 | Heat schedule | ✅ PASS | All fields + enable/disable confirmed |
 | Filter schedule | ✅ PASS | All fields + enable/disable + restore confirmed |
-| Clock | ✅ PASS | H:M:S set correctly. Date conclusively confirmed read-only (see below) |
+| Clock | ✅ PASS | H:M:S confirmed (session 5). Date+time confirmed (prefix=0x05, session 6) |
 
-**Date write — conclusively disproven:** Spa was showing wrong date (May 27
-instead of actual May 28). Restore command explicitly sent May 28 date bytes,
-but broadcast still reported May 27. The controller ignores Y:M:D entirely.
+**Date write — SOLVED:** The prefix byte controls behaviour. `0x50` = time-only
+(what we were sending previously), `0x05` = date+time (what the panel sends).
+Captured from PB554 panel and verified. Integration updated to use `0x05`.
+See [`docs/protocol.md` §4.2](protocol.md#42-datetime-set-type-0xa2) for details.
 
 ## 5. Next Steps
 
@@ -225,46 +200,25 @@ Key fixes needed:
 
 ## 6. Technical Notes for Next Session
 
-- **Session outcomes (latest — 2026-05-28, session 5):**
-  - **All 8 write tests pass** — Light, Heater, Blower, Jets, Temperature,
-    Heat schedule, Filter schedule, Clock. Full coverage confirmed.
-  - **Blower OFF confirmed** — `btn_action=0x00` works. Previous `0x08` did not.
-  - **Jets full cycle confirmed** — off→low→high→off. high→off needed 1 retry
-    (RS485 collision on attempt 1), succeeded on attempt 2.
-  - **Date write under investigation** — spa shows wrong date (May 27 vs actual
-    May 28). Write command included correct date but date didn't change. Two new
-    scripts created: `tools/capture_date_set.py` (guided capture of panel date
-    change) and `tools/test_date_write.py` (tries 8 different approaches: prefix
-    byte variants, BCD encoding, padding flags). User confirmed the panel CAN
-    set the date, so the command format must differ from what we're sending.
-  - **Community feedback received** — KDy and old-man tested the integration.
-    KDy's spa required factory reset (configuration corrupted by auto-writes).
-    Full analysis in `docs/community_feedback_todo.md`. Key issues: jets OFF
-    not working for others, schedule overwrites, ozone UX confusion.
-  - **New files this session:**
-    - `tools/test_date_write.py` — tries multiple date-write approaches
-    - `tools/capture_date_set.py` — guided capture for panel date-set commands
-    - `docs/community_feedback_todo.md` — full issue list from community testing
+- **Session outcomes (latest — 2026-05-28, session 6):**
+  - **Date write SOLVED** — prefix byte `0x05` writes date+time, `0x50` writes
+    time only. Captured 3 panel commands (2 date changes + 1 time-only change)
+    confirming this. `build_datetime_command()` updated with `set_date` kwarg.
+  - **Protocol/plan separation** — moved all byte-level protocol data out of
+    plan.md into protocol.md. Plan now links to protocol for details.
+  - **protocol.md updated** — DateTime §4.2 prefix byte table, button table
+    updated with live-confirmed values (blower `0x0C`, temp `0x98`).
 
-- **Previous sessions (kept for reference):**
-  - Session 4 (2026-05-28 afternoon): TCP buffer bug fix, frame parsing aligned,
-    temperature command fixed (0x98), blower OFF changed to 0x00, clock date
-    confirmed read-only, schedule test values made dynamic, jets retry logic.
-  - Session 3 (2026-05-28): Heater byte blower-flag fix (MASK_HEATER_BLOWER),
-    light toggle race condition fix, guided write-test script enhancements.
-  - Session 2 (2026-05-27): Options flow, auto clock sync, ozone, pump
-    transitions, switch order, translations.
+- **Previous sessions:**
+  - Session 5 (2026-05-28 evening): All 8 write tests pass live. Community
+    feedback received (KDy factory reset). `docs/community_feedback_todo.md` created.
+  - Session 4 (2026-05-28 afternoon): TCP buffer fix, temp cmd fixed (0x98),
+    blower OFF → 0x00, jets retry logic.
+  - Session 3 (2026-05-28): Heater byte blower-flag fix, light toggle race fix.
+  - Session 2 (2026-05-27): Options flow, auto clock sync, ozone, translations.
   - Session 1: Initial integration, byte map, CRC cracking, all entities.
 
 - **`.env` file** holds bridge IP (gitignored). Tools auto-load it.
 - **Restart required** after any code change to the integration.
-- **Tests now run with pytest**:
-  - Lightweight mode (no HA runtime):
-    - `source .venv/bin/activate && pytest -q`
-    - Current result: `76 passed, 2 skipped`.
-  - HA runtime mode:
-    - `source .venv-ha/bin/activate && pytest -q`
-    - `.venv-ha` has `python3.12` + `homeassistant` + `pytest-homeassistant-custom-component`.
-- **Protocol docs**: `docs/protocol.md` — full protocol reference.
+- **Tests**: `source .venv/bin/activate && pytest -q` → `76 passed, 2 skipped`.
 - **EW11 connection limit**: 4 concurrent TCP clients. HA uses 1, tools can use up to 3 more.
-- **Guided write test**: `source .venv/bin
