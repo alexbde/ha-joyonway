@@ -165,19 +165,19 @@ class SpaClimate(CoordinatorEntity, ClimateEntity):
 
             if command is None:
                 _LOGGER.warning(
-                    "No captured command frame for %d°C - cannot set temperature",
+                    "Thermostat: cannot build command for %d°C",
                     scheduled_target,
                 )
                 return
 
+            _LOGGER.debug("Thermostat: sending setpoint %d°C", scheduled_target)
             success = await coordinator.async_send_command(command)
             if success:
-                _LOGGER.debug("Sent temperature command for %d°C", scheduled_target)
                 self._pending_temp = None
                 await coordinator.async_request_refresh()
             else:
                 _LOGGER.error(
-                    "Failed to send temperature command for %d°C",
+                    "Thermostat: setpoint command failed for %d°C",
                     scheduled_target,
                 )
         except asyncio.CancelledError:
