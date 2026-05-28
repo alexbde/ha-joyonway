@@ -91,6 +91,7 @@ These are long frames (60+ bytes) prefixed with destination `0xFF`.
 | 8 | Model ID (`0x03` = P25B85) |
 | 9 | Water temperature (°F, raw integer) |
 | 12 | Pump status: `0x00`=off, `0x02`=low, `0x04`=high |
+| 13 | Ozone mode flag: bit 7 (`0x80`) = Manual, clear = Auto |
 | 14 | Heater/blower flags (see below) |
 | 16 | Setpoint temperature (°F) |
 | 17 | Light flags (bit 0 = light ON) |
@@ -184,8 +185,8 @@ Where `[type]` = `A1` / `A2` / `A3` / `A4`.
 | Manual | `0x40` | Enables manual ON/OFF from panel/RS485 |
 
 These use the pattern: `pump_b9=0x00, btn=0x00, modifier=0x80` with byte[12]
-distinguishing the mode. No broadcast state change occurs from mode switch
-alone — only the panel UI changes.
+distinguishing the mode. The mode setting is reflected in the broadcast frame
+at byte 13 bit 7 (`0x80` = Manual, clear = Auto).
 
 **Pump commands** use bytes 7–8 (pump state transition):
 
@@ -416,11 +417,11 @@ flag. The actual hour is in the lower 6 bits (mask 0x3F).
 - **Heater and blower** have distinct ON/OFF frames — safe to send
   regardless of current state.
 - **Ozone / disinfection** can be toggled via RS485 when mode is set to
-  Manual. Two-step process: (1) send ozone mode → Manual command, then
-  (2) send ozone manual ON/OFF command. Auto mode is schedule-only.
-  Broadcast byte 14 transitions: `0x40` → `0xC1` (ozone on), `0xC1` → `0x40`
-  (ozone off). Mode switch (Auto↔Manual) produces no broadcast change — only
-  the panel UI updates.
+  Manual. Send the ozone manual ON/OFF command directly. Auto mode is
+  schedule-only. Mode (Auto↔Manual) is set separately via the ozone mode
+  command. Broadcast byte 14 transitions: `0x40` → `0xC1` (ozone on),
+  `0xC1` → `0x40` (ozone off). Mode setting is broadcast at byte 13 bit 7
+  (`0x80` = Manual, clear = Auto) — confirmed from phase 6 captures.
 - **Setpoint byte (byte 14)** is the CURRENT setpoint at time of capture,
   embedded in every button command. For non-temperature commands, it acts
   as a "current state echo." The controller accepts commands regardless of
