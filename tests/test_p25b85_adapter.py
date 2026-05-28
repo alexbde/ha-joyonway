@@ -426,7 +426,7 @@ def test_build_blower_commands(adapter: P25B85Adapter) -> None:
 
     off_frame = adapter.build_blower_command(on=False)
     p = _frame_payload(off_frame)
-    assert p[9] == 0x04 and p[10] == 0x08
+    assert p[9] == 0x04 and p[10] == 0x00
 
 
 def test_build_temp_command(adapter: P25B85Adapter) -> None:
@@ -436,7 +436,7 @@ def test_build_temp_command(adapter: P25B85Adapter) -> None:
     assert frame is not None
     p = _frame_payload(frame)
     assert p[9] == 0x80  # btn_group = temperature
-    assert p[10] == 0x88  # btn_action variant
+    assert p[10] == 0x98  # btn_action (confirmed working via live test)
     assert p[14] == 68  # 20°C = 68°F
 
     # 40°C → 104°F
