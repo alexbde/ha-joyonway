@@ -172,8 +172,8 @@ Where `[type]` = `A1` / `A2` / `A3` / `A4`.
 |--------|---------|-------------|--------------|-------|
 | Light | `0x40` | `0x40` | same (toggle) | Same frame for ON/OFF |
 | Heater | `0x08` | `0x18` / `0x08` | `0x11` / `0x00` | Two session variants observed |
-| Blower | `0x04` | `0x04` | `0x00` | Distinct ON/OFF |
-| Temperature | `0x80` | `0x80`/`0x99`/`0x98` | — | Value variant depends on session state |
+| Blower | `0x04` | `0x0C` | `0x00` | Distinct ON/OFF (**live confirmed**) |
+| Temperature | `0x80` | `0x98` | — | **Live confirmed**; `0x80` does NOT work |
 | Ozone manual | `0x01` | `0x01` | `0x10` | Distinct ON/OFF; ozone mode must be Manual |
 
 **Ozone mode commands** (byte[9]=`0x00`, byte[11]=`0x80`):
@@ -208,7 +208,7 @@ Sets the spa's internal clock.
 | Bytes | Content |
 |-------|---------|
 | 0–6 | Header: `01 20 10 3C A2 10 A1` |
-| 7 | `0x50` (fixed prefix) |
+| 7 | Prefix byte (see below) |
 | 8 | Year (offset from 2000, e.g. `0x1A` = 26 = 2026) |
 | 9 | Month |
 | 10 | Day |
@@ -218,9 +218,21 @@ Sets the spa's internal clock.
 | 14 | `0x00` |
 | 15 | `0x00` |
 
-Verified from two captures at known times:
-- `50 1A 05 15 16 35 00 00 00` → 2026-05-21 22:53:00
-- `50 1A 05 15 0F 09 00 00 00` → 2026-05-21 15:09:00
+**Prefix byte (byte 7) — controls what is written:**
+
+| Value | Effect |
+|-------|--------|
+| `0x05` | Write **date + time** (Y/M/D + H:M:S) |
+| `0x50` | Write **time only** (H:M:S; date unchanged) |
+
+Captured from PB554 panel (date change sessions):
+- `05 19 04 1A 17 0A 00 00 00` → set 2025-04-26 23:10:00 (date+time) ✅
+- `05 18 03 19 16 0B 00 00 00` → set 2024-03-25 22:11:00 (date+time) ✅
+- `50 19 04 1A 16 0B 00 00 00` → set time 22:11:00 only (date unchanged) ✅
+
+Previously captured (time-only writes):
+- `50 1A 05 15 16 35 00 00 00` → 2026-05-21 22:53:00 (time only)
+- `50 1A 05 15 0F 09 00 00 00` → 2026-05-21 15:09:00 (time only)
 
 ### 4.3. Heat Schedule (type 0xA3)
 
@@ -345,16 +357,9 @@ the controller.
 Temperature commands (type `0xA1`, byte[9]=`0x80`) encode the **target**
 setpoint in byte 14 as the Fahrenheit value directly.
 
-**Byte 10 variants** observed across capture sessions:
-
-| Byte 10 | Notes |
-|---------|-------|
-| `0x80` | Observed at lower temperatures (< 80°F) |
-| `0x98` | Observed at mid-range temperatures |
-| `0x99` | Observed at higher temperatures (> 100°F) |
-
-Byte 10 appears session-dependent (possibly based on current pump/heater
-state at time of capture). With CRC cracked, any variant can be tested.
+**Byte 10:** Use `0x98` — **confirmed working via live test**. `0x80` was
+tested and does NOT work. Other variants (`0x99`) were observed in older
+captures but `0x98` is the reliable value used by the integration.
 
 **Example:** to set thermostat to 95°F (35°C), build payload:
 
