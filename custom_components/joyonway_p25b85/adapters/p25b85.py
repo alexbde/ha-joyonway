@@ -469,30 +469,35 @@ class P25B85Adapter:
         hour: int,
         minute: int,
         second: int,
+        *,
+        set_date: bool = True,
     ) -> bytes:
         """Build a DateTime set command frame with CRC.
 
         Args:
-            year: Full year (e.g. 2026) — sent but ignored by controller
-            month: 1-12 — sent but ignored by controller
-            day: 1-31 — sent but ignored by controller
-            hour: 0-23 — confirmed working
-            minute: 0-59 — confirmed working
-            second: 0-59 — confirmed working
+            year: Full year (e.g. 2026)
+            month: 1-12
+            day: 1-31
+            hour: 0-23
+            minute: 0-59
+            second: 0-59
+            set_date: If True (default), writes date AND time (prefix=0x05).
+                If False, writes time only (prefix=0x50).
 
         Note:
-            Live testing confirmed the controller only updates H:M:S from
-            this command. Date fields (Y/M/D) are included in the payload
-            but the controller ignores them — the date stays unchanged.
+            Captured from PB554 panel: prefix byte controls what is written.
+            - 0x05 = date + time (panel uses this for date changes)
+            - 0x50 = time only (panel uses this for time-only changes)
 
         Returns:
             Wire-ready frame bytes.
         """
         from ..protocol import build_frame
 
+        prefix = 0x05 if set_date else 0x50
         payload = bytearray([
             0x01, 0x20, 0x10, 0x3C, 0xA2, 0x10, 0xA1,
-            0x50,                    # fixed prefix
+            prefix,
             year - 2000,             # year offset
             month,
             day,

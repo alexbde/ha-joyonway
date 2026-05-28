@@ -346,10 +346,10 @@ def test_build_schedule_command_rejects_invalid_type(adapter: P25B85Adapter) -> 
 
 def test_build_datetime_command(adapter: P25B85Adapter) -> None:
     """Test building datetime command frames — verify against captured frames."""
-    # Captured session 2: 2026-05-21 22:53:00
+    # Captured session 2: 2026-05-21 22:53:00 (time-only, prefix=0x50)
     # Wire: 1a0120103ca210a1501b110515163500000087ecf6541d
     # Note: 0x1A in payload gets escaped to 1B 11 on wire
-    frame = adapter.build_datetime_command(2026, 5, 21, 22, 53, 0)
+    frame = adapter.build_datetime_command(2026, 5, 21, 22, 53, 0, set_date=False)
     assert frame[0] == 0x1A
     assert frame[-1] == 0x1D
 
@@ -357,11 +357,17 @@ def test_build_datetime_command(adapter: P25B85Adapter) -> None:
     captured = "1a0120103ca210a1501b110515163500000087ecf6541d"
     assert frame.hex() == captured
 
-    # Captured session 1: 2026-05-21 15:09:00
+    # Captured session 1: 2026-05-21 15:09:00 (time-only, prefix=0x50)
     # Wire: 1a0120103ca210a1501b1105150f090000004cbc3d971d
-    frame2 = adapter.build_datetime_command(2026, 5, 21, 15, 9, 0)
+    frame2 = adapter.build_datetime_command(2026, 5, 21, 15, 9, 0, set_date=False)
     captured2 = "1a0120103ca210a1501b1105150f090000004cbc3d971d"
     assert frame2.hex() == captured2
+
+    # Captured from PB554 panel date change: 2025-04-26 23:10:00 (date+time, prefix=0x05)
+    # Wire: 1a0120103ca210a10519041b11170a000000e0b873261d
+    frame3 = adapter.build_datetime_command(2025, 4, 26, 23, 10, 0, set_date=True)
+    captured3 = "1a0120103ca210a10519041b11170a000000e0b873261d"
+    assert frame3.hex() == captured3
 
 
 # ── Dynamic command builder tests ────────────────────────────
