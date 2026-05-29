@@ -9,8 +9,8 @@
 >
 > **Integration domain:** `joyonway_p25b85`
 > **Hardware:** P25B85 + PB554 + Elfin EW11
-> **Status:** All 8 write tests pass. Community safety fixes applied (session 7).
-> Ozone mode broadcast byte discovered. Resilient UI refactor plan finalized.
+> **Status:** Resilient UI refactor implemented. All write tests pass.
+> Persistent TCP connection, optimistic state, grace-mode availability.
 
 > **Documentation policy:** `docs/protocol.md` is the canonical protocol spec.
 > This `docs/plan.md` is progress/handoff only.
@@ -65,19 +65,20 @@ All protocol details—including framing, byte maps, command payloads, schedule 
 
 ```
 custom_components/joyonway_p25b85/
-├── __init__.py          # entry setup, coordinator creation
-├── const.py             # domain, config keys, PLATFORMS
+├── __init__.py          # entry setup, coordinator lifecycle, strict unload
+├── const.py             # domain, config keys, timing constants, PLATFORMS
 ├── manifest.json        # HACS-compatible, v0.1.0
 ├── config_flow.py       # IP + port, TCP connection test
 ├── protocol.py          # framing, unescape, CRC-32, build_frame
-├── coordinator.py       # async TCP polling + async_send_command
+├── coordinator.py       # persistent TCP connection + background reader loop
+├── entity.py            # device_info + JoyonwayCoordinatorEntity base class
 ├── sensor.py            # adapter-driven (water temp, heater/pump state, diagnostics)
 ├── binary_sensor.py     # bridge connectivity only
-├── switch.py            # light, heater, blower, ozone, schedule slot enables
-├── fan.py               # jets (off/low/high via preset_modes)
+├── switch.py            # light, heater, blower, ozone, schedule slot enables (optimistic)
+├── fan.py               # jets (off/low/high via preset_modes, optimistic)
 ├── climate.py           # thermostat with debounced slider
-├── time.py              # schedule time slot start/end (8 entities, read+write)
-├── button.py            # sync spa clock to HA time
+├── time.py              # schedule time slot start/end (8 entities, read+write, optimistic)
+├── button.py            # sync spa clock to HA time (in-flight lock)
 ├── strings.json         # entity translations (base)
 ├── adapters/
 │   ├── __init__.py      # registry: get_adapter("P25B85")
@@ -101,15 +102,15 @@ custom_components/joyonway_p25b85/
 | **Status** | sensor | `status` | Enum: off / circulation / heating / ozone / unknown; dynamic icon per state |
 | **Jets** (Düsen) | sensor | `jets` | Enum: off / low / high |
 | **Thermostat** | climate | `thermostat` | Water temp + setpoint + status; slider with 1.5s debounce |
-| **Heater** | switch | `heater` | On/off; dynamic command via CRC |
-| **Ozone** | switch | `ozone` | Manual on/off (only visible when mode=Manual) |
-| **Light** | switch | `light` | On/off via toggle (state guard: refuses when unknown) |
-| **Blower** | switch | `blower` | On/off; dynamic command via CRC; byte[28] bit 3 = state |
-| **Heat slot 1 / 2** | switch | `heat_slot{n}_enabled` | Enable/disable heat schedule slots |
-| **Filter slot 1 / 2** | switch | `filter_slot{n}_enabled` | Enable/disable filter schedule slots |
-| **Jets** (Düsen) | fan | `jets` | Off/low/high via preset_modes; sends target state directly |
-| **Heat slot 1/2 start/end** | time | `heat_slot{n}_{start\|end}` | Read+write heat schedule times (HH:MM) |
-| **Filter slot 1/2 start/end** | time | `filter_slot{n}_{start\|end}` | Read+write filter schedule times (HH:MM) |
+| **Heater** | switch | `heater` | On/off; optimistic state + target-state command |
+| **Ozone** | switch | `ozone` | Manual on/off (only visible when mode=Manual); optimistic |
+| **Light** | switch | `light` | On/off via toggle (toggle-lock guard, optimistic) |
+| **Blower** | switch | `blower` | On/off; optimistic state + target-state command |
+| **Heat slot 1 / 2** | switch | `heat_slot{n}_enabled` | Enable/disable heat schedule slots; optimistic |
+| **Filter slot 1 / 2** | switch | `filter_slot{n}_enabled` | Enable/disable filter schedule slots; optimistic |
+| **Jets** (Düsen) | fan | `jets` | Off/low/high via preset_modes; optimistic state |
+| **Heat slot 1/2 start/end** | time | `heat_slot{n}_{start\|end}` | Read+write heat schedule times (HH:MM); optimistic |
+| **Filter slot 1/2 start/end** | time | `filter_slot{n}_{start\|end}` | Read+write filter schedule times (HH:MM); optimistic |
 | Sync clock | button | `sync_clock` | Sends current HA time to spa controller (disabled by default) |
 | RS485 bridge | binary_sensor | `bridge_connectivity` | TCP connectivity (disabled by default) |
 | Spa clock | sensor | `spa_datetime` | Diagnostic timestamp (disabled by default) |
@@ -119,29 +120,39 @@ custom_components/joyonway_p25b85/
 > Protocol byte-level details (command payloads, CRC, byte maps) are in
 > [`docs/protocol.md`](protocol.md). This section covers implementation choices only.
 
+- **Persistent TCP connection** — single shared socket for reads and writes.
+  Background reader loop continuously parses broadcast frames (~1–2s updates).
+  Commands sent on the same socket under a write lock.
+- **Reconnect with exponential backoff** — 1s → 2s → 4s → … → 30s max.
+  `_connect_lock` prevents concurrent connection attempts.
+- **Grace-mode availability** — entities stay available for 10s after disconnect
+  to avoid UI flicker on brief interruptions. `JoyonwayCoordinatorEntity` base
+  class propagates this consistently across all platforms.
+- **Optimistic state** — all writable entities set pending state immediately on
+  command send. Cleared when the next broadcast confirms (or after 10s timeout).
+  If broadcast shows a different state, entity "snaps back" — clear visual
+  feedback that the command didn't take effect.
+- **Light toggle-lock** — second click ignored while toggle is in-flight
+  (prevents double-toggle reverting the state).
+- **Target-state switches** — heater, blower, ozone, schedule all use
+  `_SpaTargetStateSwitch` base with serialized commands per entity.
+- **Fan optimistic** — pending state as string (`"off"`, `"low"`, `"high"`).
+  No retry loop; snap-back on mismatch from next broadcast.
+- **Stale-RX health check** — fallback 60s poll detects if connection is alive
+  but no data received for 15s, forces reconnect.
+- **Strict unload** — `async_shutdown()` called only after platform unload
+  succeeds. Cancels reader task, reconnect task, sets `_stopped=True`.
+- **`entry.runtime_data`** — coordinator stored on entry for lifecycle access.
 - **All commands built dynamically** — no replay-only frames.
-  `_build_button_command()` is the universal builder for type-0xA1 commands.
 - **Temperature setpoint**: `btn_action=0x98` confirmed working via live test.
-- **Pump commands** — target-state based (not transition-based). Controller
-  accepts `off=(0x04,0x00)`, `low=(0x02,0x02)`, `high=(0x06,0x04)` regardless
-  of current state.
-- **Ozone control** — mode (Auto/Manual) set via options flow, synced to spa.
-  Switch only sends manual ON/OFF. Mode readable from broadcast byte 13 bit 7.
-- **Ozone mode sync** — coordinator reads byte 13 from broadcast; if it differs
-  from config option, updates the option to match. Options flow sends mode
-  command when user changes the setting.
-- **Fan entity retry logic** — pump commands retry up to 3× with state check.
-  RS485 bus collisions can cause commands to be lost.
-- **Light toggle** — `_send_toggle()` has 1.0s delay before refresh.
-- **Heater byte blower-flag fix** — `parse_status()` strips blower bit via
-  `heater_base = heater_byte & ~MASK_HEATER_BLOWER` before status lookup.
+- **Pump commands** — target-state based. Controller accepts any target directly.
+- **Ozone control** — mode set via options flow, synced from broadcast byte 13.
 - **Climate debounce**: 1.5s coalescing for slider drags.
 - **Coordinator write pacing**: global 1.0s command cooldown.
 - **Temperatures as integers** — spa only shows whole °C.
 - **Schedule** — `time` entities for pickers, `switch` entities for enables.
   Schedule sends REFUSE if any data key is missing (prevents overwrite with zeros).
 - **Clock write** — uses `set_date=True` (prefix=0x05) by default.
-- **Options flow** — ozone mode (Auto/Manual) and auto clock sync (bool, default OFF).
 - **Auto clock sync** — disabled by default. When enabled, syncs if drift > 30s
   with 1-hour cooldown.
 - **No auto commands on startup** — all writes are user-initiated only.
@@ -156,56 +167,58 @@ custom_components/joyonway_p25b85/
 | 7. Live test writes | ✅ Done | All 8 tests pass |
 | 8–16 | ✅ Done | Schedule, CRC, DateTime, ozone, dynamic commands |
 | 17. Options flow | ✅ Done | Ozone mode + auto clock sync |
-| 18. Safety fixes | ✅ Done | Session 7: no auto writes, schedule guard, pump simplification |
-| 19. Resilient UI refactor | **Next** | Implement `docs/resilient_ui_plan.md` |
-| 20. Polish & release | Later | Live ozone test, version bump, HACS release |
+| 18. Safety fixes | ✅ Done | No auto writes, schedule guard, pump simplification |
+| 19. Resilient UI refactor | ✅ Done | Persistent connection, optimistic state, grace availability |
+| 20. Polish & release | **Next** | Live ozone test, version bump, HACS release |
 
 ## 5. Next Steps
 
-### Priority 1: Implement resilient UI plan
-1. Implement coordinator persistent connection + reconnect lifecycle from `docs/resilient_ui_plan.md`
-2. Implement optimistic state for writable entities (switch/fan/time/button)
-3. Implement HA lifecycle updates (`entry.runtime_data`, strict successful-unload shutdown)
-4. Add/adjust tests listed in `docs/resilient_ui_plan.md` checklist
-
-### Priority 2: Remaining live verification
+### Priority 1: Remaining live verification
 1. **Test ozone** — still untested live (mode byte 13 detection already confirmed)
 2. **Verify auto clock sync** — check logs for drift-triggered sync path
+3. **Live test resilient UI** — verify persistent connection, reconnect, optimistic snap-back
 
-### Priority 3: Polish & release
+### Priority 2: Polish & release
 - Version bump, README final review, HACS release
 
 ## 6. Technical Notes for Next Session
 
-- **Session 7 outcomes (2026-05-28/29):**
-  - **Safety fixes applied** — no auto-commands on startup (removed
-    `async_apply_ozone_mode()`), auto clock sync default OFF, schedule
-    overwrite guard (refuses to send if data keys missing).
-  - **Pump simplified** — target-state-only commands (no transition map).
-    `build_pump_command(target)` API. Controller accepts any target directly.
-  - **Ozone redesigned** — mode set via options flow (sends command to spa),
-    switch is just manual ON/OFF. No two-step in the switch.
-  - **Ozone mode broadcast byte FOUND** — byte 13 bit 7: 0=Auto, 1=Manual.
-    Confirmed from phase 6 captures (files 52-57). Previously thought to be
-    "no broadcast change" — wrong. The mode IS always readable.
-  - **Coordinator auto-syncs config option** with broadcast byte 13 value.
-    On first install, first broadcast immediately tells the correct mode.
-  - **Consistent logging** added to all write entities.
-
-- **Session 8 outcomes (2026-05-29, docs/planning only):**
-  - Finalized `docs/resilient_ui_plan.md` as implementation-ready handoff for
-    persistent TCP connection + optimistic UI.
-  - Hardened coordinator plan details: reconnect guards, stale-RX handling,
-    async socket close with `wait_closed()`, unload sequencing, and
-    `entry.runtime_data` usage.
-  - Resolved protocol/plan consistency for jets: panel UI cycles states, while
-    controller accepts direct target bytes; integration plan uses target bytes
-    with one bounded retry on mismatch confirmation.
-  - Updated `docs/protocol.md` wording to match the above behavior.
-  - README reviewed this session; no README changes required because runtime
-    code/feature set did not change (documentation-only session).
+- **Session 9 outcomes (2026-05-29):**
+  - **Resilient UI fully implemented** (plan was in `docs/resilient_ui_plan.md`,
+    now deleted — all content implemented and tested):
+    - `coordinator.py` rewritten: persistent TCP connection, background
+      `_reader_loop()`, `async_setup()`/`async_shutdown()` lifecycle,
+      `_try_parse_buffer()` returns `(data, consumed)` tuple, grace-mode
+      `available` property, stale-RX health check, exponential backoff reconnect.
+    - `entity.py`: added `JoyonwayCoordinatorEntity` base class with
+      availability from coordinator grace logic.
+    - `__init__.py`: calls `async_setup()`, stores `entry.runtime_data`,
+      strict shutdown on unload (only after platform unload succeeds).
+    - `switch.py`: `SpaLightSwitch` has toggle-lock guard + optimistic state.
+      New `_SpaTargetStateSwitch` base for heater/blower/ozone/schedule.
+      All have `_pending_state`, `_handle_coordinator_update` clearing,
+      and `OPTIMISTIC_TIMEOUT_SECONDS` auto-expire.
+    - `fan.py`: optimistic `_pending_state` (str), removed 3-retry loop.
+    - `time.py`: optimistic `_pending_state` (tuple).
+    - `button.py`: in-flight `_cmd_lock`.
+    - `climate.py`: removed `async_request_refresh()`.
+    - `sensor.py`, `binary_sensor.py`: switched to `JoyonwayCoordinatorEntity`.
+  - **All `async_request_refresh()` removed** — reader loop pushes updates.
+  - **All `asyncio.sleep(1.0)` after light toggle removed**.
+  - **`COMMAND_COOLDOWN` moved to `const.py`** (was local in coordinator).
+  - **`SCAN_INTERVAL` changed from 30 to 60** (fallback health-check only).
+  - **Tests updated**: `DummyCoordinator` stubs updated for persistent model.
+    New tests: `test_light_double_click_blocked`, `test_heater_optimistic_state`,
+    `test_fan_optimistic_preset_mode`. Fixed stale CMD_ constant imports
+    (commands are now built dynamically via adapter).
+    New file `test_coordinator_resilient.py` with advanced coordinator tests:
+    shutdown races, reconnect guards, availability grace, stale-RX, command
+    send, buffer parsing, optimistic timeout auto-clear/cancel/removal.
+    HA venv: 109 passed. Non-HA venv: 76 passed, 3 skipped.
+  - **README updated**: added persistent connection + optimistic UI to features.
 
 - **`.env` file** holds bridge IP (gitignored). Tools auto-load it.
 - **Restart required** after any code change to the integration.
-- **Tests**: `source .venv/bin/activate && pytest -q` → `76 passed, 2 skipped`.
+- **Tests**: `source .venv/bin/activate && pytest -q` → `76 passed, 3 skipped`.
+  With HA: `source .venv-ha/bin/activate && pytest -q` → `109 passed`.
 - **EW11 connection limit**: 4 concurrent TCP clients. HA uses 1, tools can use up to 3 more.

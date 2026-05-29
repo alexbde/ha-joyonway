@@ -53,6 +53,8 @@ The P25B85 controls spas like the **Home Deluxe White Marble** outdoor whirlpool
 - **Options flow** — ozone mode (Auto/Manual, synced with spa) and auto clock sync toggle
 - **Status sensor** — off / circulation / heating / ozone (with dynamic icons)
 - **Jets sensor** — off / low / high
+- **Persistent TCP connection** — real-time state updates (~1–2 s), automatic reconnect with exponential backoff
+- **Optimistic UI** — writable entities show immediate feedback; snap back if the spa reports a different state
 - All commands built dynamically via cracked CRC-32 (no replay tables)
 - Fully local, no cloud, no internet
 - English, French, and German UI translations
@@ -192,6 +194,7 @@ Current high-level status:
 - All commands: dynamic frame generation via cracked CRC-32
 - Schedule enable/disable: flags byte lookup table (cracked and implemented)
 - Ozone control: mode synced via options flow, switch sends manual ON/OFF
+- Resilient UI: persistent TCP connection, optimistic state, graceful reconnect
 - Safety: no automatic writes on startup, schedule overwrite guards
 - Next: live ozone test, then polish and release
 
