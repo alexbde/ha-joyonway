@@ -1,6 +1,7 @@
 """Switch platform for Joyonway P25B85 — light, heater, blower, ozone, schedule enables.
 
 All command frames are built dynamically via CRC computation.
+Writable switches use optimistic state for instant UI feedback.
 """
 from __future__ import annotations
 
@@ -9,14 +10,13 @@ import logging
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, OPT_OZONE_MODE, OZONE_MODE_MANUAL
+from .const import DOMAIN, OPT_OZONE_MODE, OZONE_MODE_MANUAL, OPTIMISTIC_TIMEOUT_SECONDS
 from .coordinator import JoyonwayP25B85Coordinator
-from .entity import device_info
+from .entity import JoyonwayCoordinatorEntity, device_info
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -42,8 +42,11 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class SpaLightSwitch(CoordinatorEntity, SwitchEntity):
-    """Switch entity for spa light (toggle command)."""
+class SpaLightSwitch(JoyonwayCoordinatorEntity, SwitchEntity):
+    """Switch entity for spa light (toggle command).
+
+    Uses toggle-lock guard: double-clicks are ignored while a toggle is in-flight.
+    """
 
     _attr_has_entity_name = True
     _attr_translation_key = "light"
@@ -58,55 +61,154 @@ class SpaLightSwitch(CoordinatorEntity, SwitchEntity):
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry.entry_id}_light_switch"
         self._attr_device_info = device_info(entry)
+        self._pending_state: bool | None = None
+        self._cmd_lock = asyncio.Lock()
+        self._pending_task: asyncio.Task | None = None
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Clear optimistic state when real broadcast arrives."""
+        self._cancel_pending_timeout()
+        self._pending_state = None
+        super()._handle_coordinator_update()
+
+    def _set_pending_state(self, value: bool) -> None:
+        self._pending_state = value
+        self._arm_pending_timeout()
+        self.async_write_ha_state()
+
+    def _arm_pending_timeout(self) -> None:
+        self._cancel_pending_timeout()
+        self._pending_task = self.hass.async_create_task(self._pending_timeout())
+
+    def _cancel_pending_timeout(self) -> None:
+        if self._pending_task is not None:
+            self._pending_task.cancel()
+            self._pending_task = None
+
+    async def _pending_timeout(self) -> None:
+        await asyncio.sleep(OPTIMISTIC_TIMEOUT_SECONDS)
+        self._pending_state = None
+        self._pending_task = None
+        self.async_write_ha_state()
+
+    async def async_will_remove_from_hass(self) -> None:
+        await super().async_will_remove_from_hass()
+        self._cancel_pending_timeout()
 
     @property
     def is_on(self) -> bool | None:
         """Return True if the light is on."""
+        if self._pending_state is not None:
+            return self._pending_state
         if self.coordinator.data is None:
             return None
         return self.coordinator.data.get("light")
 
     async def async_turn_on(self, **kwargs) -> None:
         """Turn the light on (toggle if currently off)."""
+        if self._cmd_lock.locked():
+            return  # toggle already in-flight
         state = self.is_on
         if state is None:
-            await self.coordinator.async_request_refresh()
             raise HomeAssistantError(
-                "Light state is unknown; retry after the next coordinator refresh"
+                "Light state is unknown; retry after the next broadcast"
             )
         if not state:
-            await self._send_toggle()
+            await self._send_toggle(target=True)
 
     async def async_turn_off(self, **kwargs) -> None:
         """Turn the light off (toggle if currently on)."""
+        if self._cmd_lock.locked():
+            return  # toggle already in-flight
         state = self.is_on
         if state is None:
-            await self.coordinator.async_request_refresh()
             raise HomeAssistantError(
-                "Light state is unknown; retry after the next coordinator refresh"
+                "Light state is unknown; retry after the next broadcast"
             )
         if state:
-            await self._send_toggle()
+            await self._send_toggle(target=False)
 
-    async def _send_toggle(self) -> None:
-        """Send the light toggle command and refresh state.
-
-        A short delay before refresh ensures the next broadcast reflects
-        the new light state — the controller needs one broadcast cycle
-        (~1s) to update after receiving the toggle.
-        """
-        coordinator: JoyonwayP25B85Coordinator = self.coordinator
-        cmd = coordinator.adapter.build_light_toggle_command()
-        _LOGGER.debug("Light: sending toggle command")
-        success = await coordinator.async_send_command(cmd)
-        if not success:
-            _LOGGER.error("Light: toggle command failed")
-            raise HomeAssistantError("Failed to send light command")
-        await asyncio.sleep(1.0)
-        await coordinator.async_request_refresh()
+    async def _send_toggle(self, target: bool) -> None:
+        """Send the light toggle command with optimistic state."""
+        async with self._cmd_lock:
+            coordinator: JoyonwayP25B85Coordinator = self.coordinator
+            self._set_pending_state(target)
+            cmd = coordinator.adapter.build_light_toggle_command()
+            _LOGGER.debug("Light: sending toggle command")
+            success = await coordinator.async_send_command(cmd)
+            if not success:
+                self._pending_state = None
+                self._cancel_pending_timeout()
+                self.async_write_ha_state()
+                _LOGGER.error("Light: toggle command failed")
+                raise HomeAssistantError("Failed to send light command")
 
 
-class SpaHeaterSwitch(CoordinatorEntity, SwitchEntity):
+class _SpaTargetStateSwitch(JoyonwayCoordinatorEntity, SwitchEntity):
+    """Base class for target-state switches with optimistic UI."""
+
+    def __init__(
+        self,
+        coordinator: JoyonwayP25B85Coordinator,
+        entry: ConfigEntry,
+    ) -> None:
+        super().__init__(coordinator)
+        self._pending_state: bool | None = None
+        self._cmd_lock = asyncio.Lock()
+        self._pending_task: asyncio.Task | None = None
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        self._cancel_pending_timeout()
+        self._pending_state = None
+        super()._handle_coordinator_update()
+
+    def _set_pending_state(self, value: bool) -> None:
+        self._pending_state = value
+        self._arm_pending_timeout()
+        self.async_write_ha_state()
+
+    def _arm_pending_timeout(self) -> None:
+        self._cancel_pending_timeout()
+        self._pending_task = self.hass.async_create_task(self._pending_timeout())
+
+    def _cancel_pending_timeout(self) -> None:
+        if self._pending_task is not None:
+            self._pending_task.cancel()
+            self._pending_task = None
+
+    async def _pending_timeout(self) -> None:
+        await asyncio.sleep(OPTIMISTIC_TIMEOUT_SECONDS)
+        self._pending_state = None
+        self._pending_task = None
+        self.async_write_ha_state()
+
+    async def async_will_remove_from_hass(self) -> None:
+        await super().async_will_remove_from_hass()
+        self._cancel_pending_timeout()
+
+    async def _send_target_command(
+        self, on: bool, build_cmd, label: str
+    ) -> None:
+        """Send a target-state command with optimistic state."""
+        async with self._cmd_lock:
+            self._set_pending_state(on)
+            coordinator: JoyonwayP25B85Coordinator = self.coordinator
+            cmd = build_cmd(on=on)
+            _LOGGER.debug("%s: sending %s command", label, "ON" if on else "OFF")
+            success = await coordinator.async_send_command(cmd)
+            if not success:
+                self._pending_state = None
+                self._cancel_pending_timeout()
+                self.async_write_ha_state()
+                _LOGGER.error("%s: %s command failed", label, "ON" if on else "OFF")
+                raise HomeAssistantError(
+                    f"Failed to send {label} {'ON' if on else 'OFF'} command"
+                )
+
+
+class SpaHeaterSwitch(_SpaTargetStateSwitch):
     """Switch entity for spa heater (manual ON/OFF commands)."""
 
     _attr_has_entity_name = True
@@ -118,14 +220,14 @@ class SpaHeaterSwitch(CoordinatorEntity, SwitchEntity):
         coordinator: JoyonwayP25B85Coordinator,
         entry: ConfigEntry,
     ) -> None:
-        """Initialize the heater switch."""
-        super().__init__(coordinator)
+        super().__init__(coordinator, entry)
         self._attr_unique_id = f"{entry.entry_id}_heater_switch"
         self._attr_device_info = device_info(entry)
 
     @property
     def is_on(self) -> bool | None:
-        """Return True if the heater is active (circulation or heating)."""
+        if self._pending_state is not None:
+            return self._pending_state
         if self.coordinator.data is None:
             return None
         status = self.coordinator.data.get("status")
@@ -134,33 +236,21 @@ class SpaHeaterSwitch(CoordinatorEntity, SwitchEntity):
         return status in ("circulation", "heating")
 
     async def async_turn_on(self, **kwargs) -> None:
-        """Turn the heater on."""
         if self.is_on:
             return
-        coordinator: JoyonwayP25B85Coordinator = self.coordinator
-        cmd = coordinator.adapter.build_heater_command(on=True)
-        _LOGGER.debug("Heater: sending ON command")
-        success = await coordinator.async_send_command(cmd)
-        if not success:
-            _LOGGER.error("Heater: ON command failed")
-            raise HomeAssistantError("Failed to send heater ON command")
-        await coordinator.async_request_refresh()
+        await self._send_target_command(
+            True, self.coordinator.adapter.build_heater_command, "Heater"
+        )
 
     async def async_turn_off(self, **kwargs) -> None:
-        """Turn the heater off."""
         if self.is_on is False:
             return
-        coordinator: JoyonwayP25B85Coordinator = self.coordinator
-        cmd = coordinator.adapter.build_heater_command(on=False)
-        _LOGGER.debug("Heater: sending OFF command")
-        success = await coordinator.async_send_command(cmd)
-        if not success:
-            _LOGGER.error("Heater: OFF command failed")
-            raise HomeAssistantError("Failed to send heater OFF command")
-        await coordinator.async_request_refresh()
+        await self._send_target_command(
+            False, self.coordinator.adapter.build_heater_command, "Heater"
+        )
 
 
-class SpaBlowerSwitch(CoordinatorEntity, SwitchEntity):
+class SpaBlowerSwitch(_SpaTargetStateSwitch):
     """Switch entity for spa blower (air blower ON/OFF commands)."""
 
     _attr_has_entity_name = True
@@ -172,54 +262,37 @@ class SpaBlowerSwitch(CoordinatorEntity, SwitchEntity):
         coordinator: JoyonwayP25B85Coordinator,
         entry: ConfigEntry,
     ) -> None:
-        """Initialize the blower switch."""
-        super().__init__(coordinator)
+        super().__init__(coordinator, entry)
         self._attr_unique_id = f"{entry.entry_id}_blower_switch"
         self._attr_device_info = device_info(entry)
 
     @property
     def is_on(self) -> bool | None:
-        """Return True if the blower is active."""
+        if self._pending_state is not None:
+            return self._pending_state
         if self.coordinator.data is None:
             return None
         return self.coordinator.data.get("blower")
 
     async def async_turn_on(self, **kwargs) -> None:
-        """Turn the blower on."""
         if self.is_on:
             return
-        coordinator: JoyonwayP25B85Coordinator = self.coordinator
-        cmd = coordinator.adapter.build_blower_command(on=True)
-        _LOGGER.debug("Blower: sending ON command")
-        success = await coordinator.async_send_command(cmd)
-        if not success:
-            _LOGGER.error("Blower: ON command failed")
-            raise HomeAssistantError("Failed to send blower ON command")
-        await coordinator.async_request_refresh()
+        await self._send_target_command(
+            True, self.coordinator.adapter.build_blower_command, "Blower"
+        )
 
     async def async_turn_off(self, **kwargs) -> None:
-        """Turn the blower off."""
         if self.is_on is False:
             return
-        coordinator: JoyonwayP25B85Coordinator = self.coordinator
-        cmd = coordinator.adapter.build_blower_command(on=False)
-        _LOGGER.debug("Blower: sending OFF command")
-        success = await coordinator.async_send_command(cmd)
-        if not success:
-            _LOGGER.error("Blower: OFF command failed")
-            raise HomeAssistantError("Failed to send blower OFF command")
-        await coordinator.async_request_refresh()
+        await self._send_target_command(
+            False, self.coordinator.adapter.build_blower_command, "Blower"
+        )
 
 
-class SpaOzoneSwitch(CoordinatorEntity, SwitchEntity):
+class SpaOzoneSwitch(_SpaTargetStateSwitch):
     """Switch entity for ozone control (manual ON/OFF).
 
-    Only available when ozone mode is set to Manual in the integration
-    settings — this mirrors the spa panel behaviour where manual ozone
-    control is only accessible in Manual mode.
-
-    The mode itself is synced to the spa via the options flow (settings menu).
-    This switch just starts/stops the ozonator.
+    Only available when ozone mode is set to Manual.
     """
 
     _attr_has_entity_name = True
@@ -231,9 +304,7 @@ class SpaOzoneSwitch(CoordinatorEntity, SwitchEntity):
         coordinator: JoyonwayP25B85Coordinator,
         entry: ConfigEntry,
     ) -> None:
-        """Initialize the ozone switch."""
-        super().__init__(coordinator)
-        # Keep the old unique_id suffix for migration from the dummy "filter" entity
+        super().__init__(coordinator, entry)
         self._attr_unique_id = f"{entry.entry_id}_filter_switch"
         self._attr_device_info = device_info(entry)
         self._entry = entry
@@ -247,43 +318,28 @@ class SpaOzoneSwitch(CoordinatorEntity, SwitchEntity):
 
     @property
     def is_on(self) -> bool | None:
-        """Return True if ozone cycle is active."""
+        if self._pending_state is not None:
+            return self._pending_state
         if self.coordinator.data is None:
             return None
         return self.coordinator.data.get("ozone_active")
 
     async def async_turn_on(self, **kwargs) -> None:
-        """Start ozone (send manual ON)."""
         if self.is_on:
             return
-
-        coordinator: JoyonwayP25B85Coordinator = self.coordinator
-        cmd = coordinator.adapter.build_ozone_manual_command(on=True)
-        _LOGGER.debug("Ozone: sending manual ON command")
-        success = await coordinator.async_send_command(cmd)
-        if not success:
-            _LOGGER.error("Ozone: manual ON command failed")
-            raise HomeAssistantError("Failed to send ozone ON command")
-        await coordinator.async_request_refresh()
+        await self._send_target_command(
+            True, self.coordinator.adapter.build_ozone_manual_command, "Ozone"
+        )
 
     async def async_turn_off(self, **kwargs) -> None:
-        """Stop ozone (send manual OFF)."""
         if self.is_on is False:
             return
-
-        coordinator: JoyonwayP25B85Coordinator = self.coordinator
-        cmd = coordinator.adapter.build_ozone_manual_command(on=False)
-        _LOGGER.debug("Ozone: sending manual OFF command")
-        success = await coordinator.async_send_command(cmd)
-        if not success:
-            _LOGGER.error("Ozone: manual OFF command failed")
-            raise HomeAssistantError("Failed to send ozone OFF command")
+        await self._send_target_command(
+            False, self.coordinator.adapter.build_ozone_manual_command, "Ozone"
+        )
 
 
-        await coordinator.async_request_refresh()
-
-
-class SpaScheduleSlotSwitch(CoordinatorEntity, SwitchEntity):
+class SpaScheduleSlotSwitch(_SpaTargetStateSwitch):
     """Switch entity to enable/disable a schedule time slot."""
 
     _attr_has_entity_name = True
@@ -295,8 +351,7 @@ class SpaScheduleSlotSwitch(CoordinatorEntity, SwitchEntity):
         schedule_type: str,
         slot: int,
     ) -> None:
-        """Initialize the schedule slot switch."""
-        super().__init__(coordinator)
+        super().__init__(coordinator, entry)
         self._schedule_type = schedule_type
         self._slot = slot
         self._key = f"{schedule_type}_slot{slot}_enabled"
@@ -307,36 +362,30 @@ class SpaScheduleSlotSwitch(CoordinatorEntity, SwitchEntity):
 
     @property
     def is_on(self) -> bool | None:
-        """Return True if the schedule slot is enabled."""
+        if self._pending_state is not None:
+            return self._pending_state
         if self.coordinator.data is None:
             return None
         return self.coordinator.data.get(self._key)
 
     async def async_turn_on(self, **kwargs) -> None:
-        """Enable the schedule slot."""
         if self.is_on:
             return
         await self._send_schedule(enabled=True)
 
     async def async_turn_off(self, **kwargs) -> None:
-        """Disable the schedule slot."""
         if self.is_on is False:
             return
         await self._send_schedule(enabled=False)
 
     async def _send_schedule(self, enabled: bool) -> None:
-        """Send the full schedule command with the slot's enable flag toggled.
-
-        Refuses to send if any slot time data is missing from the coordinator
-        to prevent overwriting spa schedule with zeros/defaults.
-        """
+        """Send the full schedule command with the slot's enable flag toggled."""
         data = self.coordinator.data
         if data is None:
             raise HomeAssistantError("No data available from spa")
 
         prefix = self._schedule_type
 
-        # Guard: all four time keys must be present in coordinator data
         required_keys = [
             f"{prefix}_slot1_start",
             f"{prefix}_slot1_end",
@@ -370,18 +419,22 @@ class SpaScheduleSlotSwitch(CoordinatorEntity, SwitchEntity):
             slot1_enabled=s1_enabled, slot2_enabled=s2_enabled,
         )
 
-        _LOGGER.debug(
-            "Schedule %s slot %d: sending enable=%s",
-            self._schedule_type, self._slot, enabled,
-        )
-        coordinator: JoyonwayP25B85Coordinator = self.coordinator
-        success = await coordinator.async_send_command(frame)
-        if not success:
-            _LOGGER.error(
-                "Schedule %s slot %d: command failed",
-                self._schedule_type, self._slot,
+        async with self._cmd_lock:
+            self._set_pending_state(enabled)
+            _LOGGER.debug(
+                "Schedule %s slot %d: sending enable=%s",
+                self._schedule_type, self._slot, enabled,
             )
-            raise HomeAssistantError(
-                f"Failed to send {self._schedule_type} schedule command"
-            )
-        await coordinator.async_request_refresh()
+            coordinator: JoyonwayP25B85Coordinator = self.coordinator
+            success = await coordinator.async_send_command(frame)
+            if not success:
+                self._pending_state = None
+                self._cancel_pending_timeout()
+                self.async_write_ha_state()
+                _LOGGER.error(
+                    "Schedule %s slot %d: command failed",
+                    self._schedule_type, self._slot,
+                )
+                raise HomeAssistantError(
+                    f"Failed to send {self._schedule_type} schedule command"
+                )

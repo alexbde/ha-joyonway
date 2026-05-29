@@ -4,6 +4,7 @@ Sends the current HA time to the spa controller via a DateTime set command.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from homeassistant.components.button import ButtonEntity
@@ -11,12 +12,11 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
 from .coordinator import JoyonwayP25B85Coordinator
-from .entity import device_info
+from .entity import JoyonwayCoordinatorEntity, device_info
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ async def async_setup_entry(
     async_add_entities([SpaSyncClockButton(coordinator, entry)])
 
 
-class SpaSyncClockButton(CoordinatorEntity, ButtonEntity):
+class SpaSyncClockButton(JoyonwayCoordinatorEntity, ButtonEntity):
     """Button entity to sync the spa clock to the current HA time."""
 
     _attr_has_entity_name = True
@@ -48,26 +48,29 @@ class SpaSyncClockButton(CoordinatorEntity, ButtonEntity):
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry.entry_id}_sync_clock"
         self._attr_device_info = device_info(entry)
+        self._cmd_lock = asyncio.Lock()
 
     async def async_press(self) -> None:
         """Send the current time to the spa controller."""
-        now = dt_util.now()
+        if self._cmd_lock.locked():
+            return  # already in-flight
 
-        adapter = self.coordinator.adapter
-        frame = adapter.build_datetime_command(
-            year=now.year,
-            month=now.month,
-            day=now.day,
-            hour=now.hour,
-            minute=now.minute,
-            second=now.second,
-        )
+        async with self._cmd_lock:
+            now = dt_util.now()
+            adapter = self.coordinator.adapter
+            frame = adapter.build_datetime_command(
+                year=now.year,
+                month=now.month,
+                day=now.day,
+                hour=now.hour,
+                minute=now.minute,
+                second=now.second,
+            )
 
-        _LOGGER.debug("Clock sync: sending %s", now.strftime("%Y-%m-%d %H:%M:%S"))
-        success = await self.coordinator.async_send_command(frame)
-        if not success:
-            _LOGGER.error("Clock sync: command failed")
-            raise HomeAssistantError("Failed to send clock sync command")
+            _LOGGER.debug("Clock sync: sending %s", now.strftime("%Y-%m-%d %H:%M:%S"))
+            success = await self.coordinator.async_send_command(frame)
+            if not success:
+                _LOGGER.error("Clock sync: command failed")
+                raise HomeAssistantError("Failed to send clock sync command")
 
-        _LOGGER.info("Clock sync: spa clock synced to %s", now.strftime("%Y-%m-%d %H:%M:%S"))
-        await self.coordinator.async_request_refresh()
+            _LOGGER.info("Clock sync: spa clock synced to %s", now.strftime("%Y-%m-%d %H:%M:%S"))

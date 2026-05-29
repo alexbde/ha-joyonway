@@ -24,12 +24,10 @@ from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
-
 from .adapters.p25b85 import TEMP_MAX_C, TEMP_MIN_C
 from .const import DOMAIN
 from .coordinator import JoyonwayP25B85Coordinator
-from .entity import device_info
+from .entity import JoyonwayCoordinatorEntity, device_info
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -48,7 +46,7 @@ async def async_setup_entry(
     async_add_entities([SpaClimate(coordinator, entry)])
 
 
-class SpaClimate(CoordinatorEntity, ClimateEntity):
+class SpaClimate(JoyonwayCoordinatorEntity, ClimateEntity):
     """Climate entity for spa thermostat (setpoint control via replay frames)."""
 
     _attr_has_entity_name = True
@@ -174,7 +172,6 @@ class SpaClimate(CoordinatorEntity, ClimateEntity):
             success = await coordinator.async_send_command(command)
             if success:
                 self._pending_temp = None
-                await coordinator.async_request_refresh()
             else:
                 _LOGGER.error(
                     "Thermostat: setpoint command failed for %d°C",
