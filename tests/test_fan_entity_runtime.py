@@ -20,12 +20,20 @@ if str(ROOT) not in sys.path:
 
 from homeassistant.components.fan import FanEntityFeature
 
-from custom_components.joyonway_p25b85.adapters.p25b85 import (
-    CMD_PUMP_HIGH_TO_OFF,
-    CMD_PUMP_OFF_TO_LOW,
-)
+from custom_components.joyonway_p25b85.adapters.p25b85 import P25B85Adapter
 from custom_components.joyonway_p25b85.const import CONF_HOST
 from custom_components.joyonway_p25b85.fan import SpaPumpFan
+
+# Build real command frames
+_adapter = P25B85Adapter()
+CMD_PUMP_OFF_TO_LOW = _adapter.build_pump_command("low")
+CMD_PUMP_HIGH_TO_OFF = _adapter.build_pump_command("off")
+
+
+class DummyHass:
+    @staticmethod
+    def async_create_task(coro):
+        return asyncio.create_task(coro)
 
 
 class DummyAdapter:
@@ -35,15 +43,26 @@ class DummyAdapter:
     def get_jets_state(data: dict) -> str:
         return data.get("jets", "off")
 
+    @staticmethod
+    def build_pump_command(target: str) -> bytes | None:
+        if target == "low":
+            return CMD_PUMP_OFF_TO_LOW
+        if target == "off":
+            return CMD_PUMP_HIGH_TO_OFF
+        return None
+
 
 class DummyCoordinator:
-    """Minimal coordinator stub used by `CoordinatorEntity` entities in tests."""
+    """Minimal coordinator stub."""
 
     def __init__(self, data: dict) -> None:
         self.data = data
         self.adapter = DummyAdapter()
         self.async_send_command = AsyncMock(return_value=True)
-        self.async_request_refresh = AsyncMock()
+
+    @property
+    def available(self) -> bool:
+        return True
 
 
 def _make_entry() -> SimpleNamespace:
@@ -59,21 +78,26 @@ def test_fan_supported_features_include_power_actions() -> None:
     assert entity.supported_features & FanEntityFeature.TURN_OFF
 
 
-def test_fan_turn_on_and_turn_off_paths() -> None:
+@pytest.mark.asyncio
+async def test_fan_turn_on_and_turn_off_paths() -> None:
     coordinator = DummyCoordinator(data={"jets": "off"})
     entity = SpaPumpFan(coordinator, _make_entry())
+    entity.hass = DummyHass()
+    entity.async_write_ha_state = lambda: None
 
     # off -> low via turn_on default path
-    asyncio.run(entity.async_turn_on())
+    await entity.async_turn_on()
     coordinator.async_send_command.assert_awaited_once_with(CMD_PUMP_OFF_TO_LOW)
-    coordinator.async_request_refresh.assert_awaited()
+    assert entity._pending_state == "low"
 
     coordinator.async_send_command.reset_mock()
-    coordinator.async_request_refresh.reset_mock()
+
+    # Simulate coordinator update clearing pending state
+    entity._pending_state = None
+    coordinator.data = {"jets": "high"}
 
     # high -> off via turn_off direct path
-    coordinator.data = {"pump_low": False, "pump_high": True}
-    asyncio.run(entity.async_turn_off())
+    await entity.async_turn_off()
     coordinator.async_send_command.assert_awaited_once_with(CMD_PUMP_HIGH_TO_OFF)
-    coordinator.async_request_refresh.assert_awaited()
-
+    assert entity._pending_state == "off"
+    entity._cancel_pending_timeout()
