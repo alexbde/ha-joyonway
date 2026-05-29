@@ -11,10 +11,6 @@ requires-python = ">=3.11"
 [project.optional-dependencies]
 test = [
   "pytest>=8.3",
-  "pytest-asyncio>=0.24",
-]
-ha-test = [
-  "pytest>=8.3",
   "pytest-homeassistant-custom-component>=0.13",
   "homeassistant>=2024.1.0",
 ]

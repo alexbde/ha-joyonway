@@ -183,42 +183,12 @@ custom_components/joyonway_p25b85/
 
 ## 6. Technical Notes for Next Session
 
-- **Session 9 outcomes (2026-05-29):**
-  - **Resilient UI fully implemented** (plan was in `docs/resilient_ui_plan.md`,
-    now deleted — all content implemented and tested):
-    - `coordinator.py` rewritten: persistent TCP connection, background
-      `_reader_loop()`, `async_setup()`/`async_shutdown()` lifecycle,
-      `_try_parse_buffer()` returns `(data, consumed)` tuple, grace-mode
-      `available` property, stale-RX health check, exponential backoff reconnect.
-    - `entity.py`: added `JoyonwayCoordinatorEntity` base class with
-      availability from coordinator grace logic.
-    - `__init__.py`: calls `async_setup()`, stores `entry.runtime_data`,
-      strict shutdown on unload (only after platform unload succeeds).
-    - `switch.py`: `SpaLightSwitch` has toggle-lock guard + optimistic state.
-      New `_SpaTargetStateSwitch` base for heater/blower/ozone/schedule.
-      All have `_pending_state`, `_handle_coordinator_update` clearing,
-      and `OPTIMISTIC_TIMEOUT_SECONDS` auto-expire.
-    - `fan.py`: optimistic `_pending_state` (str), removed 3-retry loop.
-    - `time.py`: optimistic `_pending_state` (tuple).
-    - `button.py`: in-flight `_cmd_lock`.
-    - `climate.py`: removed `async_request_refresh()`.
-    - `sensor.py`, `binary_sensor.py`: switched to `JoyonwayCoordinatorEntity`.
-  - **All `async_request_refresh()` removed** — reader loop pushes updates.
-  - **All `asyncio.sleep(1.0)` after light toggle removed**.
-  - **`COMMAND_COOLDOWN` moved to `const.py`** (was local in coordinator).
-  - **`SCAN_INTERVAL` changed from 30 to 60** (fallback health-check only).
-  - **Tests updated**: `DummyCoordinator` stubs updated for persistent model.
-    New tests: `test_light_double_click_blocked`, `test_heater_optimistic_state`,
-    `test_fan_optimistic_preset_mode`. Fixed stale CMD_ constant imports
-    (commands are now built dynamically via adapter).
-    New file `test_coordinator_resilient.py` with advanced coordinator tests:
-    shutdown races, reconnect guards, availability grace, stale-RX, command
-    send, buffer parsing, optimistic timeout auto-clear/cancel/removal.
-    HA venv: 109 passed. Non-HA venv: 76 passed, 3 skipped.
-  - **README updated**: added persistent connection + optimistic UI to features.
-
 - **`.env` file** holds bridge IP (gitignored). Tools auto-load it.
 - **Restart required** after any code change to the integration.
-- **Tests**: `source .venv/bin/activate && pytest -q` → `76 passed, 3 skipped`.
-  With HA: `source .venv-ha/bin/activate && pytest -q` → `109 passed`.
+- **Tests**: `source .venv/bin/activate && pytest -q` → `109 passed`.
+  Single venv (Python 3.12 + HA test deps via `pip install -e ".[test]"`).
 - **EW11 connection limit**: 4 concurrent TCP clients. HA uses 1, tools can use up to 3 more.
+- **Session 10 (2026-05-29):** Merged `.venv-ha` into `.venv` (Python 3.12
+  with full HA test stack). Removed old `ha-test` extra from `pyproject.toml`;
+  `[test]` now includes `pytest-homeassistant-custom-component`. Updated
+  README testing section to single-venv instructions.
