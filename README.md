@@ -150,7 +150,7 @@ After setup, go to **Settings → Devices & Services → Joyonway P25B85 → Con
 | Heater             | Heater manual on/off                          |
 | Ozone              | Ozone on/off (only when mode = Manual)        |
 | Light              | Light on/off (toggle with state guard)        |
-| Blower             | Air blower on/off                             |
+| Blower             | Air blower on/off (disabled by default)       |
 | Heat slot 1 / 2   | Enable/disable heating schedule slots         |
 | Filter slot 1 / 2 | Enable/disable filtration schedule slots      |
 
