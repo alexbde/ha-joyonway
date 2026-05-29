@@ -10,7 +10,7 @@
 > **Integration domain:** `joyonway_p25b85`
 > **Hardware:** P25B85 + PB554 + Elfin EW11
 > **Status:** All 8 write tests pass. Community safety fixes applied (session 7).
-> Ozone mode broadcast byte discovered. Ready for live ozone test.
+> Ozone mode broadcast byte discovered. Resilient UI refactor plan finalized.
 
 > **Documentation policy:** `docs/protocol.md` is the canonical protocol spec.
 > This `docs/plan.md` is progress/handoff only.
@@ -157,16 +157,22 @@ custom_components/joyonway_p25b85/
 | 8–16 | ✅ Done | Schedule, CRC, DateTime, ozone, dynamic commands |
 | 17. Options flow | ✅ Done | Ozone mode + auto clock sync |
 | 18. Safety fixes | ✅ Done | Session 7: no auto writes, schedule guard, pump simplification |
-| 19. Polish & release | **Next** | Live ozone test, version bump, HACS release |
+| 19. Resilient UI refactor | **Next** | Implement `docs/resilient_ui_plan.md` |
+| 20. Polish & release | Later | Live ozone test, version bump, HACS release |
 
 ## 5. Next Steps
 
-### Priority 1: Remaining live tests
-1. **Test ozone** — untested live (ozone mode byte 13 detection confirmed from captures)
-2. **Verify auto clock sync** — check logs for "Spa clock drift" messages
+### Priority 1: Implement resilient UI plan
+1. Implement coordinator persistent connection + reconnect lifecycle from `docs/resilient_ui_plan.md`
+2. Implement optimistic state for writable entities (switch/fan/time/button)
+3. Implement HA lifecycle updates (`entry.runtime_data`, strict successful-unload shutdown)
+4. Add/adjust tests listed in `docs/resilient_ui_plan.md` checklist
 
-### Priority 2: Polish & release
-- UI feedback delay: consider optimistic state updates
+### Priority 2: Remaining live verification
+1. **Test ozone** — still untested live (mode byte 13 detection already confirmed)
+2. **Verify auto clock sync** — check logs for drift-triggered sync path
+
+### Priority 3: Polish & release
 - Version bump, README final review, HACS release
 
 ## 6. Technical Notes for Next Session
@@ -185,6 +191,19 @@ custom_components/joyonway_p25b85/
   - **Coordinator auto-syncs config option** with broadcast byte 13 value.
     On first install, first broadcast immediately tells the correct mode.
   - **Consistent logging** added to all write entities.
+
+- **Session 8 outcomes (2026-05-29, docs/planning only):**
+  - Finalized `docs/resilient_ui_plan.md` as implementation-ready handoff for
+    persistent TCP connection + optimistic UI.
+  - Hardened coordinator plan details: reconnect guards, stale-RX handling,
+    async socket close with `wait_closed()`, unload sequencing, and
+    `entry.runtime_data` usage.
+  - Resolved protocol/plan consistency for jets: panel UI cycles states, while
+    controller accepts direct target bytes; integration plan uses target bytes
+    with one bounded retry on mismatch confirmation.
+  - Updated `docs/protocol.md` wording to match the above behavior.
+  - README reviewed this session; no README changes required because runtime
+    code/feature set did not change (documentation-only session).
 
 - **`.env` file** holds bridge IP (gitignored). Tools auto-load it.
 - **Restart required** after any code change to the integration.
