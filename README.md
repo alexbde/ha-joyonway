@@ -141,7 +141,7 @@ After setup, go to **Settings → Devices & Services → Joyonway P25B85 → Con
 
 | Entity                  | Description                                  |
 |-------------------------|----------------------------------------------|
-| RS485 bridge connection | TCP connectivity to bridge (disabled by default) |
+| RS485 bridge connection | Strict TCP connectivity to bridge (disabled by default) |
 
 ### Switches
 
@@ -196,7 +196,7 @@ Current high-level status:
 - Ozone control: mode synced via options flow, switch sends manual ON/OFF
 - Resilient UI: persistent TCP connection, optimistic state, graceful reconnect
 - Safety: no automatic writes on startup, schedule overwrite guards
-- Next: live ozone test, then polish and release
+- Next: live ozone test, then version bump and release
 
 ## Testing
 

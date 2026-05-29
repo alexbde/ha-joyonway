@@ -9,8 +9,8 @@
 >
 > **Integration domain:** `joyonway_p25b85`
 > **Hardware:** P25B85 + PB554 + Elfin EW11
-> **Status:** Resilient UI refactor implemented. All write tests pass.
-> Persistent TCP connection, optimistic state, grace-mode availability.
+> **Status:** Resilient UI refactor implemented and post-refactor code review/polish completed.
+> Persistent TCP connection, optimistic state, grace-mode availability for entities.
 
 > **Documentation policy:** `docs/protocol.md` is the canonical protocol spec.
 > This `docs/plan.md` is progress/handoff only.
@@ -128,6 +128,8 @@ custom_components/joyonway_p25b85/
 - **Grace-mode availability** — entities stay available for 10s after disconnect
   to avoid UI flicker on brief interruptions. `JoyonwayCoordinatorEntity` base
   class propagates this consistently across all platforms.
+- **Strict connectivity diagnostic** — `bridge_connectivity` uses raw TCP state
+  (`coordinator.is_connected`), not grace-mode availability.
 - **Optimistic state** — all writable entities set pending state immediately on
   command send. Cleared when the next broadcast confirms (or after 10s timeout).
   If broadcast shows a different state, entity "snaps back" — clear visual
@@ -154,7 +156,8 @@ custom_components/joyonway_p25b85/
   Schedule sends REFUSE if any data key is missing (prevents overwrite with zeros).
 - **Clock write** — uses `set_date=True` (prefix=0x05) by default.
 - **Auto clock sync** — disabled by default. When enabled, syncs if drift > 30s
-  with 1-hour cooldown.
+  with 1-hour cooldown. Cooldown now applies to both successful syncs and failed
+  attempts (prevents repeated retries/log spam during failures).
 - **No auto commands on startup** — all writes are user-initiated only.
 - **Consistent logging** — all write entities log at debug before send and
   error on failure, using `"Entity: action"` format.
@@ -169,7 +172,7 @@ custom_components/joyonway_p25b85/
 | 17. Options flow | ✅ Done | Ozone mode + auto clock sync |
 | 18. Safety fixes | ✅ Done | No auto writes, schedule guard, pump simplification |
 | 19. Resilient UI refactor | ✅ Done | Persistent connection, optimistic state, grace availability |
-| 20. Polish & release | **Next** | Live ozone test, version bump, HACS release |
+| 20. Polish & release | **In progress** | Code polish + consistency fixes done; live ozone test, version bump, HACS release remain |
 
 ## 5. Next Steps
 
@@ -179,7 +182,7 @@ custom_components/joyonway_p25b85/
 3. **Live test resilient UI** — verify persistent connection, reconnect, optimistic snap-back
 
 ### Priority 2: Polish & release
-- Version bump, README final review, HACS release
+- Version bump, final release checklist review, HACS release
 
 ## 6. Technical Notes for Next Session
 
@@ -192,3 +195,8 @@ custom_components/joyonway_p25b85/
   with full HA test stack). Removed old `ha-test` extra from `pyproject.toml`;
   `[test]` now includes `pytest-homeassistant-custom-component`. Updated
   README testing section to single-venv instructions.
+- **Session 11 (2026-05-29):** Completed code-quality/best-practice follow-up.
+  Fixed ozone switch unique ID (`_ozone_switch`), added strict TCP connectivity
+  property for diagnostic sensor, rate-limited auto clock sync on failed sends,
+  cleaned fan docs/type hints, removed stale TODO in `__init__.py`, and applied
+  small cleanups (unused fields/imports/constants, helper dedup). Tests: `109 passed`.
