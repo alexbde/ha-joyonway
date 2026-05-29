@@ -53,7 +53,8 @@
 - **Heater:** 2 kW resistive, thermostat-controlled
 - **Ozone port:** Connector on PCB ("Ozonauslass"). PB554 has two modes:
   **Auto** (schedule) and **Manual** (user-triggerable via RS485).
-- **Blower:** air blower, connector on PCB, button on PB554 panel.
+- **Blower:** optional controller load; not confirmed on all spa builds.
+  Local White Marble manual does not clearly document a dedicated air blower.
 
 ## 2. Protocol Summary
 
@@ -155,6 +156,10 @@ custom_components/joyonway_p25b85/
 - **Ozone control** — mode set via options flow, synced from broadcast byte 13.
 - **Ozone visibility** — ozone switch is only created in Manual mode; hidden in
   Auto mode to keep UI cleaner and avoid disabled-but-visible controls.
+- **Blower visibility** — blower is optional hardware; switch stays disabled by
+  default to avoid clutter on builds without physical blower support.
+  Planned migration: move from disabled-by-default to capability-driven creation
+  via a Hardware options section (user declares blower present/absent).
 - **Climate debounce**: 1.5s coalescing for slider drags.
 - **Coordinator write pacing**: global 1.0s command cooldown.
 - **Temperatures as integers** — spa only shows whole °C.
@@ -199,6 +204,11 @@ custom_components/joyonway_p25b85/
 - Capture and expose controller diagnostic metadata from frames, starting with
   firmware/version fields (visible on PB554 panel, expected in RS485 payload).
 
+### Priority 5: Hardware capability options (next implementation)
+- Add a "Hardware" section in options/config where users can declare whether a
+  blower is physically present. If blower is not present, do not create/show the
+  blower switch entity at all.
+
 ### Nice to have (post-release UX)
 - Lovelace dashboard package/example for spa controls using community cards
   (compact grouped layout for schedules/options without changing entity model).
@@ -229,3 +239,7 @@ custom_components/joyonway_p25b85/
   Auto mode (still available in Manual) while preserving switch row order when
   shown. Community feedback TODO trimmed to currently relevant items. Added next
   TODOs for schedule freshness gating and firmware/version diagnostics capture.
+- **Session 13 (2026-05-29):** Terminology/doc polish. German blower label set to
+  `Luftsprudler`; French blower label set to `Souffleur d'air`. Manual review in
+  `.local/home-deluxe-white-marble.md` suggests blower may be absent on this spa
+  build, so docs now describe blower as optional hardware.

@@ -46,7 +46,7 @@ The P25B85 controls spas like the **Home Deluxe White Marble** outdoor whirlpool
 - **Ozone** manual on/off (available when mode set to Manual in options)
 - **Light** on/off via toggle command
 - **Heater** manual on/off
-- **Blower** on/off
+- **Blower (air bubbler, optional hardware)** on/off
 - **Heat schedule** — 2 time slots with start/end times and enable/disable
 - **Filter schedule** — 2 time slots with start/end times and enable/disable
 - **Clock sync** — manual button (auto-sync available via options, disabled by default)
@@ -150,7 +150,7 @@ After setup, go to **Settings → Devices & Services → Joyonway P25B85 → Con
 | Heater             | Heater manual on/off                          |
 | Ozone              | Ozone on/off (shown only when mode = Manual; hidden in Auto) |
 | Light              | Light on/off (toggle with state guard)        |
-| Blower             | Air blower on/off (disabled by default)       |
+| Blower             | Air blower / air bubbler on/off (optional hardware, disabled by default) |
 | Heat slot 1 / 2   | Enable/disable heating schedule slots         |
 | Filter slot 1 / 2 | Enable/disable filtration schedule slots      |
 
