@@ -209,6 +209,32 @@ custom_components/joyonway_p25b85/
   blower is physically present. If blower is not present, do not create/show the
   blower switch entity at all.
 
+### Priority 6: Repository governance (next implementation)
+- Assess divergence vs upstream fork source (`ha-joyonway-p23b32`) and decide
+  whether rebasing/merging upstream still makes maintenance sense.
+- If divergence is too large, evaluate detaching from fork lineage (if feasible)
+  and keep an explicit upstream link/reference in README/docs for attribution.
+- **Execution checklist (exact steps):**
+  1. Add/check upstream remote:
+     - `git remote -v`
+     - `git remote add upstream https://github.com/KnapTheBuilder/ha-joyonway-p23b32.git` (if missing)
+     - `git fetch upstream --tags`
+  2. Measure divergence:
+     - `git rev-list --left-right --count upstream/main...main`
+     - `git log --oneline --left-right upstream/main...main`
+     - `git diff --stat upstream/main...main`
+  3. Dry-run integration complexity:
+     - `git checkout -b eval/upstream-rebase`
+     - `git rebase upstream/main` (or `git merge --no-commit upstream/main`)
+     - Record conflict volume/files; abort afterwards (`git rebase --abort` or `git merge --abort`).
+  4. Decision gate:
+     - If low conflict and clear maintenance benefit: schedule rebase/merge plan.
+     - If high conflict and architecture/model mismatch: keep independent line.
+  5. If staying independent, detach fork relationship (GitHub UI):
+     - Open GitHub support request: "Detach fork" for `alexbde/ha-joyonway-p25b85`.
+     - Keep upstream attribution link in `README.md` + `docs/plan.md`.
+     - Optionally add note in README: "Originally forked from ... now maintained independently."
+
 ### Nice to have (post-release UX)
 - Lovelace dashboard package/example for spa controls using community cards
   (compact grouped layout for schedules/options without changing entity model).
