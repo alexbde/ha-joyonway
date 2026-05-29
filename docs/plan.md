@@ -148,7 +148,13 @@ custom_components/joyonway_p25b85/
 - **All commands built dynamically** — no replay-only frames.
 - **Temperature setpoint**: `btn_action=0x98` confirmed working via live test.
 - **Pump commands** — target-state based. Controller accepts any target directly.
+- **Jets semantics (intentional)** — `jets` represents user/manual jets state
+  only (off/low/high from the jets byte). Circulation/heating pump activity must
+  NOT be surfaced as jets-on. This matches PB554 panel semantics and avoids
+  confusing control behavior (manual jets should remain independently controllable).
 - **Ozone control** — mode set via options flow, synced from broadcast byte 13.
+- **Ozone visibility** — ozone switch is only created in Manual mode; hidden in
+  Auto mode to keep UI cleaner and avoid disabled-but-visible controls.
 - **Climate debounce**: 1.5s coalescing for slider drags.
 - **Coordinator write pacing**: global 1.0s command cooldown.
 - **Temperatures as integers** — spa only shows whole °C.
@@ -184,6 +190,19 @@ custom_components/joyonway_p25b85/
 ### Priority 2: Polish & release
 - Version bump, final release checklist review, HACS release
 
+### Priority 3: Safety hardening (next implementation)
+- Add schedule freshness gating before any schedule write (`switch` and `time`):
+  require a recent schedule snapshot (timestamp-based), optionally wait briefly
+  for next broadcast if stale, then refuse write with a clear error if still stale.
+
+### Priority 4: Diagnostics enrichment (next implementation)
+- Capture and expose controller diagnostic metadata from frames, starting with
+  firmware/version fields (visible on PB554 panel, expected in RS485 payload).
+
+### Nice to have (post-release UX)
+- Lovelace dashboard package/example for spa controls using community cards
+  (compact grouped layout for schedules/options without changing entity model).
+
 ## 6. Technical Notes for Next Session
 
 - **`.env` file** holds bridge IP (gitignored). Tools auto-load it.
@@ -191,6 +210,11 @@ custom_components/joyonway_p25b85/
 - **Tests**: `source .venv/bin/activate && pytest -q` → `109 passed`.
   Single venv (Python 3.12 + HA test deps via `pip install -e ".[test]"`).
 - **EW11 connection limit**: 4 concurrent TCP clients. HA uses 1, tools can use up to 3 more.
+- **Community feedback source**: https://community.home-assistant.io/t/joyonway-spa-control/582344/
+- **Historical safety context**: early field reports indicated possible config
+  corruption/factory-reset recovery on some setups; current mitigations are
+  no auto-writes on startup, strict schedule-data guards, and resilient connection
+  behavior. Keep these protections in place.
 - **Session 10 (2026-05-29):** Merged `.venv-ha` into `.venv` (Python 3.12
   with full HA test stack). Removed old `ha-test` extra from `pyproject.toml`;
   `[test]` now includes `pytest-homeassistant-custom-component`. Updated
@@ -200,3 +224,8 @@ custom_components/joyonway_p25b85/
   property for diagnostic sensor, rate-limited auto clock sync on failed sends,
   cleaned fan docs/type hints, removed stale TODO in `__init__.py`, and applied
   small cleanups (unused fields/imports/constants, helper dedup). Tests: `109 passed`.
+- **Session 12 (2026-05-29):** Follow-up UX/scope decisions. Blower switch set
+  disabled-by-default for cleaner default layout; ozone switch hidden entirely in
+  Auto mode (still available in Manual) while preserving switch row order when
+  shown. Community feedback TODO trimmed to currently relevant items. Added next
+  TODOs for schedule freshness gating and firmware/version diagnostics capture.
