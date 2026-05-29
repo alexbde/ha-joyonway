@@ -75,6 +75,7 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
 
         # Clock sync
         self._last_clock_sync_ts: float = 0.0
+        self._last_clock_sync_attempt_ts: float = 0.0
         self.last_detected_ozone_mode: str | None = None
 
     @property
@@ -85,6 +86,11 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
         if self.data is None or self._disconnect_ts is None:
             return False
         return (time.monotonic() - self._disconnect_ts) <= AVAILABILITY_GRACE_SECONDS
+
+    @property
+    def is_connected(self) -> bool:
+        """Return strict bridge connection state (without grace window)."""
+        return self._available
 
     @property
     def adapter(self) -> ModelAdapter:
@@ -321,7 +327,8 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
             return
 
         now_ts = time.monotonic()
-        if now_ts - self._last_clock_sync_ts < CLOCK_SYNC_COOLDOWN:
+        last_sync_event_ts = max(self._last_clock_sync_ts, self._last_clock_sync_attempt_ts)
+        if now_ts - last_sync_event_ts < CLOCK_SYNC_COOLDOWN:
             return
 
         now = dt_util.now()
@@ -334,6 +341,7 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
             return
 
         if drift > CLOCK_SYNC_DRIFT_THRESHOLD:
+            self._last_clock_sync_attempt_ts = now_ts
             _LOGGER.info("Spa clock drift is %.0fs, syncing to HA time", drift)
             frame = self._adapter.build_datetime_command(
                 year=now.year,

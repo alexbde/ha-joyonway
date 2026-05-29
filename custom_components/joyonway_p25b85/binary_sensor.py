@@ -97,5 +97,5 @@ class JoyonwayBridgeConnectivity(JoyonwayCoordinatorEntity, BinarySensorEntity):
     @property
     def is_on(self) -> bool:
         """Return True if bridge is reachable."""
-        return self.coordinator.available
+        return getattr(self.coordinator, "is_connected", self.coordinator.available)
 

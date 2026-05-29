@@ -38,10 +38,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Handle options update — sync ozone mode to spa, then reload."""
-    coordinator: JoyonwayP25B85Coordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator: JoyonwayP25B85Coordinator = entry.runtime_data
     new_mode = entry.options.get(OPT_OZONE_MODE, OZONE_MODE_AUTO)
 
-    # TODO do we need this? If yes, is it really exclusive to the ozone mode?
+    # Keep the controller mode aligned immediately when the option changes,
+    # then reload so entities/options reflect the new configuration.
     if new_mode != coordinator.last_detected_ozone_mode:
         try:
             cmd = coordinator.adapter.build_ozone_mode_command(new_mode)

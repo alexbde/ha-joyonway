@@ -6,7 +6,9 @@ Writable switches use optimistic state for instant UI feedback.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 import logging
+from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
@@ -14,7 +16,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, OPT_OZONE_MODE, OZONE_MODE_MANUAL, OPTIMISTIC_TIMEOUT_SECONDS
+from .const import DOMAIN, OZONE_MODE_MANUAL, OPTIMISTIC_TIMEOUT_SECONDS
 from .coordinator import JoyonwayP25B85Coordinator
 from .entity import JoyonwayCoordinatorEntity, device_info
 
@@ -105,7 +107,7 @@ class SpaLightSwitch(JoyonwayCoordinatorEntity, SwitchEntity):
             return None
         return self.coordinator.data.get("light")
 
-    async def async_turn_on(self, **kwargs) -> None:
+    async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the light on (toggle if currently off)."""
         if self._cmd_lock.locked():
             return  # toggle already in-flight
@@ -117,7 +119,7 @@ class SpaLightSwitch(JoyonwayCoordinatorEntity, SwitchEntity):
         if not state:
             await self._send_toggle(target=True)
 
-    async def async_turn_off(self, **kwargs) -> None:
+    async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the light off (toggle if currently on)."""
         if self._cmd_lock.locked():
             return  # toggle already in-flight
@@ -151,7 +153,6 @@ class _SpaTargetStateSwitch(JoyonwayCoordinatorEntity, SwitchEntity):
     def __init__(
         self,
         coordinator: JoyonwayP25B85Coordinator,
-        entry: ConfigEntry,
     ) -> None:
         super().__init__(coordinator)
         self._pending_state: bool | None = None
@@ -188,8 +189,17 @@ class _SpaTargetStateSwitch(JoyonwayCoordinatorEntity, SwitchEntity):
         await super().async_will_remove_from_hass()
         self._cancel_pending_timeout()
 
+    def _clear_pending_on_failure(self) -> None:
+        """Reset optimistic state after a failed command send."""
+        self._pending_state = None
+        self._cancel_pending_timeout()
+        self.async_write_ha_state()
+
     async def _send_target_command(
-        self, on: bool, build_cmd, label: str
+        self,
+        on: bool,
+        build_cmd: Callable[..., bytes],
+        label: str,
     ) -> None:
         """Send a target-state command with optimistic state."""
         async with self._cmd_lock:
@@ -199,9 +209,7 @@ class _SpaTargetStateSwitch(JoyonwayCoordinatorEntity, SwitchEntity):
             _LOGGER.debug("%s: sending %s command", label, "ON" if on else "OFF")
             success = await coordinator.async_send_command(cmd)
             if not success:
-                self._pending_state = None
-                self._cancel_pending_timeout()
-                self.async_write_ha_state()
+                self._clear_pending_on_failure()
                 _LOGGER.error("%s: %s command failed", label, "ON" if on else "OFF")
                 raise HomeAssistantError(
                     f"Failed to send {label} {'ON' if on else 'OFF'} command"
@@ -220,7 +228,7 @@ class SpaHeaterSwitch(_SpaTargetStateSwitch):
         coordinator: JoyonwayP25B85Coordinator,
         entry: ConfigEntry,
     ) -> None:
-        super().__init__(coordinator, entry)
+        super().__init__(coordinator)
         self._attr_unique_id = f"{entry.entry_id}_heater_switch"
         self._attr_device_info = device_info(entry)
 
@@ -235,14 +243,14 @@ class SpaHeaterSwitch(_SpaTargetStateSwitch):
             return None
         return status in ("circulation", "heating")
 
-    async def async_turn_on(self, **kwargs) -> None:
+    async def async_turn_on(self, **kwargs: Any) -> None:
         if self.is_on:
             return
         await self._send_target_command(
             True, self.coordinator.adapter.build_heater_command, "Heater"
         )
 
-    async def async_turn_off(self, **kwargs) -> None:
+    async def async_turn_off(self, **kwargs: Any) -> None:
         if self.is_on is False:
             return
         await self._send_target_command(
@@ -262,7 +270,7 @@ class SpaBlowerSwitch(_SpaTargetStateSwitch):
         coordinator: JoyonwayP25B85Coordinator,
         entry: ConfigEntry,
     ) -> None:
-        super().__init__(coordinator, entry)
+        super().__init__(coordinator)
         self._attr_unique_id = f"{entry.entry_id}_blower_switch"
         self._attr_device_info = device_info(entry)
 
@@ -274,14 +282,14 @@ class SpaBlowerSwitch(_SpaTargetStateSwitch):
             return None
         return self.coordinator.data.get("blower")
 
-    async def async_turn_on(self, **kwargs) -> None:
+    async def async_turn_on(self, **kwargs: Any) -> None:
         if self.is_on:
             return
         await self._send_target_command(
             True, self.coordinator.adapter.build_blower_command, "Blower"
         )
 
-    async def async_turn_off(self, **kwargs) -> None:
+    async def async_turn_off(self, **kwargs: Any) -> None:
         if self.is_on is False:
             return
         await self._send_target_command(
@@ -304,10 +312,9 @@ class SpaOzoneSwitch(_SpaTargetStateSwitch):
         coordinator: JoyonwayP25B85Coordinator,
         entry: ConfigEntry,
     ) -> None:
-        super().__init__(coordinator, entry)
-        self._attr_unique_id = f"{entry.entry_id}_filter_switch"
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_ozone_switch"
         self._attr_device_info = device_info(entry)
-        self._entry = entry
 
     @property
     def available(self) -> bool:
@@ -324,14 +331,14 @@ class SpaOzoneSwitch(_SpaTargetStateSwitch):
             return None
         return self.coordinator.data.get("ozone_active")
 
-    async def async_turn_on(self, **kwargs) -> None:
+    async def async_turn_on(self, **kwargs: Any) -> None:
         if self.is_on:
             return
         await self._send_target_command(
             True, self.coordinator.adapter.build_ozone_manual_command, "Ozone"
         )
 
-    async def async_turn_off(self, **kwargs) -> None:
+    async def async_turn_off(self, **kwargs: Any) -> None:
         if self.is_on is False:
             return
         await self._send_target_command(
@@ -351,7 +358,7 @@ class SpaScheduleSlotSwitch(_SpaTargetStateSwitch):
         schedule_type: str,
         slot: int,
     ) -> None:
-        super().__init__(coordinator, entry)
+        super().__init__(coordinator)
         self._schedule_type = schedule_type
         self._slot = slot
         self._key = f"{schedule_type}_slot{slot}_enabled"
@@ -368,12 +375,12 @@ class SpaScheduleSlotSwitch(_SpaTargetStateSwitch):
             return None
         return self.coordinator.data.get(self._key)
 
-    async def async_turn_on(self, **kwargs) -> None:
+    async def async_turn_on(self, **kwargs: Any) -> None:
         if self.is_on:
             return
         await self._send_schedule(enabled=True)
 
-    async def async_turn_off(self, **kwargs) -> None:
+    async def async_turn_off(self, **kwargs: Any) -> None:
         if self.is_on is False:
             return
         await self._send_schedule(enabled=False)
@@ -428,9 +435,7 @@ class SpaScheduleSlotSwitch(_SpaTargetStateSwitch):
             coordinator: JoyonwayP25B85Coordinator = self.coordinator
             success = await coordinator.async_send_command(frame)
             if not success:
-                self._pending_state = None
-                self._cancel_pending_timeout()
-                self.async_write_ha_state()
+                self._clear_pending_on_failure()
                 _LOGGER.error(
                     "Schedule %s slot %d: command failed",
                     self._schedule_type, self._slot,

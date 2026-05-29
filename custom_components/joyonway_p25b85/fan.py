@@ -2,12 +2,13 @@
 
 The spa has a single dual-speed pump (off / low / high).
 Exposed as a fan entity with preset modes for natural HA integration.
-Uses optimistic state with max 1 bounded retry on mismatch.
+Uses optimistic state with snap-back on the next broadcast mismatch.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Any
 
 from homeassistant.components.fan import FanEntity, FanEntityFeature
 from homeassistant.config_entries import ConfigEntry
@@ -123,14 +124,16 @@ class SpaPumpFan(JoyonwayCoordinatorEntity, FanEntity):
         self,
         percentage: int | None = None,
         preset_mode: str | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         """Turn pump on. Default to low if no preset specified."""
+        del percentage, kwargs
         target = preset_mode or PRESET_LOW
         await self._send_pump_command(target)
 
-    async def async_turn_off(self, **kwargs) -> None:
+    async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn pump off."""
+        del kwargs
         await self._send_pump_command("off")
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
@@ -138,7 +141,7 @@ class SpaPumpFan(JoyonwayCoordinatorEntity, FanEntity):
         await self._send_pump_command(preset_mode)
 
     async def _send_pump_command(self, target: str) -> None:
-        """Send a pump command with optimistic state and max 1 bounded retry."""
+        """Send a pump command with optimistic state."""
         if target not in ("off", PRESET_LOW, PRESET_HIGH):
             _LOGGER.warning("Unsupported pump target '%s'", target)
             return

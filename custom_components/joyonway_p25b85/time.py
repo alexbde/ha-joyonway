@@ -22,16 +22,16 @@ from .entity import JoyonwayCoordinatorEntity, device_info
 
 _LOGGER = logging.getLogger(__name__)
 
-# Schedule time entity definitions: (key_suffix, schedule_type, slot, field, name, icon)
+# Schedule time entity definitions: (key, schedule_type, slot, field, icon)
 _SCHEDULE_TIME_DEFS = [
-    ("heat_slot1_start", "heat", 1, "start", "Heat slot 1 start", "mdi:clock-start"),
-    ("heat_slot1_end", "heat", 1, "end", "Heat slot 1 end", "mdi:clock-end"),
-    ("heat_slot2_start", "heat", 2, "start", "Heat slot 2 start", "mdi:clock-start"),
-    ("heat_slot2_end", "heat", 2, "end", "Heat slot 2 end", "mdi:clock-end"),
-    ("filter_slot1_start", "filter", 1, "start", "Filter slot 1 start", "mdi:clock-start"),
-    ("filter_slot1_end", "filter", 1, "end", "Filter slot 1 end", "mdi:clock-end"),
-    ("filter_slot2_start", "filter", 2, "start", "Filter slot 2 start", "mdi:clock-start"),
-    ("filter_slot2_end", "filter", 2, "end", "Filter slot 2 end", "mdi:clock-end"),
+    ("heat_slot1_start", "heat", 1, "start", "mdi:clock-start"),
+    ("heat_slot1_end", "heat", 1, "end", "mdi:clock-end"),
+    ("heat_slot2_start", "heat", 2, "start", "mdi:clock-start"),
+    ("heat_slot2_end", "heat", 2, "end", "mdi:clock-end"),
+    ("filter_slot1_start", "filter", 1, "start", "mdi:clock-start"),
+    ("filter_slot1_end", "filter", 1, "end", "mdi:clock-end"),
+    ("filter_slot2_start", "filter", 2, "start", "mdi:clock-start"),
+    ("filter_slot2_end", "filter", 2, "end", "mdi:clock-end"),
 ]
 
 
@@ -62,7 +62,6 @@ class SpaScheduleTime(JoyonwayCoordinatorEntity, TimeEntity):
         schedule_type: str,
         slot: int,
         field: str,
-        name: str,
         icon: str,
     ) -> None:
         """Initialize the time entity."""
@@ -75,7 +74,7 @@ class SpaScheduleTime(JoyonwayCoordinatorEntity, TimeEntity):
         self._attr_device_info = device_info(entry)
         self._attr_translation_key = key
         self._attr_icon = icon
-        self._pending_state: tuple | None = None
+        self._pending_state: tuple[int, int] | None = None
         self._cmd_lock = asyncio.Lock()
         self._pending_task: asyncio.Task | None = None
 
@@ -85,7 +84,7 @@ class SpaScheduleTime(JoyonwayCoordinatorEntity, TimeEntity):
         self._pending_state = None
         super()._handle_coordinator_update()
 
-    def _set_pending_state(self, value: tuple) -> None:
+    def _set_pending_state(self, value: tuple[int, int]) -> None:
         self._pending_state = value
         self._arm_pending_timeout()
         self.async_write_ha_state()
