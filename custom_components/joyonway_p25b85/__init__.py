@@ -22,6 +22,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     model = entry.data.get(CONF_MODEL, DEFAULT_MODEL)
 
     coordinator = JoyonwayP25B85Coordinator(hass, host, port, model, entry)
+    await coordinator.async_setup()
+    entry.runtime_data = coordinator
+
     await coordinator.async_config_entry_first_refresh()
 
     hass.data.setdefault(DOMAIN, {})
@@ -38,9 +41,7 @@ async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> Non
     coordinator: JoyonwayP25B85Coordinator = hass.data[DOMAIN][entry.entry_id]
     new_mode = entry.options.get(OPT_OZONE_MODE, OZONE_MODE_AUTO)
 
-    # Only send the mode command if it differs from the last known spa state.
-    # This prevents a redundant command when the option was auto-updated by
-    # ozone mode detection (the spa is already in that mode).
+    # TODO do we need this? If yes, is it really exclusive to the ozone mode?
     if new_mode != coordinator.last_detected_ozone_mode:
         try:
             cmd = coordinator.adapter.build_ozone_mode_command(new_mode)
@@ -59,6 +60,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
-        hass.data[DOMAIN].pop(entry.entry_id, None)
+        coordinator: JoyonwayP25B85Coordinator = hass.data[DOMAIN].pop(
+            entry.entry_id, None
+        )
+        if coordinator is not None:
+            await coordinator.async_shutdown()
+    else:
+        _LOGGER.warning("Unload failed; coordinator stays active")
     return unload_ok
-
