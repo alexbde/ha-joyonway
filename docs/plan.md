@@ -200,7 +200,32 @@ custom_components/joyonway_p25b85/
 
 ## 5. Next Steps
 
-### Priority 1: Heating cycle capture & status verification
+### Priority 1: Schedule slot 2 write bug — panel capture needed
+**Bug:** Changing time on disabled slot 2 (heat or filter) via HA snaps back
+after 10s. Slot 1 works fine even when disabled.
+
+**Evidence from write test capture log** (`write_test_20260528_212402.jsonl`):
+- Test command sent slot 2 times with flags=0xAA (both enabled) → ✅ accepted.
+- Restore command sent slot 2 times with flags=0x52 (both disabled) → ❌ slot 2
+  times were NOT restored (broadcast still showed the test values). Slot 1 times
+  WERE restored correctly with the same flags=0x52.
+- The test script only verified slot 1 on restore, so it reported "pass"
+  despite slot 2 restore silently failing.
+
+**Hypothesis:** Controller ignores slot 2 time values when slot 2 is disabled
+in the flags byte (asymmetric behavior — slot 1 always applies).
+
+**Next step:** Run `tools/capture_schedule_slot2.py` at the spa to capture what
+command the PB554 panel sends when changing disabled slot 2 times. This will
+reveal whether the panel uses a different flags byte (e.g. temporarily enables
+slot 2) or a different command structure.
+
+**After capture:** Based on findings, either:
+- Force-enable slot 2 in the flags byte when writing times (then restore
+  disabled state with follow-up command), OR
+- Replicate whatever the panel does differently.
+
+### Priority 2: Heating cycle capture & status verification
 1. **Capture full heating cycle** — run `tools/capture_heating_cycle.py` while
    enabling/disabling the heater to see all byte 14 transitions through the
    natural cycle: standby → circulation? → heating → circulation? → standby.
@@ -210,21 +235,21 @@ custom_components/joyonway_p25b85/
 3. **Adjust status mapping** — based on results, either assign "circulation" to
    the correct byte value or remove it if circulation has no distinct state.
 
-### Priority 2: Remaining live verification
+### Priority 3: Remaining live verification
 1. **Test ozone** — still untested live (mode byte 13 detection already confirmed)
 2. **Verify auto clock sync** — check logs for drift-triggered sync path
 3. **Live test resilient UI** — verify persistent connection, reconnect, optimistic snap-back
 
-### Priority 2: Diagnostics enrichment (next implementation)
+### Priority 4: Diagnostics enrichment (next implementation)
 - Capture and expose controller diagnostic metadata from frames, starting with
   firmware/version fields (visible on PB554 panel, expected in RS485 payload).
 
-### Priority 3: Hardware capability options (next implementation)
+### Priority 5: Hardware capability options (next implementation)
 - Add a "Hardware" section in options/config where users can declare whether a
   blower is physically present. If blower is not present, do not create/show the
   blower switch entity at all.
 
-### Priority 4: Repository rename + fresh repo
+### Priority 6: Repository rename + fresh repo
 - ✅ **Decision: fresh repo.** Divergence analysis (session 15) confirmed zero
   shared code with upstream (9 vs 113 commits, different domain/architecture).
   Merge/rebase is meaningless. Instead of detaching the fork, create a clean
@@ -245,7 +270,7 @@ custom_components/joyonway_p25b85/
   7. Archive old `alexbde/ha-joyonway-p25b85` repo (or delete after transition).
   8. Update HACS repository URL if already registered.
 
-### Priority 5: Polish & release
+### Priority 7: Polish & release
 - Version bump, final release checklist review, HACS release
 
 ### Nice to have (post-release UX)
@@ -287,3 +312,11 @@ custom_components/joyonway_p25b85/
   capture — the actual circulation phase (~300W) may use a different byte 14
   value not yet observed. Added `capture_heating_cycle.py` tool to capture
   the full cycle. Tests: `111 passed`.
+- **Session 16 (2026-05-31):** Investigated schedule slot 2 write bug. UI
+  testing showed slot 2 time changes snap back while slot 1 works fine (both
+  disabled). Analysis of write test capture log proved the restore command
+  (flags=0x52, both disabled) applied slot 1 times but left slot 2 unchanged.
+  Hypothesis: controller ignores slot 2 time values when slot 2 is disabled in
+  the flags byte. Created `tools/capture_schedule_slot2.py` to capture panel
+  behavior when changing disabled slot 2 times — needed to confirm hypothesis
+  and determine the correct fix.
