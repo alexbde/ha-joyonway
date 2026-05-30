@@ -198,50 +198,38 @@ custom_components/joyonway_p25b85/
 2. **Verify auto clock sync** — check logs for drift-triggered sync path
 3. **Live test resilient UI** — verify persistent connection, reconnect, optimistic snap-back
 
-### Priority 2: Polish & release
-- Version bump, final release checklist review, HACS release
-
-### Priority 3: Safety hardening (next implementation)
-- ✅ Schedule freshness gating implemented: before any schedule write (`switch`
-  and `time`), coordinator checks that the last broadcast was received within
-  5s. If stale, waits up to 3s for a fresh broadcast, then refuses write with
-  a clear error if still stale. Constants: `SCHEDULE_FRESHNESS_MAX_AGE` (5s),
-  `SCHEDULE_FRESHNESS_WAIT` (3s). Method: `coordinator.async_ensure_fresh_data()`.
-
-### Priority 4: Diagnostics enrichment (next implementation)
+### Priority 2: Diagnostics enrichment (next implementation)
 - Capture and expose controller diagnostic metadata from frames, starting with
   firmware/version fields (visible on PB554 panel, expected in RS485 payload).
 
-### Priority 5: Hardware capability options (next implementation)
+### Priority 3: Hardware capability options (next implementation)
 - Add a "Hardware" section in options/config where users can declare whether a
   blower is physically present. If blower is not present, do not create/show the
   blower switch entity at all.
 
-### Priority 6: Repository governance (next implementation)
-- Assess divergence vs upstream fork source (`ha-joyonway-p23b32`) and decide
-  whether rebasing/merging upstream still makes maintenance sense.
-- If divergence is too large, evaluate detaching from fork lineage (if feasible)
-  and keep an explicit upstream link/reference in README/docs for attribution.
-- **Execution checklist (exact steps):**
-  1. Add/check upstream remote:
-     - `git remote -v`
-     - `git remote add upstream https://github.com/KnapTheBuilder/ha-joyonway-p23b32.git` (if missing)
-     - `git fetch upstream --tags`
-  2. Measure divergence:
-     - `git rev-list --left-right --count upstream/main...main`
-     - `git log --oneline --left-right upstream/main...main`
-     - `git diff --stat upstream/main...main`
-  3. Dry-run integration complexity:
-     - `git checkout -b eval/upstream-rebase`
-     - `git rebase upstream/main` (or `git merge --no-commit upstream/main`)
-     - Record conflict volume/files; abort afterwards (`git rebase --abort` or `git merge --abort`).
-  4. Decision gate:
-     - If low conflict and clear maintenance benefit: schedule rebase/merge plan.
-     - If high conflict and architecture/model mismatch: keep independent line.
-  5. If staying independent, detach fork relationship (GitHub UI):
-     - Open GitHub support request: "Detach fork" for `alexbde/ha-joyonway-p25b85`.
-     - Keep upstream attribution link in `README.md` + `docs/plan.md`.
-     - Optionally add note in README: "Originally forked from ... now maintained independently."
+### Priority 4: Repository rename + fresh repo
+- ✅ **Decision: fresh repo.** Divergence analysis (session 15) confirmed zero
+  shared code with upstream (9 vs 113 commits, different domain/architecture).
+  Merge/rebase is meaningless. Instead of detaching the fork, create a clean
+  new repo with a better name and squashed history.
+- **Target naming:**
+  - Repo: `alexbde/ha-joyonway`
+  - Integration domain: `joyonway`
+  - Directory: `custom_components/joyonway/`
+- **Execution checklist:**
+  1. Create fresh GitHub repo `alexbde/ha-joyonway` (no fork relationship).
+  2. Rename `custom_components/joyonway_p25b85/` → `custom_components/joyonway/`.
+  3. Update all internal references: domain in `const.py`, `manifest.json`,
+     `hacs.json`, `config_flow.py`, `__init__.py`, translations, tests.
+  4. Squash history into clean meaningful commits (or single initial commit).
+  5. Push to new repo.
+  6. Update README attribution: "Originally developed in `ha-joyonway-p25b85`,
+     inspired by christopheknap's `ha-joyonway-p23b32`."
+  7. Archive old `alexbde/ha-joyonway-p25b85` repo (or delete after transition).
+  8. Update HACS repository URL if already registered.
+
+### Priority 5: Polish & release
+- Version bump, final release checklist review, HACS release
 
 ### Nice to have (post-release UX)
 - Lovelace dashboard package/example for spa controls using community cards
