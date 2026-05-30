@@ -34,6 +34,10 @@ AVAILABILITY_GRACE_SECONDS: float = 10.0
 RX_STALE_SECONDS: float = 15.0
 OPTIMISTIC_TIMEOUT_SECONDS: float = 10.0
 
+# Schedule freshness gating
+SCHEDULE_FRESHNESS_MAX_AGE: float = 5.0  # max age (seconds) for schedule data before write
+SCHEDULE_FRESHNESS_WAIT: float = 3.0  # seconds to wait for a fresh broadcast if stale
+
 # Auto clock sync
 CLOCK_SYNC_DRIFT_THRESHOLD: int = 30  # seconds
 CLOCK_SYNC_COOLDOWN: int = 3600  # seconds between auto syncs
