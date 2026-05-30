@@ -122,8 +122,8 @@ MASK_HEATER_BLOWER = 0x08  # bit 3 on heater byte = blower running
 
 HEATER_OFF = 0x40    # Idle/off (KDy called this "cooldown") ✅ confirmed
 HEATER_BLOWER = 0x48       # Blower active (0x40 + bit 3) ✅ Phase 6 confirmed
-HEATER_CIRCULATION = 0x50  # Circulation pump pre-heating (KDy: "circulation") ✅ confirmed
-HEATER_HEATING_STANDBY = 0x51  # Heating standby (circ started, heater engaging) ✅ Phase 6
+HEATER_STANDBY = 0x50      # Heater enabled/armed — waiting for temp drop ✅ confirmed
+HEATER_HEATING_STANDBY = 0x51  # Heating standby (heater about to engage) ✅ Phase 6
 HEATER_HEATING = 0x55     # Actively heating (our capture) ✅ confirmed
 HEATER_HEATING_ALT = 0x54  # Actively heating (KDy's value, differs by bit 0)
 HEATER_OZONE = 0x41          # Ozone cycle — scheduled (our capture) ✅ confirmed
@@ -131,7 +131,7 @@ HEATER_OZONE_ALT = 0xC1     # Ozone cycle — manual / KDy variant ✅ Phase 6
 
 HEATER_STATE_MAP: dict[int, str] = {
     HEATER_OFF: "off",
-    HEATER_CIRCULATION: "circulation",
+    HEATER_STANDBY: "standby",             # heater armed, waiting for temp drop
     HEATER_HEATING_STANDBY: "heating",  # about to heat → report as heating
     HEATER_HEATING: "heating",
     HEATER_HEATING_ALT: "heating",      # KDy variant
@@ -215,6 +215,7 @@ class P25B85Adapter:
         # status lookup works regardless of whether the blower is running.
         heater_base = heater_byte & ~MASK_HEATER_BLOWER
         status = HEATER_STATE_MAP.get(heater_base, "unknown")
+
 
         # Derive jets state string
         if pump_byte & MASK_PUMP_HIGH:
@@ -539,13 +540,14 @@ _P25B85_ENTITIES: list[SpaEntityDescription] = [
         icon="mdi:waves",
         icon_map={
             "off": "mdi:waves",
+            "standby": "mdi:timer-sand",
             "circulation": "mdi:pump",
             "heating": "mdi:fire",
             "ozone": "mdi:shield-sun",
             "unknown": "mdi:help-circle-outline",
         },
         device_class="enum",
-        options=["off", "circulation", "heating", "ozone", "unknown"],
+        options=["off", "standby", "circulation", "heating", "ozone", "unknown"],
     ),
     SpaEntityDescription(
         platform="sensor",

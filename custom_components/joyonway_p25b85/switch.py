@@ -260,13 +260,13 @@ class SpaHeaterSwitch(_SpaTargetStateSwitch):
         status = self.coordinator.data.get("status")
         if status is None:
             return None
-        return status in ("circulation", "heating")
+        return status in ("standby", "circulation", "heating")
 
     def _broadcast_confirms_pending(self) -> bool:
         status = self.coordinator.data.get("status")
         if status is None:
             return False
-        current_on = status in ("circulation", "heating")
+        current_on = status in ("standby", "circulation", "heating")
         return current_on == self._pending_state
 
     async def async_turn_on(self, **kwargs: Any) -> None:

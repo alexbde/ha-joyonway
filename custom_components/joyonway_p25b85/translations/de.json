@@ -41,6 +41,7 @@
         "name": "Status",
         "state": {
           "off": "Aus",
+          "standby": "Bereitschaft",
           "circulation": "Zirkulation",
           "heating": "Heizen",
           "ozone": "Ozon",

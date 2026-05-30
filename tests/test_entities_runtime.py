@@ -207,10 +207,12 @@ def test_fan_reports_power_features(entry: SimpleNamespace) -> None:
 def test_climate_action_mapping(entry: SimpleNamespace) -> None:
     heating = SpaClimate(DummyCoordinator(data={"status": "heating"}), entry)
     circulation = SpaClimate(DummyCoordinator(data={"status": "circulation"}), entry)
+    standby = SpaClimate(DummyCoordinator(data={"status": "standby"}), entry)
     idle = SpaClimate(DummyCoordinator(data={"status": "off"}), entry)
 
     assert heating.hvac_action == HVACAction.HEATING
     assert circulation.hvac_action == HVACAction.PREHEATING
+    assert standby.hvac_action == HVACAction.IDLE
     assert idle.hvac_action == HVACAction.IDLE
 
 
