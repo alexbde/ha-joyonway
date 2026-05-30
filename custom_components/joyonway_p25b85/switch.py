@@ -69,9 +69,14 @@ class SpaLightSwitch(JoyonwayCoordinatorEntity, SwitchEntity):
 
     @callback
     def _handle_coordinator_update(self) -> None:
-        """Clear optimistic state when real broadcast arrives."""
-        self._cancel_pending_timeout()
-        self._pending_state = None
+        """Clear optimistic state only when broadcast confirms the new value."""
+        if self._pending_state is not None and self.coordinator.data is not None:
+            if self.coordinator.data.get("light") == self._pending_state:
+                self._cancel_pending_timeout()
+                self._pending_state = None
+        else:
+            self._cancel_pending_timeout()
+            self._pending_state = None
         super()._handle_coordinator_update()
 
     def _set_pending_state(self, value: bool) -> None:
@@ -161,9 +166,23 @@ class _SpaTargetStateSwitch(JoyonwayCoordinatorEntity, SwitchEntity):
 
     @callback
     def _handle_coordinator_update(self) -> None:
-        self._cancel_pending_timeout()
-        self._pending_state = None
+        if self._pending_state is not None and self.coordinator.data is not None:
+            if self._broadcast_confirms_pending():
+                self._cancel_pending_timeout()
+                self._pending_state = None
+            # Otherwise keep pending state until timeout (snap-back on timeout)
+        else:
+            self._cancel_pending_timeout()
+            self._pending_state = None
         super()._handle_coordinator_update()
+
+    def _broadcast_confirms_pending(self) -> bool:
+        """Return True if the current broadcast data matches the pending state.
+
+        Subclasses override to provide entity-specific confirmation logic.
+        Default: always confirms (clears pending immediately).
+        """
+        return True
 
     def _set_pending_state(self, value: bool) -> None:
         self._pending_state = value
@@ -243,6 +262,13 @@ class SpaHeaterSwitch(_SpaTargetStateSwitch):
             return None
         return status in ("circulation", "heating")
 
+    def _broadcast_confirms_pending(self) -> bool:
+        status = self.coordinator.data.get("status")
+        if status is None:
+            return False
+        current_on = status in ("circulation", "heating")
+        return current_on == self._pending_state
+
     async def async_turn_on(self, **kwargs: Any) -> None:
         if self.is_on:
             return
@@ -282,6 +308,9 @@ class SpaBlowerSwitch(_SpaTargetStateSwitch):
         if self.coordinator.data is None:
             return None
         return self.coordinator.data.get("blower")
+
+    def _broadcast_confirms_pending(self) -> bool:
+        return self.coordinator.data.get("blower") == self._pending_state
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         if self.is_on:
@@ -332,6 +361,9 @@ class SpaOzoneSwitch(_SpaTargetStateSwitch):
             return None
         return self.coordinator.data.get("ozone_active")
 
+    def _broadcast_confirms_pending(self) -> bool:
+        return self.coordinator.data.get("ozone_active") == self._pending_state
+
     async def async_turn_on(self, **kwargs: Any) -> None:
         if self.is_on:
             return
@@ -368,6 +400,9 @@ class SpaScheduleSlotSwitch(_SpaTargetStateSwitch):
         self._attr_translation_key = self._key
         self._attr_icon = "mdi:calendar-check" if schedule_type == "heat" else "mdi:air-filter"
 
+    def _broadcast_confirms_pending(self) -> bool:
+        return self.coordinator.data.get(self._key) == self._pending_state
+
     @property
     def is_on(self) -> bool | None:
         if self._pending_state is not None:
@@ -391,6 +426,15 @@ class SpaScheduleSlotSwitch(_SpaTargetStateSwitch):
         data = self.coordinator.data
         if data is None:
             raise HomeAssistantError("No data available from spa")
+
+        # Ensure schedule data is fresh before writing
+        if not await self.coordinator.async_ensure_fresh_data():
+            raise HomeAssistantError(
+                "Schedule data is stale — no recent broadcast received. "
+                "Check the RS485 bridge connection and try again."
+            )
+        # Re-read data after freshness check (may have been updated)
+        data = self.coordinator.data
 
         prefix = self._schedule_type
 

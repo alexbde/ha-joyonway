@@ -80,8 +80,16 @@ class SpaScheduleTime(JoyonwayCoordinatorEntity, TimeEntity):
 
     @callback
     def _handle_coordinator_update(self) -> None:
-        self._cancel_pending_timeout()
-        self._pending_state = None
+        if self._pending_state is not None and self.coordinator.data is not None:
+            value = self.coordinator.data.get(self._key)
+            if value is not None and (value[0], value[1]) == self._pending_state:
+                # Broadcast confirms the new value — clear optimistic state
+                self._cancel_pending_timeout()
+                self._pending_state = None
+            # Otherwise keep pending state until timeout (snap-back on timeout)
+        else:
+            self._cancel_pending_timeout()
+            self._pending_state = None
         super()._handle_coordinator_update()
 
     def _set_pending_state(self, value: tuple[int, int]) -> None:
@@ -125,6 +133,15 @@ class SpaScheduleTime(JoyonwayCoordinatorEntity, TimeEntity):
         data = self.coordinator.data
         if data is None:
             raise HomeAssistantError("No data available from spa")
+
+        # Ensure schedule data is fresh before writing
+        if not await self.coordinator.async_ensure_fresh_data():
+            raise HomeAssistantError(
+                "Schedule data is stale — no recent broadcast received. "
+                "Check the RS485 bridge connection and try again."
+            )
+        # Re-read data after freshness check (may have been updated)
+        data = self.coordinator.data
 
         prefix = self._schedule_type
 
