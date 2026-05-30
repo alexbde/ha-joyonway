@@ -112,11 +112,26 @@ These are long frames (60+ bytes) prefixed with destination `0xFF`.
 |-------|---------|
 | `0x40` | Idle (heater off, blower off) |
 | `0x48` | Blower active (base `0x40` + bit 3) |
-| `0x50` | Circulation pump running |
-| `0x51` | Heating standby (circulation started, heater about to engage) |
+| `0x50` | Heater enabled/armed — standby (waiting for temp drop) |
+| `0x51` | Heating cycle starting (heater about to engage) |
 | `0x54` / `0x55` | Heater actively heating |
 | `0x41` / `0xC1` | Disinfection cycle (ozone) |
-| `0x58` | Blower + circulation (base `0x50` + bit 3) |
+| `0x58` | Blower + heater standby (base `0x50` + bit 3) |
+
+> **Note on `0x50` ("standby"):** The controller sets byte 14 to `0x50` when
+> the heater is enabled (armed). This does NOT indicate the circulation pump is
+> physically running — the spa shows `0x50` for hours with 0W consumption,
+> only transitioning to `0x55` when it actually heats. Byte 12 (pump) is
+> independent and represents manual jets state only, not internal circulation.
+> Confirmed via capture analysis: Session 1 baseline shows `0x50` + `pump=0x00`
+> for the entire idle period; Phase 5 heater ON/OFF directly toggles between
+> `0x40` ↔ `0x50`.
+>
+> **TODO:** The full heating cycle (standby → circulation → heating →
+> circulation → standby) has not been captured over its full duration. The
+> byte 14 value for the actual circulation phase (~300W pump pre/post-heat)
+> is unknown — it may be `0x51` or a value not yet observed. Use
+> `tools/capture_heating_cycle.py` to capture and identify.
 
 **Byte 14 bit fields:**
 - Bit 0: disinfection active (`0x01`)

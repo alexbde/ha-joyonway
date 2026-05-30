@@ -100,7 +100,7 @@ custom_components/joyonway_p25b85/
 |--------|----------|-----|--------------|
 | **Water temperature** | sensor | `water_temperature` | Integer °C for history/graphs |
 | **Setpoint** | sensor | `setpoint` | Current target temperature °C |
-| **Status** | sensor | `status` | Enum: off / circulation / heating / ozone / unknown; dynamic icon per state |
+| **Status** | sensor | `status` | Enum: off / standby / circulation / heating / ozone / unknown; dynamic icon per state |
 | **Jets** (Düsen) | sensor | `jets` | Enum: off / low / high |
 | **Thermostat** | climate | `thermostat` | Water temp + setpoint + status; slider with 1.5s debounce |
 | **Heater** | switch | `heater` | On/off; optimistic state + target-state command |
@@ -159,6 +159,13 @@ custom_components/joyonway_p25b85/
   only (off/low/high from the jets byte). Circulation/heating pump activity must
   NOT be surfaced as jets-on. This matches PB554 panel semantics and avoids
   confusing control behavior (manual jets should remain independently controllable).
+- **Status cross-reference** — byte 14 value `0x50` was originally mapped as
+  "circulation" (from KDy). Capture analysis confirms `0x50` appears with
+  pump=0x00 for entire idle periods (0W energy), so it actually means "heater
+  enabled/armed" (standby). Currently mapped to "standby". The actual
+  circulation phase (pre/post-heat pump running at ~300W) may use a different
+  byte 14 value not yet captured. "circulation" is kept as a valid enum state
+  pending a full heating cycle capture to identify the correct byte value.
 - **Ozone control** — mode set via options flow, synced from broadcast byte 13.
 - **Ozone visibility** — ozone switch is only created in Manual mode; hidden in
   Auto mode to keep UI cleaner and avoid disabled-but-visible controls.
@@ -193,7 +200,17 @@ custom_components/joyonway_p25b85/
 
 ## 5. Next Steps
 
-### Priority 1: Remaining live verification
+### Priority 1: Heating cycle capture & status verification
+1. **Capture full heating cycle** — run `tools/capture_heating_cycle.py` while
+   enabling/disabling the heater to see all byte 14 transitions through the
+   natural cycle: standby → circulation? → heating → circulation? → standby.
+2. **Identify circulation byte** — determine which byte 14 value (if any)
+   corresponds to the actual circulation phase (~300W pump pre/post-heat).
+   Possibly `0x51`, or a new value not yet seen.
+3. **Adjust status mapping** — based on results, either assign "circulation" to
+   the correct byte value or remove it if circulation has no distinct state.
+
+### Priority 2: Remaining live verification
 1. **Test ozone** — still untested live (mode byte 13 detection already confirmed)
 2. **Verify auto clock sync** — check logs for drift-triggered sync path
 3. **Live test resilient UI** — verify persistent connection, reconnect, optimistic snap-back
@@ -262,3 +279,11 @@ custom_components/joyonway_p25b85/
   (`coordinator.async_ensure_fresh_data()`): verifies last broadcast ≤5s old
   before any schedule write, waits up to 3s for fresh data, refuses if still
   stale. Tests: `109 passed`.
+- **Session 15 (2026-05-31):** Status sensor fix. Byte 14 = `0x50` was mapped
+  as "circulation" (from KDy) but capture analysis + energy monitoring proves
+  it means "heater armed/standby" (shows for hours at 0W). Remapped `0x50` →
+  "standby". Byte 12 confirmed to be manual jets only (independent of heater
+  cycle). "circulation" kept as valid enum state pending full heating cycle
+  capture — the actual circulation phase (~300W) may use a different byte 14
+  value not yet observed. Added `capture_heating_cycle.py` tool to capture
+  the full cycle. Tests: `111 passed`.
