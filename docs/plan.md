@@ -132,9 +132,15 @@ custom_components/joyonway_p25b85/
 - **Strict connectivity diagnostic** — `bridge_connectivity` uses raw TCP state
   (`coordinator.is_connected`), not grace-mode availability.
 - **Optimistic state** — all writable entities set pending state immediately on
-  command send. Cleared when the next broadcast confirms (or after 10s timeout).
-  If broadcast shows a different state, entity "snaps back" — clear visual
-  feedback that the command didn't take effect.
+  command send. Cleared only when the next broadcast **confirms** the new value
+  (or after 10s timeout). Confirmation logic is entity-specific via
+  `_broadcast_confirms_pending()` template method in switches, direct comparison
+  in fan/time. If broadcast still shows old state, pending persists — snap-back
+  only occurs on timeout expiry, giving clear visual feedback.
+- **Schedule freshness gating** — before any schedule write (time or enable),
+  `coordinator.async_ensure_fresh_data()` verifies last broadcast ≤5s old.
+  If stale, waits up to 3s for a fresh one, then refuses with error. Prevents
+  writing schedule commands based on outdated data.
 - **Light toggle-lock** — second click ignored while toggle is in-flight
   (prevents double-toggle reverting the state).
 - **Target-state switches** — heater, blower, ozone, schedule all use
@@ -196,9 +202,11 @@ custom_components/joyonway_p25b85/
 - Version bump, final release checklist review, HACS release
 
 ### Priority 3: Safety hardening (next implementation)
-- Add schedule freshness gating before any schedule write (`switch` and `time`):
-  require a recent schedule snapshot (timestamp-based), optionally wait briefly
-  for next broadcast if stale, then refuse write with a clear error if still stale.
+- ✅ Schedule freshness gating implemented: before any schedule write (`switch`
+  and `time`), coordinator checks that the last broadcast was received within
+  5s. If stale, waits up to 3s for a fresh broadcast, then refuses write with
+  a clear error if still stale. Constants: `SCHEDULE_FRESHNESS_MAX_AGE` (5s),
+  `SCHEDULE_FRESHNESS_WAIT` (3s). Method: `coordinator.async_ensure_fresh_data()`.
 
 ### Priority 4: Diagnostics enrichment (next implementation)
 - Capture and expose controller diagnostic metadata from frames, starting with
@@ -251,21 +259,18 @@ custom_components/joyonway_p25b85/
   corruption/factory-reset recovery on some setups; current mitigations are
   no auto-writes on startup, strict schedule-data guards, and resilient connection
   behavior. Keep these protections in place.
-- **Session 10 (2026-05-29):** Merged `.venv-ha` into `.venv` (Python 3.12
-  with full HA test stack). Removed old `ha-test` extra from `pyproject.toml`;
-  `[test]` now includes `pytest-homeassistant-custom-component`. Updated
-  README testing section to single-venv instructions.
-- **Session 11 (2026-05-29):** Completed code-quality/best-practice follow-up.
-  Fixed ozone switch unique ID (`_ozone_switch`), added strict TCP connectivity
-  property for diagnostic sensor, rate-limited auto clock sync on failed sends,
-  cleaned fan docs/type hints, removed stale TODO in `__init__.py`, and applied
-  small cleanups (unused fields/imports/constants, helper dedup). Tests: `109 passed`.
-- **Session 12 (2026-05-29):** Follow-up UX/scope decisions. Blower switch set
-  disabled-by-default for cleaner default layout; ozone switch hidden entirely in
-  Auto mode (still available in Manual) while preserving switch row order when
-  shown. Community feedback TODO trimmed to currently relevant items. Added next
-  TODOs for schedule freshness gating and firmware/version diagnostics capture.
-- **Session 13 (2026-05-29):** Terminology/doc polish. German blower label set to
-  `Luftsprudler`; French blower label set to `Souffleur d'air`. Manual review in
-  `.local/home-deluxe-white-marble.md` suggests blower may be absent on this spa
-  build, so docs now describe blower as optional hardware.
+- **Session 10 (2026-05-29):** Merged `.venv-ha` into `.venv`; single Python 3.12
+  venv with full HA test stack.
+- **Session 11 (2026-05-29):** Code-quality follow-up (ozone unique ID, TCP
+  connectivity property, clock sync rate limit, cleanups).
+- **Session 12 (2026-05-29):** UX decisions (blower disabled-by-default, ozone
+  hidden in Auto mode).
+- **Session 13 (2026-05-29):** Terminology/doc polish (German/French blower labels,
+  blower documented as optional hardware).
+- **Session 14 (2026-05-30):** Fixed optimistic state snap-back bug for all
+  writable entities — pending state now only cleared when broadcast confirms
+  the new value (via `_broadcast_confirms_pending()` template method). Applied
+  to all switches, fan, and time entities. Implemented schedule freshness gating
+  (`coordinator.async_ensure_fresh_data()`): verifies last broadcast ≤5s old
+  before any schedule write, waits up to 3s for fresh data, refuses if still
+  stale. Tests: `109 passed`.
