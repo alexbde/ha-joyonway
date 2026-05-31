@@ -7,10 +7,27 @@ from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlow,
+    OptionsFlowWithConfigEntry,
+)
 from homeassistant.const import CONF_HOST, CONF_PORT
+from homeassistant.core import callback
 
-from .const import CONF_MODEL, DEFAULT_HOST, DEFAULT_MODEL, DEFAULT_PORT, DOMAIN
+from .const import (
+    CONF_MODEL,
+    DEFAULT_HOST,
+    DEFAULT_MODEL,
+    DEFAULT_PORT,
+    DOMAIN,
+    OPT_AUTO_SYNC_CLOCK,
+    OPT_OZONE_MODE,
+    OZONE_MODE_AUTO,
+    OZONE_MODE_MANUAL,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -40,6 +57,12 @@ class JoyonwayP25B85ConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Joyonway P25B85."""
 
     VERSION = 1
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
+        """Return the options flow handler."""
+        return JoyonwayP25B85OptionsFlow(config_entry)
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -71,3 +94,30 @@ class JoyonwayP25B85ConfigFlow(ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
+
+class JoyonwayP25B85OptionsFlow(OptionsFlowWithConfigEntry):
+    """Handle options for Joyonway P25B85."""
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Manage the integration options."""
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+
+        current_ozone_mode = self.options.get(OPT_OZONE_MODE, OZONE_MODE_AUTO)
+        current_auto_sync = self.options.get(OPT_AUTO_SYNC_CLOCK, False)
+
+        schema = vol.Schema(
+            {
+                vol.Required(OPT_OZONE_MODE, default=current_ozone_mode): vol.In(
+                    {
+                        OZONE_MODE_AUTO: "Auto (schedule only)",
+                        OZONE_MODE_MANUAL: "Manual (RS485 control)",
+                    }
+                ),
+                vol.Required(OPT_AUTO_SYNC_CLOCK, default=current_auto_sync): bool,
+            }
+        )
+
+        return self.async_show_form(step_id="init", data_schema=schema)

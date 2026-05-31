@@ -20,6 +20,7 @@ captures_phase5/
 captures_phase6/
 captures_crc/
 captures_temp/
+captures_write_test/
 *.bin
 
 # Virtual environments

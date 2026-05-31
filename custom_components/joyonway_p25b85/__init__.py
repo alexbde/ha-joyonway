@@ -6,7 +6,10 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from .const import CONF_HOST, CONF_MODEL, CONF_PORT, DEFAULT_MODEL, DOMAIN, PLATFORMS
+from .const import (
+    CONF_HOST, CONF_MODEL, CONF_PORT, DEFAULT_MODEL, DOMAIN,
+    OPT_OZONE_MODE, OZONE_MODE_AUTO, PLATFORMS,
+)
 from .coordinator import JoyonwayP25B85Coordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -18,14 +21,38 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     port = entry.data[CONF_PORT]
     model = entry.data.get(CONF_MODEL, DEFAULT_MODEL)
 
-    coordinator = JoyonwayP25B85Coordinator(hass, host, port, model)
+    coordinator = JoyonwayP25B85Coordinator(hass, host, port, model, entry)
     await coordinator.async_config_entry_first_refresh()
 
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = coordinator
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    entry.async_on_unload(entry.add_update_listener(_async_options_updated))
     return True
+
+
+async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Handle options update — sync ozone mode to spa, then reload."""
+    coordinator: JoyonwayP25B85Coordinator = hass.data[DOMAIN][entry.entry_id]
+    new_mode = entry.options.get(OPT_OZONE_MODE, OZONE_MODE_AUTO)
+
+    # Only send the mode command if it differs from the last known spa state.
+    # This prevents a redundant command when the option was auto-updated by
+    # ozone mode detection (the spa is already in that mode).
+    if new_mode != coordinator.last_detected_ozone_mode:
+        try:
+            cmd = coordinator.adapter.build_ozone_mode_command(new_mode)
+            success = await coordinator.async_send_command(cmd)
+            if success:
+                _LOGGER.info("Ozone mode: sent '%s' to spa", new_mode)
+            else:
+                _LOGGER.error("Ozone mode: failed to send '%s' command", new_mode)
+        except Exception:
+            _LOGGER.exception("Ozone mode: error sending command")
+
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

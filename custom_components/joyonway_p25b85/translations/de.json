@@ -17,6 +17,22 @@
       "already_configured": "Diese Brücke ist bereits konfiguriert."
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Spa-Optionen",
+        "description": "Spa-Verhalten konfigurieren.",
+        "data": {
+          "ozone_mode": "Ozon-Modus",
+          "auto_sync_clock": "Uhr automatisch synchronisieren"
+        },
+        "data_description": {
+          "ozone_mode": "Auto: Ozon läuft nur nach Zeitplan. Manuell: Aktiviert den Ozon-Schalter für RS485-Steuerung.",
+          "auto_sync_clock": "Spa-Uhr automatisch synchronisieren, wenn die Abweichung 30 Sekunden überschreitet."
+        }
+      }
+    }
+  },
   "entity": {
     "sensor": {
       "water_temperature": { "name": "Wassertemperatur" },
@@ -27,7 +43,7 @@
           "off": "Aus",
           "circulation": "Zirkulation",
           "heating": "Heizen",
-          "disinfection": "Desinfektion",
+          "ozone": "Ozon",
           "unknown": "Unbekannt"
         }
       },
@@ -47,7 +63,7 @@
     "switch": {
       "light": { "name": "Licht" },
       "heater": { "name": "Heizung" },
-      "filter": { "name": "Filtration" },
+      "ozone": { "name": "Ozon" },
       "blower": { "name": "Gebläse" },
       "heat_slot1_enabled": { "name": "Heiz-Slot 1" },
       "heat_slot2_enabled": { "name": "Heiz-Slot 2" },

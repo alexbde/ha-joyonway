@@ -99,12 +99,29 @@ class SpaScheduleTime(CoordinatorEntity, TimeEntity):
 
         # Gather all current slot values for this schedule type
         prefix = self._schedule_type
-        s1_start = data.get(f"{prefix}_slot1_start", (0, 0))
-        s1_end = data.get(f"{prefix}_slot1_end", (0, 0))
-        s2_start = data.get(f"{prefix}_slot2_start", (0, 0))
-        s2_end = data.get(f"{prefix}_slot2_end", (0, 0))
-        s1_enabled = data.get(f"{prefix}_slot1_enabled", True)
-        s2_enabled = data.get(f"{prefix}_slot2_enabled", True)
+
+        # Guard: refuse to send if any slot data is missing (prevents overwriting with zeros)
+        required_keys = [
+            f"{prefix}_slot1_start",
+            f"{prefix}_slot1_end",
+            f"{prefix}_slot2_start",
+            f"{prefix}_slot2_end",
+            f"{prefix}_slot1_enabled",
+            f"{prefix}_slot2_enabled",
+        ]
+        missing = [k for k in required_keys if k not in data]
+        if missing:
+            raise HomeAssistantError(
+                f"Cannot send schedule: missing data keys {missing}. "
+                f"Wait for the spa to report a full broadcast before changing times."
+            )
+
+        s1_start = data[f"{prefix}_slot1_start"]
+        s1_end = data[f"{prefix}_slot1_end"]
+        s2_start = data[f"{prefix}_slot2_start"]
+        s2_end = data[f"{prefix}_slot2_end"]
+        s1_enabled = data[f"{prefix}_slot1_enabled"]
+        s2_enabled = data[f"{prefix}_slot2_enabled"]
 
         # Replace the one being changed
         new_val = (value.hour, value.minute)
@@ -124,8 +141,17 @@ class SpaScheduleTime(CoordinatorEntity, TimeEntity):
             slot1_enabled=s1_enabled, slot2_enabled=s2_enabled,
         )
 
+        _LOGGER.debug(
+            "Schedule %s slot %d %s: sending time %02d:%02d",
+            self._schedule_type, self._slot, self._field,
+            value.hour, value.minute,
+        )
         success = await self.coordinator.async_send_command(frame)
         if not success:
+            _LOGGER.error(
+                "Schedule %s slot %d %s: command failed",
+                self._schedule_type, self._slot, self._field,
+            )
             raise HomeAssistantError(
                 f"Failed to send {self._schedule_type} schedule command"
             )

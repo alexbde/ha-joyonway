@@ -17,6 +17,22 @@
       "already_configured": "Ce pont est déjà configuré."
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Options du spa",
+        "description": "Configurer le comportement du spa.",
+        "data": {
+          "ozone_mode": "Mode ozone",
+          "auto_sync_clock": "Synchronisation automatique de l'horloge"
+        },
+        "data_description": {
+          "ozone_mode": "Auto : l'ozone fonctionne uniquement selon la programmation. Manuel : active l'interrupteur ozone pour le contrôle RS485.",
+          "auto_sync_clock": "Synchroniser automatiquement l'horloge du spa lorsque l'écart dépasse 30 secondes."
+        }
+      }
+    }
+  },
   "entity": {
     "sensor": {
       "water_temperature": { "name": "Température de l'eau" },
@@ -27,7 +43,7 @@
           "off": "Arrêt",
           "circulation": "Circulation",
           "heating": "Chauffage",
-          "disinfection": "Désinfection",
+          "ozone": "Ozone",
           "unknown": "Inconnu"
         }
       },
@@ -47,7 +63,7 @@
     "switch": {
       "light": { "name": "Lumière" },
       "heater": { "name": "Chauffage" },
-      "filter": { "name": "Filtration" },
+      "ozone": { "name": "Ozone" },
       "blower": { "name": "Soufflerie" },
       "heat_slot1_enabled": { "name": "Chauffage créneau 1" },
       "heat_slot2_enabled": { "name": "Chauffage créneau 2" },

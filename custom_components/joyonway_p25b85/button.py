@@ -63,11 +63,11 @@ class SpaSyncClockButton(CoordinatorEntity, ButtonEntity):
             second=now.second,
         )
 
+        _LOGGER.debug("Clock sync: sending %s", now.strftime("%Y-%m-%d %H:%M:%S"))
         success = await self.coordinator.async_send_command(frame)
         if not success:
+            _LOGGER.error("Clock sync: command failed")
             raise HomeAssistantError("Failed to send clock sync command")
 
-        _LOGGER.info("Spa clock synced to %s", now.strftime("%Y-%m-%d %H:%M:%S"))
+        _LOGGER.info("Clock sync: spa clock synced to %s", now.strftime("%Y-%m-%d %H:%M:%S"))
         await self.coordinator.async_request_refresh()
-
-

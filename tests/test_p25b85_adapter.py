@@ -33,6 +33,7 @@ pseudo_unescape = protocol.pseudo_unescape
 unescape_frame = protocol.unescape_frame
 is_broadcast = protocol.is_broadcast
 validate_frame = protocol.validate_frame
+build_frame = protocol.build_frame
 FRAME_START = protocol.FRAME_START
 FRAME_END = protocol.FRAME_END
 
@@ -43,8 +44,9 @@ IDX_DATETIME_START = adapters_p25b85.IDX_DATETIME_START
 HEATER_OFF = adapters_p25b85.HEATER_OFF
 HEATER_HEATING = adapters_p25b85.HEATER_HEATING
 HEATER_CIRCULATION = adapters_p25b85.HEATER_CIRCULATION
-HEATER_DISINFECTION = adapters_p25b85.HEATER_DISINFECTION
+HEATER_OZONE = adapters_p25b85.HEATER_OZONE
 fahrenheit_to_celsius = adapters_p25b85._fahrenheit_to_celsius
+celsius_to_fahrenheit = adapters_p25b85._celsius_to_fahrenheit
 
 get_adapter = adapters_registry.get_adapter
 ADAPTERS = adapters_registry.ADAPTERS
@@ -129,14 +131,14 @@ def test_parse_rejects_wrong_signature(adapter: P25B85Adapter, logical_frame: by
 
 
 @pytest.mark.parametrize(
-    ("heater_byte", "state", "active", "disinfection"),
+    ("heater_byte", "state", "active", "ozone"),
     [
         (HEATER_OFF, "off", False, False),
         (HEATER_CIRCULATION, "circulation", False, False),
         (HEATER_HEATING, "heating", True, False),
         (0x54, "heating", True, False),
-        (HEATER_DISINFECTION, "disinfection", False, True),
-        (0xC1, "disinfection", False, True),
+        (HEATER_OZONE, "ozone", False, True),
+        (0xC1, "ozone", False, True),
         (0x99, "unknown", False, False),
     ],
 )
@@ -146,14 +148,14 @@ def test_heater_state_mapping(
     heater_byte: int,
     state: str,
     active: bool,
-    disinfection: bool,
+    ozone: bool,
 ) -> None:
     modified = bytearray(logical_frame)
     modified[IDX_HEATER_STATE] = heater_byte
     result = adapter.parse_status(bytes(modified))
     assert result["status"] == state
     assert result["heater_active"] is active
-    assert result["disinfection_active"] is disinfection
+    assert result["ozone_active"] is ozone
 
 
 def test_entity_descriptions(adapter: P25B85Adapter) -> None:
@@ -182,9 +184,6 @@ def test_fahrenheit_to_celsius(f: int, expected: int | None) -> None:
 
 def test_parse_schedule_from_live_frame(adapter: P25B85Adapter) -> None:
     """Test schedule parsing from an actual captured broadcast frame."""
-    # Real frame captured from spa:
-    # Heat: slot1=11:00-16:00 (enabled), slot2=20:00-22:00 (disabled)
-    # Filter: slot1=11:00-12:00 (enabled), slot2=17:00-18:00 (enabled)
     frame = bytes.fromhex(
         "1aff013cd2b4ff0803600006007d40006200004b001000140016"
         "0000004b000c00510012000000064d0000000000000000000000"
@@ -193,7 +192,6 @@ def test_parse_schedule_from_live_frame(adapter: P25B85Adapter) -> None:
     unescaped = unescape_frame(frame, full=True)
     result = adapter.parse_status(unescaped)
 
-    # Heat schedule — byte 19=0x4B: hour=11, enabled; byte 23=0x14: hour=20, disabled
     assert result["heat_slot1_start"] == (11, 0)
     assert result["heat_slot1_end"] == (16, 0)
     assert result["heat_slot1_enabled"] is True
@@ -201,7 +199,6 @@ def test_parse_schedule_from_live_frame(adapter: P25B85Adapter) -> None:
     assert result["heat_slot2_end"] == (22, 0)
     assert result["heat_slot2_enabled"] is False
 
-    # Filter schedule — byte 29=0x4B: hour=11, enabled; byte 33=0x51: hour=17, enabled
     assert result["filter_slot1_start"] == (11, 0)
     assert result["filter_slot1_end"] == (12, 0)
     assert result["filter_slot1_enabled"] is True
@@ -209,7 +206,6 @@ def test_parse_schedule_from_live_frame(adapter: P25B85Adapter) -> None:
     assert result["filter_slot2_end"] == (18, 0)
     assert result["filter_slot2_enabled"] is True
 
-    # Datetime
     assert result["spa_datetime"].year == 2026
     assert result["spa_datetime"].month == 5
     assert result["spa_datetime"].day == 23
@@ -217,7 +213,6 @@ def test_parse_schedule_from_live_frame(adapter: P25B85Adapter) -> None:
 
 def test_build_schedule_command(adapter: P25B85Adapter) -> None:
     """Test building schedule command frames with CRC."""
-    # Build a heat schedule command with both slots enabled (default)
     frame = adapter.build_schedule_command(
         "heat",
         slot1_start=(12, 0),
@@ -351,10 +346,10 @@ def test_build_schedule_command_rejects_invalid_type(adapter: P25B85Adapter) -> 
 
 def test_build_datetime_command(adapter: P25B85Adapter) -> None:
     """Test building datetime command frames — verify against captured frames."""
-    # Captured session 2: 2026-05-21 22:53:00
+    # Captured session 2: 2026-05-21 22:53:00 (time-only, prefix=0x50)
     # Wire: 1a0120103ca210a1501b110515163500000087ecf6541d
     # Note: 0x1A in payload gets escaped to 1B 11 on wire
-    frame = adapter.build_datetime_command(2026, 5, 21, 22, 53, 0)
+    frame = adapter.build_datetime_command(2026, 5, 21, 22, 53, 0, set_date=False)
     assert frame[0] == 0x1A
     assert frame[-1] == 0x1D
 
@@ -362,9 +357,155 @@ def test_build_datetime_command(adapter: P25B85Adapter) -> None:
     captured = "1a0120103ca210a1501b110515163500000087ecf6541d"
     assert frame.hex() == captured
 
-    # Captured session 1: 2026-05-21 15:09:00
+    # Captured session 1: 2026-05-21 15:09:00 (time-only, prefix=0x50)
     # Wire: 1a0120103ca210a1501b1105150f090000004cbc3d971d
-    frame2 = adapter.build_datetime_command(2026, 5, 21, 15, 9, 0)
+    frame2 = adapter.build_datetime_command(2026, 5, 21, 15, 9, 0, set_date=False)
     captured2 = "1a0120103ca210a1501b1105150f090000004cbc3d971d"
     assert frame2.hex() == captured2
+
+    # Captured from PB554 panel date change: 2025-04-26 23:10:00 (date+time, prefix=0x05)
+    # Wire: 1a0120103ca210a10519041b11170a000000e0b873261d
+    frame3 = adapter.build_datetime_command(2025, 4, 26, 23, 10, 0, set_date=True)
+    captured3 = "1a0120103ca210a10519041b11170a000000e0b873261d"
+    assert frame3.hex() == captured3
+
+
+# ── Dynamic command builder tests ────────────────────────────
+
+
+def _frame_payload(frame: bytes) -> bytes:
+    """Extract the 16-byte unescaped payload from a wire frame."""
+    return pseudo_unescape(frame[1:-1])[:16]
+
+
+def test_build_light_toggle(adapter: P25B85Adapter) -> None:
+    """Light toggle command has correct structure."""
+    frame = adapter.build_light_toggle_command()
+    assert frame[0] == 0x1A and frame[-1] == 0x1D
+    p = _frame_payload(frame)
+    assert p[4] == 0xA1  # button command type
+    assert p[9] == 0x40  # btn_group = light
+    assert p[10] == 0x40  # btn_action = toggle
+
+
+def test_build_pump_commands(adapter: P25B85Adapter) -> None:
+    """Pump commands encode correct bytes 7-8 for each target state."""
+    f_low = adapter.build_pump_command("low")
+    assert f_low is not None
+    p_low = _frame_payload(f_low)
+    assert p_low[7] == 0x02 and p_low[8] == 0x02
+
+    f_high = adapter.build_pump_command("high")
+    assert f_high is not None
+    p_high = _frame_payload(f_high)
+    assert p_high[7] == 0x06 and p_high[8] == 0x04
+
+    f_off = adapter.build_pump_command("off")
+    assert f_off is not None
+    p_off = _frame_payload(f_off)
+    assert p_off[7] == 0x04 and p_off[8] == 0x00
+
+    # Invalid target returns None
+    assert adapter.build_pump_command("turbo") is None
+
+
+def test_build_heater_commands(adapter: P25B85Adapter) -> None:
+    """Heater ON/OFF commands have correct btn_group and btn_action."""
+    on_frame = adapter.build_heater_command(on=True)
+    p = _frame_payload(on_frame)
+    assert p[9] == 0x08 and p[10] == 0x08
+
+    off_frame = adapter.build_heater_command(on=False)
+    p = _frame_payload(off_frame)
+    assert p[9] == 0x08 and p[10] == 0x00
+
+
+def test_build_blower_commands(adapter: P25B85Adapter) -> None:
+    """Blower ON/OFF commands have correct btn_group and btn_action."""
+    on_frame = adapter.build_blower_command(on=True)
+    p = _frame_payload(on_frame)
+    assert p[9] == 0x04 and p[10] == 0x0C
+
+    off_frame = adapter.build_blower_command(on=False)
+    p = _frame_payload(off_frame)
+    assert p[9] == 0x04 and p[10] == 0x00
+
+
+def test_build_temp_command(adapter: P25B85Adapter) -> None:
+    """Temperature command encodes °F correctly in byte 14."""
+    # 20°C → 68°F
+    frame = adapter.build_temp_command(20)
+    assert frame is not None
+    p = _frame_payload(frame)
+    assert p[9] == 0x80  # btn_group = temperature
+    assert p[10] == 0x98  # btn_action (confirmed working via live test)
+    assert p[14] == 68  # 20°C = 68°F
+
+    # 40°C → 104°F
+    frame = adapter.build_temp_command(40)
+    p = _frame_payload(frame)
+    assert p[14] == 104
+
+    # Out of range
+    assert adapter.build_temp_command(5) is None
+    assert adapter.build_temp_command(45) is None
+
+
+def test_build_ozone_mode_commands(adapter: P25B85Adapter) -> None:
+    """Ozone mode switch commands have correct structure."""
+    auto_frame = adapter.build_ozone_mode_command("auto")
+    p = _frame_payload(auto_frame)
+    assert p[9] == 0x00  # btn_group
+    assert p[10] == 0x00  # btn_action
+    assert p[11] == 0x80  # modifier (ozone mode)
+    assert p[12] == 0xC0  # context = auto
+
+    manual_frame = adapter.build_ozone_mode_command("manual")
+    p = _frame_payload(manual_frame)
+    assert p[11] == 0x80
+    assert p[12] == 0x40  # context = manual
+
+    with pytest.raises(ValueError):
+        adapter.build_ozone_mode_command("invalid")
+
+
+def test_build_ozone_manual_commands(adapter: P25B85Adapter) -> None:
+    """Ozone manual ON/OFF commands have correct structure."""
+    on_frame = adapter.build_ozone_manual_command(on=True)
+    p = _frame_payload(on_frame)
+    assert p[9] == 0x01  # btn_group = ozone manual
+    assert p[10] == 0x01  # btn_action = ON
+    assert p[12] == 0x40  # context = manual mode
+
+    off_frame = adapter.build_ozone_manual_command(on=False)
+    p = _frame_payload(off_frame)
+    assert p[9] == 0x01
+    assert p[10] == 0x10  # btn_action = OFF
+    assert p[12] == 0x40
+
+
+def test_build_ozone_commands_match_phase6(adapter: P25B85Adapter) -> None:
+    """Verify ozone commands match Phase 6 captured frames byte-for-byte.
+
+    Captured frames used setpoint 0x62 (98°F).
+    """
+    # Ozone mode → Manual
+    frame = adapter.build_ozone_mode_command("manual", setpoint_f=0x62)
+    assert frame == bytes.fromhex("1a0120103ca110a10000000080400062003a8412c71d")
+
+    # Ozone manual ON
+    frame = adapter.build_ozone_manual_command(on=True, setpoint_f=0x62)
+    assert frame == bytes.fromhex("1a0120103ca110a100000101004000620060b46dea1d")
+
+    # Ozone manual OFF
+    frame = adapter.build_ozone_manual_command(on=False, setpoint_f=0x62)
+    assert frame == bytes.fromhex("1a0120103ca110a1000001100040006200bd2b48431d")
+
+
+def test_celsius_to_fahrenheit() -> None:
+    """Test C→F conversion."""
+    assert celsius_to_fahrenheit(0) == 32
+    assert celsius_to_fahrenheit(100) == 212
+    assert celsius_to_fahrenheit(20) == 68
+    assert celsius_to_fahrenheit(40) == 104
 

@@ -40,12 +40,16 @@ P25B85_SIGNATURE = bytes([0x1A, 0xFF, 0x01, 0x3C, 0xD2, 0xB4, 0xFF, 0x08, 0x03])
 # Byte positions in the logical (unescaped) broadcast frame (0-based)
 IDX_WATER_TEMP = 9   # Fahrenheit
 IDX_PUMP_BYTE = 12   # ✅ confirmed: 0x02=low, 0x04=high (KDy "byte 13")
+IDX_OZONE_MODE = 13  # ✅ bit 7: 0=Auto, 1=Manual (confirmed from phase 6 captures)
 IDX_HEATER_STATE = 14  # ✅ confirmed (KDy "byte 15")
 IDX_SETPOINT = 16    # Fahrenheit
 IDX_LIGHT_FLAGS = 17   # ✅ confirmed (KDy "byte 18")
 IDX_ACTIVITY_FLAG = 28  # ✅ confirmed (KDy "byte 29"); set during heating and UV/ozone
 # Legacy alias kept for raw diagnostics/backward compatibility.
 IDX_UV_FLAG = IDX_ACTIVITY_FLAG
+
+# Ozone mode mask (byte 13)
+MASK_OZONE_MODE_MANUAL = 0x80  # bit 7 set = Manual mode
 IDX_DATETIME_START = 53  # bytes 53-58: year, month, day, hour, minute, second
 
 # Schedule byte positions in broadcast frame
@@ -110,94 +114,50 @@ MASK_BLOWER = 0x08
 # KDy describes three heating stages: circulation → heating → cooldown/off
 # Our captures confirm 0x40 and 0x50; heating and UV differ by 1 bit
 # from KDy's values (firmware variant or sub-state). Both sets are mapped.
+#
+# Bit 3 (0x08) is the blower flag — it is ORed onto the heater byte when
+# the blower is active. We strip it before lookup so every heater state
+# works correctly regardless of blower state.
+MASK_HEATER_BLOWER = 0x08  # bit 3 on heater byte = blower running
+
 HEATER_OFF = 0x40    # Idle/off (KDy called this "cooldown") ✅ confirmed
 HEATER_BLOWER = 0x48       # Blower active (0x40 + bit 3) ✅ Phase 6 confirmed
 HEATER_CIRCULATION = 0x50  # Circulation pump pre-heating (KDy: "circulation") ✅ confirmed
 HEATER_HEATING_STANDBY = 0x51  # Heating standby (circ started, heater engaging) ✅ Phase 6
 HEATER_HEATING = 0x55     # Actively heating (our capture) ✅ confirmed
 HEATER_HEATING_ALT = 0x54  # Actively heating (KDy's value, differs by bit 0)
-HEATER_DISINFECTION = 0x41    # Scheduled disinfection cycle (our capture) ✅ confirmed
-HEATER_DISINFECTION_ALT = 0xC1  # Manual disinfection / KDy variant ✅ Phase 6
+HEATER_OZONE = 0x41          # Ozone cycle — scheduled (our capture) ✅ confirmed
+HEATER_OZONE_ALT = 0xC1     # Ozone cycle — manual / KDy variant ✅ Phase 6
 
 HEATER_STATE_MAP: dict[int, str] = {
     HEATER_OFF: "off",
-    HEATER_BLOWER: "off",              # blower doesn't change heater status
     HEATER_CIRCULATION: "circulation",
     HEATER_HEATING_STANDBY: "heating",  # about to heat → report as heating
     HEATER_HEATING: "heating",
     HEATER_HEATING_ALT: "heating",      # KDy variant
-    HEATER_DISINFECTION: "disinfection",
-    HEATER_DISINFECTION_ALT: "disinfection",   # KDy variant / manual ozone
+    HEATER_OZONE: "ozone",
+    HEATER_OZONE_ALT: "ozone",         # KDy variant / manual ozone
 }
 
 # ──────────────────────────────────────────────────────────────
-# Command frames (captured from PB554 panel, replay-only)
-# CRC algorithm is proprietary; we ONLY replay verbatim frames.
+# Command payload constants
+# All commands are built dynamically via build_frame() + CRC.
+# Payload layout (16 bytes): see docs/protocol.md §4.1
 # ──────────────────────────────────────────────────────────────
 
-# Light toggle — same frame for ON and OFF (it's a toggle)
-CMD_LIGHT_TOGGLE = bytes.fromhex("1a0120103ca110a10000404000c00056003031eeb21d")
+# Common command header (bytes 0-6, shared across all type-0xA1 commands)
+_CMD_HEADER = bytes([0x01, 0x20, 0x10, 0x3C, 0xA1, 0x10, 0xA1])
 
-# Pump transitions (must match current state → target state)
-CMD_PUMP_OFF_TO_LOW = bytes.fromhex("1a0120103ca110a10202000000c00056007dd2146b1d")
-CMD_PUMP_LOW_TO_HIGH = bytes.fromhex("1a0120103ca110a10604000000c0005600fc1221c61d")
-CMD_PUMP_HIGH_TO_OFF = bytes.fromhex("1a0120103ca110a10400000000c0005600735738e91d")
-
-# Heater manual ON/OFF (Phase 5 captures)
-# byte[10-11] = 0x08,0x08 for ON; 0x08,0x00 for OFF
-# byte[15] = 0x64 (100°F) was the setpoint at capture time
-CMD_HEATER_ON = bytes.fromhex("1a0120103ca110a10000080800c0006400d3cab4791d")
-CMD_HEATER_OFF = bytes.fromhex("1a0120103ca110a10000080000c000640035b18d0a1d")
-
-# Blower ON/OFF (Phase 5 captures)
-# byte[10-11] = 0x04,0x0C for ON; 0x04,0x08 for OFF
-# Broadcast: byte[14] bit 3 (0x08) = blower active, byte[28] bit 3 (0x08) = blower
-CMD_BLOWER_ON = bytes.fromhex("1a0120103ca110a10000040c00c00064000029c8f51d")
-CMD_BLOWER_OFF = bytes.fromhex("1a0120103ca110a10000040800c0006400f39454cc1d")
-
-# Pump state → next command mapping for cycling
-PUMP_CYCLE_MAP: dict[str, tuple[bytes, str]] = {
-    "off": (CMD_PUMP_OFF_TO_LOW, "low"),
-    "low": (CMD_PUMP_LOW_TO_HIGH, "high"),
-    "high": (CMD_PUMP_HIGH_TO_OFF, "off"),
-}
-
-# Temperature setpoint command frames (captured from PB554 panel).
-# Keys are target °C; values are raw wire-format hex frames (replay verbatim).
-# 31 frames covering 10°C (50°F) to 40°C (104°F) in 1°C steps.
-# The °C→°F mapping follows the panel's +1,+2,+2,+2,+2 repeating pattern.
-TEMP_COMMAND_TABLE: dict[int, bytes] = {
-    10: bytes.fromhex("1a0120103ca110a10000809800c0003200cb80efa11d"),   # 50°F
-    11: bytes.fromhex("1a0120103ca110a10000808800c000330080db45461d"),   # 51°F
-    12: bytes.fromhex("1a0120103ca110a10000808800c0003500923096421d"),   # 53°F
-    13: bytes.fromhex("1a0120103ca110a10000808800c00037009c6927411d"),   # 55°F
-    14: bytes.fromhex("1a0120103ca110a10000808800c0003900b6e6314b1d"),   # 57°F
-    15: bytes.fromhex("1a0120103ca110a10000808800c0003b00b8bf80481d"),   # 59°F
-    16: bytes.fromhex("1a0120103ca110a10000808800c0003c002df88b4d1d"),   # 60°F
-    17: bytes.fromhex("1a0120103ca110a10000808800c0003e0023a13a4e1d"),   # 62°F
-    18: bytes.fromhex("1a0120103ca110a10000808800c0004000595798141d"),   # 64°F
-    19: bytes.fromhex("1a0120103ca110a10000808800c0004200570e29171d"),   # 66°F
-    20: bytes.fromhex("1a0120103ca110a10000808800c000440045e5fa131d"),   # 68°F
-    21: bytes.fromhex("1a0120103ca110a10000808800c0004500c24922121d"),   # 69°F
-    22: bytes.fromhex("1a0120103ca110a10000808800c0004700cc1093111d"),   # 71°F
-    23: bytes.fromhex("1a0120103ca110a10000808800c0004900e69f851b0b1d"),  # 73°F (escaped CRC)
-    24: bytes.fromhex("1a0120103ca110a10000808800c0004b00e8c634181d"),   # 75°F
-    25: bytes.fromhex("1a0120103ca110a10000809800c0004d0036da95fa1d"),   # 77°F
-    26: bytes.fromhex("1a0120103ca110a10000809800c0004e00bf2ffcf81d"),   # 78°F
-    27: bytes.fromhex("1a0120103ca110a10000808800c0005000299f12091d"),   # 80°F
-    28: bytes.fromhex("1a0120103ca110a10000808800c000520027c6a30a1d"),   # 82°F
-    29: bytes.fromhex("1a0120103ca110a10000808800c0005400352d700e1d"),   # 84°F
-    30: bytes.fromhex("1a0120103ca110a10000808800c00056003b74c10d1d"),   # 86°F
-    31: bytes.fromhex("1a0120103ca110a10000808800c0005700bcd8190c1d"),   # 87°F
-    32: bytes.fromhex("1a0120103ca110a10000809900c00059004bc82aaf1d"),   # 89°F
-    33: bytes.fromhex("1a0120103ca110a10000809900c0005b0045919bac1d"),   # 91°F
-    34: bytes.fromhex("1a0120103ca110a10000809900c0005d00577a48a81d"),   # 93°F
-    35: bytes.fromhex("1a0120103ca110a10000809900c0005f005923f9ab1d"),   # 95°F
-    36: bytes.fromhex("1a0120103ca110a10000809900c00060006458a8861d"),   # 96°F
-    37: bytes.fromhex("1a0120103ca110a10000809900c00062006a0119851d"),   # 98°F
-    38: bytes.fromhex("1a0120103ca110a10000809900c000640078eaca811d"),   # 100°F
-    39: bytes.fromhex("1a0120103ca110a10000809900c000660076b37b821d"),   # 102°F
-    40: bytes.fromhex("1a0120103ca110a10000809900c00068005c3c6d881d"),   # 104°F
+# Pump transition encodings — (pump_b7, pump_b8)
+# Captured transitions: off→low, low→high, high→off (panel button cycle).
+# Additional direct transitions use the same target-state bytes — the
+# Pump target commands — the controller accepts any target regardless of current
+# state. Bytes 7-8 encode the desired pump state, not a transition.
+# Live confirmed: off→low ✅, off→high ✅, low→off ✅, high→off ✅ (sessions 2+5).
+_PUMP_TARGET_BYTES: dict[str, tuple[int, int]] = {
+    "off":  (0x04, 0x00),
+    "low":  (0x02, 0x02),
+    "high": (0x06, 0x04),
 }
 
 TEMP_MIN_C = 10
@@ -215,13 +175,24 @@ def _fahrenheit_to_celsius(f: int) -> int | None:
     return round((f - 32) * 5 / 9)
 
 
+def _celsius_to_fahrenheit(c: int) -> int:
+    """Convert Celsius to Fahrenheit (integer, standard rounding)."""
+    return round(c * 9 / 5 + 32)
+
+
 class P25B85Adapter:
-    """Adapter for the Joyonway P25B85 controller."""
+    """Adapter for the Joyonway P25B85 controller.
+
+    All command frames are built dynamically using the cracked CRC-32.
+    No replay-only frames — every command is computed from payload + CRC.
+    """
 
     model: str = "P25B85"
     broadcast_signature: bytes = P25B85_SIGNATURE
     unescape_full_frame: bool = True
     supports_writes: bool = True
+
+    # ── Broadcast parsing ─────────────────────────────────────
 
     def parse_status(self, frame: bytes) -> dict | None:
         """Extract state dict from an unescaped broadcast frame.
@@ -237,11 +208,15 @@ class P25B85Adapter:
         water_temp_f = frame[IDX_WATER_TEMP]
         setpoint_f = frame[IDX_SETPOINT]
         pump_byte = frame[IDX_PUMP_BYTE]
+        ozone_mode_byte = frame[IDX_OZONE_MODE]
         heater_byte = frame[IDX_HEATER_STATE]
         light_byte = frame[IDX_LIGHT_FLAGS]
         activity_byte = frame[IDX_UV_FLAG]
 
-        status = HEATER_STATE_MAP.get(heater_byte, "unknown")
+        # Bit 3 of the heater byte is the blower flag — strip it so the
+        # status lookup works regardless of whether the blower is running.
+        heater_base = heater_byte & ~MASK_HEATER_BLOWER
+        status = HEATER_STATE_MAP.get(heater_base, "unknown")
 
         # Derive jets state string
         if pump_byte & MASK_PUMP_HIGH:
@@ -251,6 +226,9 @@ class P25B85Adapter:
         else:
             jets = "off"
 
+        # Ozone mode: bit 7 of byte 13 (0=Auto, 1=Manual)
+        ozone_mode_manual = bool(ozone_mode_byte & MASK_OZONE_MODE_MANUAL)
+
         result: dict = {
             "water_temperature": _fahrenheit_to_celsius(water_temp_f),
             "setpoint": _fahrenheit_to_celsius(setpoint_f),
@@ -258,9 +236,11 @@ class P25B85Adapter:
             "pump_high": bool(pump_byte & MASK_PUMP_HIGH),
             "jets": jets,
             "light": bool(light_byte & MASK_LIGHT),
-            "heater_active": heater_byte in (HEATER_HEATING, HEATER_HEATING_ALT),
+            "heater_active": heater_base in (HEATER_HEATING, HEATER_HEATING_ALT),
             "status": status,
-            "disinfection_active": heater_byte in (HEATER_DISINFECTION, HEATER_DISINFECTION_ALT),
+            "heater_byte": heater_byte,
+            "ozone_active": heater_base in (HEATER_OZONE, HEATER_OZONE_ALT),
+            "ozone_mode": "manual" if ozone_mode_manual else "auto",
             "blower": bool(activity_byte & MASK_BLOWER),
         }
 
@@ -314,38 +294,129 @@ class P25B85Adapter:
         """Return entity descriptions for P25B85."""
         return _P25B85_ENTITIES
 
+    # ── Jets / pump helpers ───────────────────────────────────
+
     def get_jets_state(self, data: dict) -> str:
         """Return current jets state as 'off', 'low', or 'high'."""
         return data.get("jets", "off")
 
-    def get_pump_command(self, current_state: str, target_state: str) -> bytes | None:
-        """Return command frame to transition pump from current to target state.
+    # ── Dynamic command builders ──────────────────────────────
+    # All commands use build_frame() to compute CRC dynamically.
 
-        Returns None if transition is not directly possible (need intermediate steps).
+    def _build_button_command(
+        self,
+        pump_b7: int = 0x00,
+        pump_b8: int = 0x00,
+        btn_group: int = 0x00,
+        btn_action: int = 0x00,
+        modifier: int = 0x00,
+        context: int = 0xC0,
+        setpoint_f: int = 0x62,
+    ) -> bytes:
+        """Build a type-0xA1 button command frame with CRC.
+
+        Args:
+            pump_b7/b8: pump transition bytes (non-zero for pump commands)
+            btn_group: button group identifier
+            btn_action: button action value
+            modifier: modifier byte (0x80 for ozone mode)
+            context: context byte (0xC0 normal, 0x40 ozone manual)
+            setpoint_f: current setpoint in °F (embedded for panel compat)
         """
-        if current_state == target_state:
+        from ..protocol import build_frame
+
+        payload = bytearray([
+            0x01, 0x20, 0x10, 0x3C, 0xA1, 0x10, 0xA1,
+            pump_b7, pump_b8,
+            btn_group, btn_action,
+            modifier, context,
+            0x00,
+            setpoint_f,
+            0x00,
+        ])
+        return build_frame(bytes(payload))
+
+    def build_light_toggle_command(self) -> bytes:
+        """Build a light toggle command."""
+        return self._build_button_command(btn_group=0x40, btn_action=0x40)
+
+    def build_pump_command(self, target: str) -> bytes | None:
+        """Build a pump command for the desired target state.
+
+        The controller accepts the target state directly — no transition
+        logic needed. Returns None if target is not a valid pump state.
+        """
+        if target not in _PUMP_TARGET_BYTES:
             return None
+        b7, b8 = _PUMP_TARGET_BYTES[target]
+        return self._build_button_command(pump_b7=b7, pump_b8=b8)
 
-        # Direct transitions
-        transitions = {
-            ("off", "low"): CMD_PUMP_OFF_TO_LOW,
-            ("low", "high"): CMD_PUMP_LOW_TO_HIGH,
-            ("high", "off"): CMD_PUMP_HIGH_TO_OFF,
-        }
-        return transitions.get((current_state, target_state))
+    def build_heater_command(self, on: bool) -> bytes:
+        """Build a heater ON or OFF command."""
+        return self._build_button_command(
+            btn_group=0x08,
+            btn_action=0x08 if on else 0x00,
+        )
 
-    def get_pump_cycle_command(self, data: dict) -> bytes | None:
-        """Return command to advance pump to next state in cycle."""
-        current = self.get_jets_state(data)
-        entry = PUMP_CYCLE_MAP.get(current)
-        return entry[0] if entry else None
+    def build_blower_command(self, on: bool) -> bytes:
+        """Build a blower ON or OFF command.
 
-    def get_temp_command(self, target_celsius: int) -> bytes | None:
-        """Return the command frame for a target temperature in °C.
-
-        Returns None if the temperature is out of range (10-40°C).
+        ON: btn_action=0x0C (0x04 device | 0x08 activate). Confirmed working.
+        OFF: btn_action=0x00 (clear — matches heater OFF pattern).
         """
-        return TEMP_COMMAND_TABLE.get(target_celsius)
+        return self._build_button_command(
+            btn_group=0x04,
+            btn_action=0x0C if on else 0x00,
+        )
+
+    def build_temp_command(self, target_celsius: int) -> bytes | None:
+        """Build a temperature setpoint command frame with CRC.
+
+        Converts °C to °F and builds the command dynamically.
+        Returns None if out of range.
+
+        btn_action=0x98 confirmed working via live test (0x80 failed).
+        """
+        if target_celsius < TEMP_MIN_C or target_celsius > TEMP_MAX_C:
+            return None
+        target_f = _celsius_to_fahrenheit(target_celsius)
+        return self._build_button_command(
+            btn_group=0x80,
+            btn_action=0x98,
+            setpoint_f=target_f,
+        )
+
+    def build_ozone_mode_command(self, mode: str, setpoint_f: int = 0x62) -> bytes:
+        """Build an ozone mode switch command (Auto or Manual).
+
+        Args:
+            mode: "auto" or "manual"
+            setpoint_f: current setpoint in °F (controller ignores)
+        """
+        if mode == "auto":
+            context = 0xC0
+        elif mode == "manual":
+            context = 0x40
+        else:
+            raise ValueError(f"Unsupported ozone mode: {mode}")
+
+        return self._build_button_command(
+            modifier=0x80,
+            context=context,
+            setpoint_f=setpoint_f,
+        )
+
+    def build_ozone_manual_command(self, on: bool, setpoint_f: int = 0x62) -> bytes:
+        """Build an ozone manual ON/OFF command.
+
+        Requires ozone mode to be set to Manual first.
+        """
+        return self._build_button_command(
+            btn_group=0x01,
+            btn_action=0x01 if on else 0x10,
+            context=0x40,
+            setpoint_f=setpoint_f,
+        )
 
     def build_schedule_command(
         self,
@@ -403,6 +474,8 @@ class P25B85Adapter:
         hour: int,
         minute: int,
         second: int,
+        *,
+        set_date: bool = True,
     ) -> bytes:
         """Build a DateTime set command frame with CRC.
 
@@ -413,15 +486,23 @@ class P25B85Adapter:
             hour: 0-23
             minute: 0-59
             second: 0-59
+            set_date: If True (default), writes date AND time (prefix=0x05).
+                If False, writes time only (prefix=0x50).
+
+        Note:
+            Captured from PB554 panel: prefix byte controls what is written.
+            - 0x05 = date + time (panel uses this for date changes)
+            - 0x50 = time only (panel uses this for time-only changes)
 
         Returns:
             Wire-ready frame bytes.
         """
         from ..protocol import build_frame
 
+        prefix = 0x05 if set_date else 0x50
         payload = bytearray([
             0x01, 0x20, 0x10, 0x3C, 0xA2, 0x10, 0xA1,
-            0x50,                    # fixed prefix
+            prefix,
             year - 2000,             # year offset
             month,
             day,
@@ -462,11 +543,11 @@ _P25B85_ENTITIES: list[SpaEntityDescription] = [
             "off": "mdi:waves",
             "circulation": "mdi:pump",
             "heating": "mdi:fire",
-            "disinfection": "mdi:shield-sun",
+            "ozone": "mdi:shield-sun",
             "unknown": "mdi:help-circle-outline",
         },
         device_class="enum",
-        options=["off", "circulation", "heating", "disinfection", "unknown"],
+        options=["off", "circulation", "heating", "ozone", "unknown"],
     ),
     SpaEntityDescription(
         platform="sensor",

@@ -1,8 +1,7 @@
 """Climate platform for Joyonway P25B85 — spa thermostat control.
 
-Uses replay-only command frames captured from the PB554 panel.
-No CRC computation — only verbatim captured frames are sent.
 Supports setpoint temperatures from 10°C to 40°C in 1°C steps.
+All command frames are built dynamically via CRC computation.
 
 Includes debouncing for the temperature slider: rapid successive
 set_temperature calls (e.g., from dragging the slider) are coalesced
@@ -103,7 +102,7 @@ class SpaClimate(CoordinatorEntity, ClimateEntity):
         Maps controller heater states to HA actions:
           - heating → HEATING (actively heating water)
           - circulation → PREHEATING (pump running pre-heat)
-          - off / disinfection / unknown → IDLE
+          - off / ozone / unknown → IDLE
         """
         if self.coordinator.data is None:
             return None
@@ -162,23 +161,23 @@ class SpaClimate(CoordinatorEntity, ClimateEntity):
 
             coordinator: JoyonwayP25B85Coordinator = self.coordinator
             adapter = coordinator.adapter
-            command = adapter.get_temp_command(scheduled_target)
+            command = adapter.build_temp_command(scheduled_target)
 
             if command is None:
                 _LOGGER.warning(
-                    "No captured command frame for %d°C - cannot set temperature",
+                    "Thermostat: cannot build command for %d°C",
                     scheduled_target,
                 )
                 return
 
+            _LOGGER.debug("Thermostat: sending setpoint %d°C", scheduled_target)
             success = await coordinator.async_send_command(command)
             if success:
-                _LOGGER.debug("Sent temperature command for %d°C", scheduled_target)
                 self._pending_temp = None
                 await coordinator.async_request_refresh()
             else:
                 _LOGGER.error(
-                    "Failed to send temperature command for %d°C",
+                    "Thermostat: setpoint command failed for %d°C",
                     scheduled_target,
                 )
         except asyncio.CancelledError:

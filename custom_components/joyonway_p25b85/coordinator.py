@@ -8,13 +8,24 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .adapters import get_adapter, ModelAdapter
-from .const import DOMAIN, SCAN_INTERVAL, TCP_TIMEOUT
+from .const import (
+    CLOCK_SYNC_COOLDOWN,
+    CLOCK_SYNC_DRIFT_THRESHOLD,
+    DOMAIN,
+    OPT_AUTO_SYNC_CLOCK,
+    OPT_OZONE_MODE,
+    OZONE_MODE_AUTO,
+    SCAN_INTERVAL,
+    TCP_TIMEOUT,
+)
 from .protocol import find_frames, unescape_frame, is_broadcast, validate_frame
 
 _LOGGER = logging.getLogger(__name__)
@@ -25,7 +36,9 @@ COMMAND_COOLDOWN = 1.0
 class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
     """Coordinator that polls the RS485 bridge for broadcast frames."""
 
-    def __init__(self, hass: HomeAssistant, host: str, port: int, model: str) -> None:
+    def __init__(
+        self, hass: HomeAssistant, host: str, port: int, model: str, entry: ConfigEntry
+    ) -> None:
         """Initialize the coordinator."""
         super().__init__(
             hass,
@@ -36,10 +49,13 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
         self.host = host
         self.port = port
         self.model = model
+        self.entry = entry
         self._adapter: ModelAdapter = get_adapter(model)
         self._available = False
         self._command_lock = asyncio.Lock()
         self._last_command_ts = 0.0
+        self._last_clock_sync_ts: float = 0.0
+        self.last_detected_ozone_mode: str | None = None
 
     @property
     def available(self) -> bool:
@@ -50,6 +66,16 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
     def adapter(self) -> ModelAdapter:
         """Return the model adapter."""
         return self._adapter
+
+    @property
+    def ozone_mode(self) -> str:
+        """Return the configured ozone mode (auto or manual)."""
+        return self.entry.options.get(OPT_OZONE_MODE, OZONE_MODE_AUTO)
+
+    @property
+    def auto_sync_clock(self) -> bool:
+        """Return whether automatic clock sync is enabled."""
+        return self.entry.options.get(OPT_AUTO_SYNC_CLOCK, False)
 
     async def _async_update_data(self) -> dict:
         """Fetch data from the RS485 bridge.
@@ -63,7 +89,67 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
                 f"No broadcast frame from RS485 bridge {self.host}:{self.port}"
             )
         self._available = True
+
+        # Sync ozone mode config option with the spa's actual setting
+        # (byte 13 bit 7 in the broadcast reports Auto/Manual)
+        spa_ozone_mode = data.get("ozone_mode")
+        if spa_ozone_mode is not None:
+            self.last_detected_ozone_mode = spa_ozone_mode
+            if spa_ozone_mode != self.ozone_mode:
+                _LOGGER.info(
+                    "Ozone mode: spa reports '%s', updating config (was '%s')",
+                    spa_ozone_mode, self.ozone_mode,
+                )
+                new_options = {**self.entry.options, OPT_OZONE_MODE: spa_ozone_mode}
+                self.hass.config_entries.async_update_entry(
+                    self.entry, options=new_options
+                )
+
+        # Auto clock sync if enabled
+        if self.auto_sync_clock:
+            await self._check_clock_drift(data)
+
         return data
+
+    async def _check_clock_drift(self, data: dict) -> None:
+        """Sync spa clock if drift exceeds threshold (with cooldown)."""
+        spa_dt = data.get("spa_datetime")
+        if spa_dt is None:
+            return
+
+        loop = asyncio.get_running_loop()
+        now_ts = loop.time()
+        if now_ts - self._last_clock_sync_ts < CLOCK_SYNC_COOLDOWN:
+            return
+
+        now = dt_util.now()
+        try:
+            if isinstance(spa_dt, datetime):
+                drift = abs((now - spa_dt).total_seconds())
+            else:
+                # spa_dt might be a string
+                return
+        except (TypeError, ValueError):
+            return
+
+        if drift > CLOCK_SYNC_DRIFT_THRESHOLD:
+            _LOGGER.info(
+                "Spa clock drift is %.0fs, syncing to HA time", drift
+            )
+            frame = self._adapter.build_datetime_command(
+                year=now.year,
+                month=now.month,
+                day=now.day,
+                hour=now.hour,
+                minute=now.minute,
+                second=now.second,
+            )
+            success = await self.async_send_command(frame)
+            if success:
+                self._last_clock_sync_ts = now_ts
+                _LOGGER.debug("Auto clock sync completed")
+            else:
+                _LOGGER.warning("Auto clock sync failed")
 
     async def _read_broadcast(self) -> dict | None:
         """Connect to bridge and read one broadcast frame."""

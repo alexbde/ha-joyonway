@@ -16,12 +16,10 @@ This integration brings **local monitoring and control** of a **Joyonway P25B85*
 
 The P25B85 controls spas like the **Home Deluxe White Marble** outdoor whirlpool and similar rigid/hardshell hot tubs with a PB554 colour touchpad.
 
-> **Status: Entities and write control implemented** — the P25B85 byte map has
-> been validated against local RS485 captures for temperature, setpoint, pump,
-> light, heater, blower, and disinfection states. CRC-32 is cracked and verified
-> (44/44 unique frames) and implemented in `protocol.py`. Schedule enable/disable
-> uses the cracked flags byte encoding. Temperature writes still use captured
-> replay frames / lookup tables.
+> **Status: Pre-release / testing** — all write commands verified on the
+> developer's physical spa (light, heater, blower, jets, temperature setpoint,
+> heat/filter schedules, clock sync). Safety fixes applied: the integration
+> never sends commands automatically on startup. **Use at your own risk.**
 
 > **Discussion thread:** [JoyOnWay Spa Control — Home Assistant Community](https://community.home-assistant.io/t/joyonway-spa-control/582344)
 
@@ -37,7 +35,7 @@ The P25B85 controls spas like the **Home Deluxe White Marble** outdoor whirlpool
 | **Pump**         | 1× dual-speed (low = filtration, high = massage jets)         |
 | **Light**        | RGB LED (9 colour states via button press)                    |
 | **Heater**       | 2 kW resistive, thermostat-controlled                         |
-| **UV/ozone port**| Disinfection cycle (Auto or Manual mode controllable via RS485) |
+| **Ozone port**   | Ozone/UV (Auto or Manual mode via RS485)                    |
 
 ## Features
 
@@ -45,33 +43,35 @@ The P25B85 controls spas like the **Home Deluxe White Marble** outdoor whirlpool
 - **Setpoint temperature** monitoring (°C)
 - **Thermostat control** (10°C to 40°C) with debounced slider writes
 - **Jets control** (off/low/high) via fan preset modes
-- **Filtration** manual on/off switch
-- **Light** on/off via replay toggle command
-- **Heater** manual on/off via replay command
-- **Blower** on/off via replay command
+- **Ozone** manual on/off (available when mode set to Manual in options)
+- **Light** on/off via toggle command
+- **Heater** manual on/off
+- **Blower** on/off
 - **Heat schedule** — 2 time slots with start/end times and enable/disable
 - **Filter schedule** — 2 time slots with start/end times and enable/disable
-- **Clock sync** — sync spa clock to Home Assistant time (disabled by default)
-- **Status sensor** — off / circulation / heating / disinfection (with dynamic icons)
+- **Clock sync** — manual button (auto-sync available via options, disabled by default)
+- **Options flow** — ozone mode (Auto/Manual, synced with spa) and auto clock sync toggle
+- **Status sensor** — off / circulation / heating / ozone (with dynamic icons)
 - **Jets sensor** — off / low / high
+- All commands built dynamically via cracked CRC-32 (no replay tables)
 - Fully local, no cloud, no internet
 - English, French, and German UI translations
 
 ### What this integration does NOT do
 
-- ❌ No ozone/disinfection manual control entity yet (command frames captured, implementation pending)
-- ❌ Temperature commands still use replay lookup table (dynamic generation possible but needs live testing)
+- ❌ Ozone control not yet live-tested
+- ❌ Light colour mode control (may be panel-local only)
 
 ## Safety Philosophy
 
 The P25B85 uses a 4-byte CRC-32 on all command frames. The CRC algorithm has been fully reverse-engineered (standard CRC-32 polynomial `0x04C11DB7` with word-swap preprocessing) and verified against 44 unique captured frames covering all command types.
 
-- ✅ CRC algorithm is implemented and verified for dynamic frame building
-- ✅ Current runtime writes send captured frames with known-good CRC bytes
-- ✅ All commands are validated against observed state changes from physical captures
+- ✅ CRC algorithm implemented and verified — all commands built dynamically
+- ✅ Every command uses computed CRC (no replay-only frames)
+- ✅ All commands validated against observed state changes from physical captures
 - ✅ Write pacing enforces a 1-second cooldown between commands
 
-> **Note:** KDy documented that sending a frame with an invalid CRC can activate the heater unexpectedly. This integration uses the verified CRC algorithm for schedule writes and captured commands with known-good CRC for button actions.
+> **Note:** KDy documented that sending a frame with an invalid CRC can activate the heater unexpectedly. This integration uses the verified CRC algorithm for all commands.
 
 ## Requirements
 
@@ -112,6 +112,15 @@ After restart, go to **Settings → Devices & Services → Add integration** and
 
 The integration performs a TCP connection test before saving.
 
+### Options
+
+After setup, go to **Settings → Devices & Services → Joyonway P25B85 → Configure** to access options:
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| Ozone mode | Auto | **Auto**: ozone runs on its schedule only (ozone switch hidden). **Manual**: enables the ozone switch for RS485 control. Setting is synced with the spa — the integration reads the current mode from the broadcast on startup. |
+| Auto-sync clock | OFF | Automatically syncs the spa clock when drift exceeds 30 seconds (1-hour cooldown). Disabled by default to avoid unsolicited writes. |
+
 > **⚠️ Connection note:** The Elfin EW11 supports up to 4 simultaneous TCP connections. Home Assistant uses one; you can still use debug/capture tools in parallel.
 
 ## Entities
@@ -122,7 +131,7 @@ The integration performs a TCP connection test before saving.
 |-------------------|----------------------------------------------------------------------------|
 | Water temperature | Current water temp in °C                                                   |
 | Setpoint          | Current target temperature in °C                                           |
-| Status            | off / circulation / heating / disinfection (icon changes per state)         |
+| Status            | off / circulation / heating / ozone (icon changes per state)           |
 | Jets (Düsen)      | off / low / high                                                           |
 | Spa clock         | Controller date/time as timestamp sensor (diagnostic, disabled by default) |
 
@@ -136,10 +145,10 @@ The integration performs a TCP connection test before saving.
 
 | Entity             | Description                                   |
 |--------------------|-----------------------------------------------|
-| Heater             | Heater manual on/off (distinct replay frames) |
-| Filtration         | Manual filtration on/off (pump low speed)      |
-| Light              | Light on/off (toggle replay with state guard) |
-| Blower             | Air blower on/off (distinct replay frames)    |
+| Heater             | Heater manual on/off                          |
+| Ozone              | Ozone on/off (only when mode = Manual)        |
+| Light              | Light on/off (toggle with state guard)        |
+| Blower             | Air blower on/off                             |
 | Heat slot 1 / 2   | Enable/disable heating schedule slots         |
 | Filter slot 1 / 2 | Enable/disable filtration schedule slots      |
 
@@ -178,13 +187,13 @@ Roadmap and session handoff live in `docs/plan.md`.
 Current high-level status:
 
 - Capture + byte-map validation: done (Phase 6 complete)
-- Integration entities: implemented (including schedule time/switch entities)
+- Integration entities: all implemented (temp, pump, light, heater, blower, ozone, schedules)
 - CRC cracking + protocol implementation: done (44/44 frames verified)
-- Schedule writes: dynamic frame generation with flags byte enable/disable
+- All commands: dynamic frame generation via cracked CRC-32
 - Schedule enable/disable: flags byte lookup table (cracked and implemented)
-- Button/heater/blower writes: replay frames (is-state)
-- Ozone control: command frames captured, entity not yet implemented
-- Next: live spa testing, then migrate remaining writes to algorithm-based frames
+- Ozone control: mode synced via options flow, switch sends manual ON/OFF
+- Safety: no automatic writes on startup, schedule overwrite guards
+- Next: live ozone test, then polish and release
 
 ## Testing
 

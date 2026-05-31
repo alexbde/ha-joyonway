@@ -3,8 +3,7 @@
 The spa has a single dual-speed pump (off / low / high).
 Exposed as a fan entity with preset modes for natural HA integration.
 
-Uses replay-only command frames captured from the PB554 panel.
-No CRC computation — only verbatim captured frames are sent.
+All command frames are built dynamically via CRC computation.
 """
 from __future__ import annotations
 
@@ -17,11 +16,6 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .adapters.p25b85 import (
-    CMD_PUMP_HIGH_TO_OFF,
-    CMD_PUMP_LOW_TO_HIGH,
-    CMD_PUMP_OFF_TO_LOW,
-)
 from .const import DOMAIN
 from .coordinator import JoyonwayP25B85Coordinator
 from .entity import device_info
@@ -86,49 +80,32 @@ class SpaPumpFan(CoordinatorEntity, FanEntity):
             return PRESET_LOW
         return None
 
-    async def async_turn_on(self, preset_mode: str | None = None, **kwargs) -> None:
+    async def async_turn_on(
+        self,
+        percentage: int | None = None,
+        preset_mode: str | None = None,
+        **kwargs,
+    ) -> None:
         """Turn pump on. Default to low if no preset specified."""
         target = preset_mode or PRESET_LOW
-        await self._set_pump(target)
+        await self._send_pump_command(target)
 
     async def async_turn_off(self, **kwargs) -> None:
-        """Turn pump off from any state."""
-        coordinator: JoyonwayP25B85Coordinator = self.coordinator
-        adapter = coordinator.adapter
-        current = adapter.get_jets_state(coordinator.data or {})
-
-        if current == "off":
-            return
-
-        if current == "high":
-            success = await coordinator.async_send_command(CMD_PUMP_HIGH_TO_OFF)
-            if not success:
-                raise HomeAssistantError("Failed to send pump high->off command")
-        elif current == "low":
-            # Must go low→high→off (no direct low→off command)
-            success = await coordinator.async_send_command(CMD_PUMP_LOW_TO_HIGH)
-            if not success:
-                raise HomeAssistantError("Failed to send pump low->high command")
-
-            if await self._refresh_and_get_jets_state() != "high":
-                raise HomeAssistantError(
-                    "Pump transition low->high not confirmed; refusing high->off step"
-                )
-
-            success = await coordinator.async_send_command(CMD_PUMP_HIGH_TO_OFF)
-            if not success:
-                raise HomeAssistantError("Failed to send pump high->off command")
-
-        await coordinator.async_request_refresh()
+        """Turn pump off."""
+        await self._send_pump_command("off")
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         """Set pump to a specific preset mode."""
-        await self._set_pump(preset_mode)
+        await self._send_pump_command(preset_mode)
 
-    async def _set_pump(self, target: str) -> None:
-        """Transition pump to the target state (low or high)."""
-        if target not in (PRESET_LOW, PRESET_HIGH):
-            _LOGGER.warning("Unsupported preset_mode '%s'", target)
+    async def _send_pump_command(self, target: str) -> None:
+        """Send a pump command with retry for RS485 bus collisions.
+
+        The controller accepts the target state directly. We retry if the
+        bus was busy (half-duplex collision).
+        """
+        if target not in ("off", PRESET_LOW, PRESET_HIGH):
+            _LOGGER.warning("Unsupported pump target '%s'", target)
             return
 
         coordinator: JoyonwayP25B85Coordinator = self.coordinator
@@ -138,50 +115,42 @@ class SpaPumpFan(CoordinatorEntity, FanEntity):
         if current == target:
             return
 
-        if target == PRESET_LOW:
-            if current == "off":
-                success = await coordinator.async_send_command(CMD_PUMP_OFF_TO_LOW)
-                if not success:
-                    raise HomeAssistantError("Failed to send pump off->low command")
-            elif current == "high":
-                # high→off→low (two steps)
-                success = await coordinator.async_send_command(CMD_PUMP_HIGH_TO_OFF)
-                if not success:
-                    raise HomeAssistantError("Failed to send pump high->off command")
+        cmd = adapter.build_pump_command(target)
+        if cmd is None:
+            raise HomeAssistantError(f"No pump command for target '{target}'")
 
-                if await self._refresh_and_get_jets_state() != "off":
-                    raise HomeAssistantError(
-                        "Pump transition high->off not confirmed; refusing off->low step"
+        max_retries = 3
+        for attempt in range(1, max_retries + 1):
+
+            _LOGGER.debug(
+                "Jets %s→%s: sending command (attempt %d)",
+                current, target, attempt,
+            )
+            success = await coordinator.async_send_command(cmd)
+            if not success:
+                raise HomeAssistantError(
+                    f"Failed to send pump command (target={target})"
+                )
+            await coordinator.async_request_refresh()
+
+            # Check if the command took effect
+            new_state = adapter.get_jets_state(coordinator.data or {})
+            if new_state == target:
+                if attempt > 1:
+                    _LOGGER.info(
+                        "Jets %s→%s: succeeded on attempt %d",
+                        current, target, attempt,
                     )
+                return
 
-                success = await coordinator.async_send_command(CMD_PUMP_OFF_TO_LOW)
-                if not success:
-                    raise HomeAssistantError("Failed to send pump off->low command")
-        elif target == PRESET_HIGH:
-            if current == "off":
-                # off→low→high (two steps)
-                success = await coordinator.async_send_command(CMD_PUMP_OFF_TO_LOW)
-                if not success:
-                    raise HomeAssistantError("Failed to send pump off->low command")
+            _LOGGER.debug(
+                "Jets %s→%s: attempt %d did not take effect (state=%s)",
+                current, target, attempt, new_state,
+            )
 
-                if await self._refresh_and_get_jets_state() != "low":
-                    raise HomeAssistantError(
-                        "Pump transition off->low not confirmed; refusing low->high step"
-                    )
+        _LOGGER.warning(
+            "Jets %s→%s: command did not take effect after %d attempts",
+            current, target, max_retries,
+        )
 
-                success = await coordinator.async_send_command(CMD_PUMP_LOW_TO_HIGH)
-                if not success:
-                    raise HomeAssistantError("Failed to send pump low->high command")
-            elif current == "low":
-                success = await coordinator.async_send_command(CMD_PUMP_LOW_TO_HIGH)
-                if not success:
-                    raise HomeAssistantError("Failed to send pump low->high command")
-
-        await coordinator.async_request_refresh()
-
-    async def _refresh_and_get_jets_state(self) -> str:
-        """Refresh coordinator data and return the current jets state."""
-        coordinator: JoyonwayP25B85Coordinator = self.coordinator
-        await coordinator.async_request_refresh()
-        return coordinator.adapter.get_jets_state(coordinator.data or {})
 
