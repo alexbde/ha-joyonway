@@ -107,10 +107,10 @@ class SpaClimate(CoordinatorEntity, ClimateEntity):
         """
         if self.coordinator.data is None:
             return None
-        heater_state = self.coordinator.data.get("heater_state")
-        if heater_state == "heating":
+        status = self.coordinator.data.get("status")
+        if status == "heating":
             return HVACAction.HEATING
-        if heater_state == "circulation":
+        if status == "circulation":
             return HVACAction.PREHEATING
         return HVACAction.IDLE
 
@@ -120,7 +120,7 @@ class SpaClimate(CoordinatorEntity, ClimateEntity):
         if self.coordinator.data is None:
             return None
         return {
-            "heater_state": self.coordinator.data.get("heater_state"),
+            "status": self.coordinator.data.get("status"),
         }
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:

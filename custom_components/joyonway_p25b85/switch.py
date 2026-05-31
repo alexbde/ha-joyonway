@@ -1,7 +1,7 @@
-"""Switch platform for Joyonway P25B85 — light toggle and pump control.
+"""Switch platform for Joyonway P25B85 — light, heater, blower, schedule enables.
 
-Uses replay-only command frames captured from the PB554 panel.
-No CRC computation — only verbatim captured frames are sent.
+Uses replay-only command frames for light/heater/blower.
+Uses dynamic CRC-computed frames for schedule enable/disable.
 """
 from __future__ import annotations
 
@@ -18,6 +18,8 @@ from .adapters.p25b85 import (
     CMD_HEATER_OFF,
     CMD_HEATER_ON,
     CMD_LIGHT_TOGGLE,
+    CMD_PUMP_HIGH_TO_OFF,
+    CMD_PUMP_OFF_TO_LOW,
 )
 from .const import DOMAIN
 from .coordinator import JoyonwayP25B85Coordinator
@@ -32,9 +34,14 @@ async def async_setup_entry(
     coordinator: JoyonwayP25B85Coordinator = hass.data[DOMAIN][entry.entry_id]
 
     entities: list[SwitchEntity] = [
-        SpaLightSwitch(coordinator, entry),
         SpaHeaterSwitch(coordinator, entry),
+        SpaFilterSwitch(coordinator, entry),
+        SpaLightSwitch(coordinator, entry),
         SpaBlowerSwitch(coordinator, entry),
+        SpaScheduleSlotSwitch(coordinator, entry, "heat", 1),
+        SpaScheduleSlotSwitch(coordinator, entry, "heat", 2),
+        SpaScheduleSlotSwitch(coordinator, entry, "filter", 1),
+        SpaScheduleSlotSwitch(coordinator, entry, "filter", 2),
     ]
     async_add_entities(entities)
 
@@ -121,10 +128,10 @@ class SpaHeaterSwitch(CoordinatorEntity, SwitchEntity):
         """Return True if the heater is active (circulation or heating)."""
         if self.coordinator.data is None:
             return None
-        heater_state = self.coordinator.data.get("heater_state")
-        if heater_state is None:
+        status = self.coordinator.data.get("status")
+        if status is None:
             return None
-        return heater_state in ("circulation", "heating")
+        return status in ("circulation", "heating")
 
     async def async_turn_on(self, **kwargs) -> None:
         """Turn the heater on."""
@@ -152,7 +159,7 @@ class SpaBlowerSwitch(CoordinatorEntity, SwitchEntity):
 
     _attr_has_entity_name = True
     _attr_translation_key = "blower"
-    _attr_icon = "mdi:fan"
+    _attr_icon = "mdi:chart-bubble"
 
     def __init__(
         self,
@@ -189,4 +196,130 @@ class SpaBlowerSwitch(CoordinatorEntity, SwitchEntity):
         success = await coordinator.async_send_command(CMD_BLOWER_OFF)
         if not success:
             raise HomeAssistantError("Failed to send blower OFF command")
+        await coordinator.async_request_refresh()
+
+
+class SpaFilterSwitch(CoordinatorEntity, SwitchEntity):
+    """Switch entity for manual filtration (pump low = filtration)."""
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "filter"
+    _attr_icon = "mdi:air-filter"
+
+    def __init__(
+        self,
+        coordinator: JoyonwayP25B85Coordinator,
+        entry: ConfigEntry,
+    ) -> None:
+        """Initialize the filter switch."""
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_filter_switch"
+        self._attr_device_info = device_info(entry)
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return True if filtration is running (pump low)."""
+        if self.coordinator.data is None:
+            return None
+        jets = self.coordinator.data.get("jets", "off")
+        return jets == "low"
+
+    async def async_turn_on(self, **kwargs) -> None:
+        """Start filtration (pump low)."""
+        if self.is_on:
+            return
+        coordinator: JoyonwayP25B85Coordinator = self.coordinator
+        success = await coordinator.async_send_command(CMD_PUMP_OFF_TO_LOW)
+        if not success:
+            raise HomeAssistantError("Failed to send filtration ON command")
+        await coordinator.async_request_refresh()
+
+    async def async_turn_off(self, **kwargs) -> None:
+        """Stop filtration (pump off)."""
+        if self.is_on is False:
+            return
+        coordinator: JoyonwayP25B85Coordinator = self.coordinator
+        success = await coordinator.async_send_command(CMD_PUMP_HIGH_TO_OFF)
+        if not success:
+            raise HomeAssistantError("Failed to send filtration OFF command")
+        await coordinator.async_request_refresh()
+
+
+class SpaScheduleSlotSwitch(CoordinatorEntity, SwitchEntity):
+    """Switch entity to enable/disable a schedule time slot."""
+
+    _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        coordinator: JoyonwayP25B85Coordinator,
+        entry: ConfigEntry,
+        schedule_type: str,
+        slot: int,
+    ) -> None:
+        """Initialize the schedule slot switch."""
+        super().__init__(coordinator)
+        self._schedule_type = schedule_type
+        self._slot = slot
+        self._key = f"{schedule_type}_slot{slot}_enabled"
+        self._attr_unique_id = f"{entry.entry_id}_{self._key}"
+        self._attr_device_info = device_info(entry)
+        self._attr_translation_key = self._key
+        self._attr_icon = "mdi:calendar-check" if schedule_type == "heat" else "mdi:air-filter"
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return True if the schedule slot is enabled."""
+        if self.coordinator.data is None:
+            return None
+        return self.coordinator.data.get(self._key)
+
+    async def async_turn_on(self, **kwargs) -> None:
+        """Enable the schedule slot."""
+        if self.is_on:
+            return
+        await self._send_schedule(enabled=True)
+
+    async def async_turn_off(self, **kwargs) -> None:
+        """Disable the schedule slot."""
+        if self.is_on is False:
+            return
+        await self._send_schedule(enabled=False)
+
+    async def _send_schedule(self, enabled: bool) -> None:
+        """Send the full schedule command with the slot's enable flag toggled.
+
+        The flags byte (byte 7) in the command payload encodes which slots are
+        enabled. Times are sent unchanged — only the enable flag changes.
+        """
+        data = self.coordinator.data
+        if data is None:
+            raise HomeAssistantError("No data available from spa")
+
+        prefix = self._schedule_type
+        s1_start = data.get(f"{prefix}_slot1_start", (0, 0))
+        s1_end = data.get(f"{prefix}_slot1_end", (0, 0))
+        s2_start = data.get(f"{prefix}_slot2_start", (0, 0))
+        s2_end = data.get(f"{prefix}_slot2_end", (0, 0))
+        s1_enabled = data.get(f"{prefix}_slot1_enabled", False)
+        s2_enabled = data.get(f"{prefix}_slot2_enabled", False)
+
+        # Update the enable flag for the slot being toggled
+        if self._slot == 1:
+            s1_enabled = enabled
+        else:
+            s2_enabled = enabled
+
+        adapter = self.coordinator.adapter
+        frame = adapter.build_schedule_command(
+            self._schedule_type, s1_start, s1_end, s2_start, s2_end,
+            slot1_enabled=s1_enabled, slot2_enabled=s2_enabled,
+        )
+
+        coordinator: JoyonwayP25B85Coordinator = self.coordinator
+        success = await coordinator.async_send_command(frame)
+        if not success:
+            raise HomeAssistantError(
+                f"Failed to send {self._schedule_type} schedule command"
+            )
         await coordinator.async_request_refresh()

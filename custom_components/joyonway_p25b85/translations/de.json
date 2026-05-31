@@ -20,8 +20,9 @@
   "entity": {
     "sensor": {
       "water_temperature": { "name": "Wassertemperatur" },
-      "heater_state": {
-        "name": "Heizstatus",
+      "setpoint": { "name": "Solltemperatur" },
+      "status": {
+        "name": "Status",
         "state": {
           "off": "Aus",
           "circulation": "Zirkulation",
@@ -30,17 +31,15 @@
           "unknown": "Unbekannt"
         }
       },
-      "pump_state": {
-        "name": "Pumpenstatus",
+      "jets": {
+        "name": "Düsen",
         "state": {
           "off": "Aus",
           "low": "Leicht",
           "high": "Stark"
         }
       },
-      "spa_datetime": { "name": "Datum & Uhrzeit" },
-      "raw_pump_byte": { "name": "Pumpenbyte-Rohdaten" },
-      "raw_heater_byte": { "name": "Heizungsbyte-Rohdaten" }
+      "spa_datetime": { "name": "Datum & Uhrzeit" }
     },
     "binary_sensor": {
       "bridge_connectivity": { "name": "RS485-Bridge" }
@@ -48,7 +47,22 @@
     "switch": {
       "light": { "name": "Licht" },
       "heater": { "name": "Heizung" },
-      "blower": { "name": "Gebläse" }
+      "filter": { "name": "Filtration" },
+      "blower": { "name": "Gebläse" },
+      "heat_slot1_enabled": { "name": "Heiz-Slot 1" },
+      "heat_slot2_enabled": { "name": "Heiz-Slot 2" },
+      "filter_slot1_enabled": { "name": "Filter-Slot 1" },
+      "filter_slot2_enabled": { "name": "Filter-Slot 2" }
+    },
+    "time": {
+      "heat_slot1_start": { "name": "Heiz-Slot 1 Start" },
+      "heat_slot1_end": { "name": "Heiz-Slot 1 Ende" },
+      "heat_slot2_start": { "name": "Heiz-Slot 2 Start" },
+      "heat_slot2_end": { "name": "Heiz-Slot 2 Ende" },
+      "filter_slot1_start": { "name": "Filter-Slot 1 Start" },
+      "filter_slot1_end": { "name": "Filter-Slot 1 Ende" },
+      "filter_slot2_start": { "name": "Filter-Slot 2 Start" },
+      "filter_slot2_end": { "name": "Filter-Slot 2 Ende" }
     },
     "fan": {
       "jets": {
@@ -65,6 +79,9 @@
     },
     "climate": {
       "thermostat": { "name": "Thermostat" }
+    },
+    "button": {
+      "sync_clock": { "name": "Uhr synchronisieren" }
     }
   }
 }

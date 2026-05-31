@@ -20,8 +20,9 @@
   "entity": {
     "sensor": {
       "water_temperature": { "name": "Température de l'eau" },
-      "heater_state": {
-        "name": "État du chauffage",
+      "setpoint": { "name": "Température de consigne" },
+      "status": {
+        "name": "Statut",
         "state": {
           "off": "Arrêt",
           "circulation": "Circulation",
@@ -30,17 +31,15 @@
           "unknown": "Inconnu"
         }
       },
-      "pump_state": {
-        "name": "État de la pompe",
+      "jets": {
+        "name": "Jets",
         "state": {
           "off": "Arrêt",
           "low": "Faible",
           "high": "Fort"
         }
       },
-      "spa_datetime": { "name": "Date & heure" },
-      "raw_pump_byte": { "name": "Octet pompe brut" },
-      "raw_heater_byte": { "name": "Octet chauffage brut" }
+      "spa_datetime": { "name": "Date & heure" }
     },
     "binary_sensor": {
       "bridge_connectivity": { "name": "Pont RS485" }
@@ -48,7 +47,22 @@
     "switch": {
       "light": { "name": "Lumière" },
       "heater": { "name": "Chauffage" },
-      "blower": { "name": "Soufflerie" }
+      "filter": { "name": "Filtration" },
+      "blower": { "name": "Soufflerie" },
+      "heat_slot1_enabled": { "name": "Chauffage créneau 1" },
+      "heat_slot2_enabled": { "name": "Chauffage créneau 2" },
+      "filter_slot1_enabled": { "name": "Filtration créneau 1" },
+      "filter_slot2_enabled": { "name": "Filtration créneau 2" }
+    },
+    "time": {
+      "heat_slot1_start": { "name": "Chauffage créneau 1 début" },
+      "heat_slot1_end": { "name": "Chauffage créneau 1 fin" },
+      "heat_slot2_start": { "name": "Chauffage créneau 2 début" },
+      "heat_slot2_end": { "name": "Chauffage créneau 2 fin" },
+      "filter_slot1_start": { "name": "Filtration créneau 1 début" },
+      "filter_slot1_end": { "name": "Filtration créneau 1 fin" },
+      "filter_slot2_start": { "name": "Filtration créneau 2 début" },
+      "filter_slot2_end": { "name": "Filtration créneau 2 fin" }
     },
     "fan": {
       "jets": {
@@ -65,6 +79,9 @@
     },
     "climate": {
       "thermostat": { "name": "Thermostat" }
+    },
+    "button": {
+      "sync_clock": { "name": "Synchroniser l'horloge" }
     }
   }
 }

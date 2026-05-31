@@ -48,6 +48,49 @@ IDX_ACTIVITY_FLAG = 28  # ✅ confirmed (KDy "byte 29"); set during heating and 
 IDX_UV_FLAG = IDX_ACTIVITY_FLAG
 IDX_DATETIME_START = 53  # bytes 53-58: year, month, day, hour, minute, second
 
+# Schedule byte positions in broadcast frame
+# Layout per schedule: [s1_start_h] [s1_start_m] [s1_end_h] [s1_end_m]
+#                      [s2_start_h] [s2_start_m] [s2_end_h] [s2_end_m]
+# Start-hour bytes encode: hour | 0x40 when slot is enabled, plain hour when disabled
+MASK_SLOT_ENABLED = 0x40   # bit 6 on start-hour byte = slot enabled
+MASK_SLOT_HOUR = 0x3F      # lower 6 bits = hour value (0-23)
+
+# Heat schedule: broadcast bytes 19-26
+IDX_HEAT_SLOT1_START_H = 19   # Heat slot 1 start hour (+ enable flag)
+IDX_HEAT_SLOT1_START_M = 20   # Heat slot 1 start minute
+IDX_HEAT_SLOT1_END_H = 21     # Heat slot 1 end hour
+IDX_HEAT_SLOT1_END_M = 22     # Heat slot 1 end minute
+IDX_HEAT_SLOT2_START_H = 23   # Heat slot 2 start hour (+ enable flag)
+IDX_HEAT_SLOT2_START_M = 24   # Heat slot 2 start minute
+IDX_HEAT_SLOT2_END_H = 25     # Heat slot 2 end hour
+IDX_HEAT_SLOT2_END_M = 26     # Heat slot 2 end minute
+
+# Filter schedule: broadcast bytes 29-36
+IDX_FILTER_SLOT1_START_H = 29  # Filter slot 1 start hour (+ enable flag)
+IDX_FILTER_SLOT1_START_M = 30  # Filter slot 1 start minute
+IDX_FILTER_SLOT1_END_H = 31   # Filter slot 1 end hour
+IDX_FILTER_SLOT1_END_M = 32   # Filter slot 1 end minute
+IDX_FILTER_SLOT2_START_H = 33  # Filter slot 2 start hour (+ enable flag)
+IDX_FILTER_SLOT2_START_M = 34  # Filter slot 2 start minute
+IDX_FILTER_SLOT2_END_H = 35   # Filter slot 2 end hour
+IDX_FILTER_SLOT2_END_M = 36   # Filter slot 2 end minute
+
+# Schedule command flags byte (byte 7 of command payload)
+# Phase 6 finding: flags byte encodes slot enable state, NOT schedule type.
+# The same encoding is used for both heat (0xA3) and filter (0xA4) commands.
+# Encoding uses 2-bit pairs per slot (not single-bit flags).
+# Verified against Phase 6 captures:
+#   0xAA = both enabled         (heat_schedule_enable, filter_schedule_enable)
+#   0x62 = s1 on, s2 off        (heat_schedule_disable, filter_schedule_disable)
+#   0x9A = s1 off, s2 on        (heat_schedule_change)
+#   0x52 = both off             (computed: 0xAA ^ 0xC8 ^ 0x30)
+SCHED_FLAGS_TABLE: dict[tuple[bool, bool], int] = {
+    (True, True): 0xAA,
+    (True, False): 0x62,
+    (False, True): 0x9A,
+    (False, False): 0x52,
+}
+
 # Pump masks
 MASK_PUMP_LOW = 0x02   # filtration / circulation ✅
 MASK_PUMP_HIGH = 0x04  # massage jets ✅
@@ -68,19 +111,23 @@ MASK_BLOWER = 0x08
 # Our captures confirm 0x40 and 0x50; heating and UV differ by 1 bit
 # from KDy's values (firmware variant or sub-state). Both sets are mapped.
 HEATER_OFF = 0x40    # Idle/off (KDy called this "cooldown") ✅ confirmed
+HEATER_BLOWER = 0x48       # Blower active (0x40 + bit 3) ✅ Phase 6 confirmed
 HEATER_CIRCULATION = 0x50  # Circulation pump pre-heating (KDy: "circulation") ✅ confirmed
+HEATER_HEATING_STANDBY = 0x51  # Heating standby (circ started, heater engaging) ✅ Phase 6
 HEATER_HEATING = 0x55     # Actively heating (our capture) ✅ confirmed
 HEATER_HEATING_ALT = 0x54  # Actively heating (KDy's value, differs by bit 0)
 HEATER_DISINFECTION = 0x41    # Scheduled disinfection cycle (our capture) ✅ confirmed
-HEATER_DISINFECTION_ALT = 0xC1  # KDy variant (differs by bit 7)
+HEATER_DISINFECTION_ALT = 0xC1  # Manual disinfection / KDy variant ✅ Phase 6
 
 HEATER_STATE_MAP: dict[int, str] = {
     HEATER_OFF: "off",
+    HEATER_BLOWER: "off",              # blower doesn't change heater status
     HEATER_CIRCULATION: "circulation",
+    HEATER_HEATING_STANDBY: "heating",  # about to heat → report as heating
     HEATER_HEATING: "heating",
     HEATER_HEATING_ALT: "heating",      # KDy variant
     HEATER_DISINFECTION: "disinfection",
-    HEATER_DISINFECTION_ALT: "disinfection",   # KDy variant
+    HEATER_DISINFECTION_ALT: "disinfection",   # KDy variant / manual ozone
 }
 
 # ──────────────────────────────────────────────────────────────
@@ -194,34 +241,27 @@ class P25B85Adapter:
         light_byte = frame[IDX_LIGHT_FLAGS]
         activity_byte = frame[IDX_UV_FLAG]
 
-        heater_state = HEATER_STATE_MAP.get(heater_byte, "unknown")
+        status = HEATER_STATE_MAP.get(heater_byte, "unknown")
 
-        # Derive pump state string
+        # Derive jets state string
         if pump_byte & MASK_PUMP_HIGH:
-            pump_state = "high"
+            jets = "high"
         elif pump_byte & MASK_PUMP_LOW:
-            pump_state = "low"
+            jets = "low"
         else:
-            pump_state = "off"
+            jets = "off"
 
         result: dict = {
             "water_temperature": _fahrenheit_to_celsius(water_temp_f),
             "setpoint": _fahrenheit_to_celsius(setpoint_f),
             "pump_low": bool(pump_byte & MASK_PUMP_LOW),
             "pump_high": bool(pump_byte & MASK_PUMP_HIGH),
-            "pump_state": pump_state,
+            "jets": jets,
             "light": bool(light_byte & MASK_LIGHT),
             "heater_active": heater_byte in (HEATER_HEATING, HEATER_HEATING_ALT),
-            "heater_state": heater_state,
+            "status": status,
             "disinfection_active": heater_byte in (HEATER_DISINFECTION, HEATER_DISINFECTION_ALT),
             "blower": bool(activity_byte & MASK_BLOWER),
-            # Raw diagnostic values
-            "raw_pump_byte": pump_byte,
-            "raw_heater_byte": heater_byte,
-            "raw_light_byte": light_byte,
-            "raw_activity_byte": activity_byte,
-            "raw_water_temp_f": water_temp_f,
-            "raw_setpoint_f": setpoint_f,
         }
 
         # Parse datetime if frame is long enough.
@@ -246,19 +286,37 @@ class P25B85Adapter:
         else:
             result["spa_datetime"] = None
 
+        # Parse heat schedule from broadcast (bytes 19-26)
+        if len(frame) > IDX_HEAT_SLOT2_END_M:
+            raw_s1 = frame[IDX_HEAT_SLOT1_START_H]
+            raw_s2 = frame[IDX_HEAT_SLOT2_START_H]
+            result["heat_slot1_start"] = (raw_s1 & MASK_SLOT_HOUR, frame[IDX_HEAT_SLOT1_START_M])
+            result["heat_slot1_end"] = (frame[IDX_HEAT_SLOT1_END_H], frame[IDX_HEAT_SLOT1_END_M])
+            result["heat_slot1_enabled"] = bool(raw_s1 & MASK_SLOT_ENABLED)
+            result["heat_slot2_start"] = (raw_s2 & MASK_SLOT_HOUR, frame[IDX_HEAT_SLOT2_START_M])
+            result["heat_slot2_end"] = (frame[IDX_HEAT_SLOT2_END_H], frame[IDX_HEAT_SLOT2_END_M])
+            result["heat_slot2_enabled"] = bool(raw_s2 & MASK_SLOT_ENABLED)
+
+        # Parse filter schedule from broadcast (bytes 29-36)
+        if len(frame) > IDX_FILTER_SLOT2_END_M:
+            raw_s1 = frame[IDX_FILTER_SLOT1_START_H]
+            raw_s2 = frame[IDX_FILTER_SLOT2_START_H]
+            result["filter_slot1_start"] = (raw_s1 & MASK_SLOT_HOUR, frame[IDX_FILTER_SLOT1_START_M])
+            result["filter_slot1_end"] = (frame[IDX_FILTER_SLOT1_END_H], frame[IDX_FILTER_SLOT1_END_M])
+            result["filter_slot1_enabled"] = bool(raw_s1 & MASK_SLOT_ENABLED)
+            result["filter_slot2_start"] = (raw_s2 & MASK_SLOT_HOUR, frame[IDX_FILTER_SLOT2_START_M])
+            result["filter_slot2_end"] = (frame[IDX_FILTER_SLOT2_END_H], frame[IDX_FILTER_SLOT2_END_M])
+            result["filter_slot2_enabled"] = bool(raw_s2 & MASK_SLOT_ENABLED)
+
         return result
 
     def entity_descriptions(self) -> list[SpaEntityDescription]:
         """Return entity descriptions for P25B85."""
         return _P25B85_ENTITIES
 
-    def get_pump_state(self, data: dict) -> str:
-        """Return current pump state as 'off', 'low', or 'high'."""
-        if data.get("pump_high"):
-            return "high"
-        if data.get("pump_low"):
-            return "low"
-        return "off"
+    def get_jets_state(self, data: dict) -> str:
+        """Return current jets state as 'off', 'low', or 'high'."""
+        return data.get("jets", "off")
 
     def get_pump_command(self, current_state: str, target_state: str) -> bytes | None:
         """Return command frame to transition pump from current to target state.
@@ -278,7 +336,7 @@ class P25B85Adapter:
 
     def get_pump_cycle_command(self, data: dict) -> bytes | None:
         """Return command to advance pump to next state in cycle."""
-        current = self.get_pump_state(data)
+        current = self.get_jets_state(data)
         entry = PUMP_CYCLE_MAP.get(current)
         return entry[0] if entry else None
 
@@ -288,6 +346,91 @@ class P25B85Adapter:
         Returns None if the temperature is out of range (10-40°C).
         """
         return TEMP_COMMAND_TABLE.get(target_celsius)
+
+    def build_schedule_command(
+        self,
+        schedule_type: str,
+        slot1_start: tuple[int, int],
+        slot1_end: tuple[int, int],
+        slot2_start: tuple[int, int],
+        slot2_end: tuple[int, int],
+        slot1_enabled: bool = True,
+        slot2_enabled: bool = True,
+    ) -> bytes:
+        """Build a schedule command frame with CRC.
+
+        Args:
+            schedule_type: "heat" or "filter"
+            slot1_start: (hour, minute) for slot 1 start
+            slot1_end: (hour, minute) for slot 1 end
+            slot2_start: (hour, minute) for slot 2 start
+            slot2_end: (hour, minute) for slot 2 end
+            slot1_enabled: whether slot 1 is enabled
+            slot2_enabled: whether slot 2 is enabled
+
+        Returns:
+            Wire-ready frame bytes.
+        """
+        from ..protocol import build_frame
+
+        if schedule_type == "heat":
+            cmd_type = 0xA3
+        elif schedule_type == "filter":
+            cmd_type = 0xA4
+        else:
+            raise ValueError(f"Unsupported schedule type: {schedule_type}")
+
+        # Compute flags byte from enable state
+        flags = SCHED_FLAGS_TABLE[(slot1_enabled, slot2_enabled)]
+
+        # Command payload (16 bytes):
+        # [0-6] header, [7] flags, [8-15] slot times
+        payload = bytearray([
+            0x01, 0x20, 0x10, 0x3C, cmd_type, 0x10, 0xA1,
+            flags,
+            slot1_start[0], slot1_start[1],  # slot 1 start h, m
+            slot1_end[0], slot1_end[1],      # slot 1 end h, m
+            slot2_start[0], slot2_start[1],  # slot 2 start h, m
+            slot2_end[0], slot2_end[1],      # slot 2 end h, m
+        ])
+        return build_frame(bytes(payload))
+
+    def build_datetime_command(
+        self,
+        year: int,
+        month: int,
+        day: int,
+        hour: int,
+        minute: int,
+        second: int,
+    ) -> bytes:
+        """Build a DateTime set command frame with CRC.
+
+        Args:
+            year: Full year (e.g. 2026)
+            month: 1-12
+            day: 1-31
+            hour: 0-23
+            minute: 0-59
+            second: 0-59
+
+        Returns:
+            Wire-ready frame bytes.
+        """
+        from ..protocol import build_frame
+
+        payload = bytearray([
+            0x01, 0x20, 0x10, 0x3C, 0xA2, 0x10, 0xA1,
+            0x50,                    # fixed prefix
+            year - 2000,             # year offset
+            month,
+            day,
+            hour,
+            minute,
+            second,
+            0x00, 0x00,
+        ])
+        return build_frame(bytes(payload))
 
 
 _P25B85_ENTITIES: list[SpaEntityDescription] = [
@@ -303,17 +446,33 @@ _P25B85_ENTITIES: list[SpaEntityDescription] = [
     ),
     SpaEntityDescription(
         platform="sensor",
-        key="heater_state",
-        name="Heater state",
-        icon="mdi:fire",
+        key="setpoint",
+        name="Setpoint temperature",
+        icon="mdi:thermometer-check",
+        device_class="temperature",
+        state_class="measurement",
+        native_unit="°C",
+    ),
+    SpaEntityDescription(
+        platform="sensor",
+        key="status",
+        name="Status",
+        icon="mdi:waves",
+        icon_map={
+            "off": "mdi:waves",
+            "circulation": "mdi:pump",
+            "heating": "mdi:fire",
+            "disinfection": "mdi:shield-sun",
+            "unknown": "mdi:help-circle-outline",
+        },
         device_class="enum",
         options=["off", "circulation", "heating", "disinfection", "unknown"],
     ),
     SpaEntityDescription(
         platform="sensor",
-        key="pump_state",
-        name="Pump state",
-        icon="mdi:pump",
+        key="jets",
+        name="Jets",
+        icon="mdi:weather-windy",
         device_class="enum",
         options=["off", "low", "high"],
     ),
@@ -323,23 +482,6 @@ _P25B85_ENTITIES: list[SpaEntityDescription] = [
         name="Spa clock",
         icon="mdi:clock-outline",
         device_class="timestamp",
-        entity_category="diagnostic",
-        enabled_by_default=False,
-    ),
-    # Diagnostic raw values (disabled by default)
-    SpaEntityDescription(
-        platform="sensor",
-        key="raw_pump_byte",
-        name="Raw pump byte",
-        icon="mdi:memory",
-        entity_category="diagnostic",
-        enabled_by_default=False,
-    ),
-    SpaEntityDescription(
-        platform="sensor",
-        key="raw_heater_byte",
-        name="Raw heater byte",
-        icon="mdi:memory",
         entity_category="diagnostic",
         enabled_by_default=False,
     ),

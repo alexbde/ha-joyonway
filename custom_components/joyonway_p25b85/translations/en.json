@@ -20,8 +20,9 @@
   "entity": {
     "sensor": {
       "water_temperature": { "name": "Water temperature" },
-      "heater_state": {
-        "name": "Heater state",
+      "setpoint": { "name": "Setpoint temperature" },
+      "status": {
+        "name": "Status",
         "state": {
           "off": "Off",
           "circulation": "Circulation",
@@ -30,25 +31,38 @@
           "unknown": "Unknown"
         }
       },
-      "pump_state": {
-        "name": "Pump state",
+      "jets": {
+        "name": "Jets",
         "state": {
           "off": "Off",
           "low": "Low",
           "high": "High"
         }
       },
-      "spa_datetime": { "name": "Date & time" },
-      "raw_pump_byte": { "name": "Raw pump byte" },
-      "raw_heater_byte": { "name": "Raw heater byte" }
+      "spa_datetime": { "name": "Date & time" }
     },
     "binary_sensor": {
       "bridge_connectivity": { "name": "RS485 bridge" }
     },
     "switch": {
       "light": { "name": "Light" },
-      "heater": { "name": "Heater" },
-      "blower": { "name": "Blower" }
+      "heater": { "name": "Heating" },
+      "filter": { "name": "Filtration" },
+      "blower": { "name": "Blower" },
+      "heat_slot1_enabled": { "name": "Heat slot 1" },
+      "heat_slot2_enabled": { "name": "Heat slot 2" },
+      "filter_slot1_enabled": { "name": "Filter slot 1" },
+      "filter_slot2_enabled": { "name": "Filter slot 2" }
+    },
+    "time": {
+      "heat_slot1_start": { "name": "Heat slot 1 start" },
+      "heat_slot1_end": { "name": "Heat slot 1 end" },
+      "heat_slot2_start": { "name": "Heat slot 2 start" },
+      "heat_slot2_end": { "name": "Heat slot 2 end" },
+      "filter_slot1_start": { "name": "Filter slot 1 start" },
+      "filter_slot1_end": { "name": "Filter slot 1 end" },
+      "filter_slot2_start": { "name": "Filter slot 2 start" },
+      "filter_slot2_end": { "name": "Filter slot 2 end" }
     },
     "fan": {
       "jets": {
@@ -65,6 +79,9 @@
     },
     "climate": {
       "thermostat": { "name": "Thermostat" }
+    },
+    "button": {
+      "sync_clock": { "name": "Sync clock" }
     }
   }
 }

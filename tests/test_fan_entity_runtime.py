@@ -32,12 +32,8 @@ class DummyAdapter:
     """Minimal adapter stub used by the fan entity."""
 
     @staticmethod
-    def get_pump_state(data: dict) -> str:
-        if data.get("pump_high"):
-            return "high"
-        if data.get("pump_low"):
-            return "low"
-        return "off"
+    def get_jets_state(data: dict) -> str:
+        return data.get("jets", "off")
 
 
 class DummyCoordinator:
@@ -55,7 +51,7 @@ def _make_entry() -> SimpleNamespace:
 
 
 def test_fan_supported_features_include_power_actions() -> None:
-    coordinator = DummyCoordinator(data={"pump_low": False, "pump_high": False})
+    coordinator = DummyCoordinator(data={"jets": "off"})
     entity = SpaPumpFan(coordinator, _make_entry())
 
     assert entity.supported_features & FanEntityFeature.PRESET_MODE
@@ -64,7 +60,7 @@ def test_fan_supported_features_include_power_actions() -> None:
 
 
 def test_fan_turn_on_and_turn_off_paths() -> None:
-    coordinator = DummyCoordinator(data={"pump_low": False, "pump_high": False})
+    coordinator = DummyCoordinator(data={"jets": "off"})
     entity = SpaPumpFan(coordinator, _make_entry())
 
     # off -> low via turn_on default path

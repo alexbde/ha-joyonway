@@ -48,7 +48,7 @@ class SpaPumpFan(CoordinatorEntity, FanEntity):
 
     _attr_has_entity_name = True
     _attr_translation_key = "jets"
-    _attr_icon = "mdi:pump"
+    _attr_icon = "mdi:weather-windy"
     _attr_preset_modes = PRESET_MODES
     _attr_supported_features = (
         FanEntityFeature.PRESET_MODE
@@ -69,22 +69,20 @@ class SpaPumpFan(CoordinatorEntity, FanEntity):
 
     @property
     def is_on(self) -> bool | None:
-        """Return True if pump is running (any speed)."""
+        """Return True if jets are running (any speed)."""
         if self.coordinator.data is None:
             return None
-        return (
-            self.coordinator.data.get("pump_low", False)
-            or self.coordinator.data.get("pump_high", False)
-        )
+        return self.coordinator.data.get("jets", "off") != "off"
 
     @property
     def preset_mode(self) -> str | None:
         """Return current preset mode (low/high) or None if off."""
         if self.coordinator.data is None:
             return None
-        if self.coordinator.data.get("pump_high"):
+        jets = self.coordinator.data.get("jets", "off")
+        if jets == "high":
             return PRESET_HIGH
-        if self.coordinator.data.get("pump_low"):
+        if jets == "low":
             return PRESET_LOW
         return None
 
@@ -97,7 +95,7 @@ class SpaPumpFan(CoordinatorEntity, FanEntity):
         """Turn pump off from any state."""
         coordinator: JoyonwayP25B85Coordinator = self.coordinator
         adapter = coordinator.adapter
-        current = adapter.get_pump_state(coordinator.data or {})
+        current = adapter.get_jets_state(coordinator.data or {})
 
         if current == "off":
             return
@@ -112,7 +110,7 @@ class SpaPumpFan(CoordinatorEntity, FanEntity):
             if not success:
                 raise HomeAssistantError("Failed to send pump low->high command")
 
-            if await self._refresh_and_get_pump_state() != "high":
+            if await self._refresh_and_get_jets_state() != "high":
                 raise HomeAssistantError(
                     "Pump transition low->high not confirmed; refusing high->off step"
                 )
@@ -135,7 +133,7 @@ class SpaPumpFan(CoordinatorEntity, FanEntity):
 
         coordinator: JoyonwayP25B85Coordinator = self.coordinator
         adapter = coordinator.adapter
-        current = adapter.get_pump_state(coordinator.data or {})
+        current = adapter.get_jets_state(coordinator.data or {})
 
         if current == target:
             return
@@ -151,7 +149,7 @@ class SpaPumpFan(CoordinatorEntity, FanEntity):
                 if not success:
                     raise HomeAssistantError("Failed to send pump high->off command")
 
-                if await self._refresh_and_get_pump_state() != "off":
+                if await self._refresh_and_get_jets_state() != "off":
                     raise HomeAssistantError(
                         "Pump transition high->off not confirmed; refusing off->low step"
                     )
@@ -166,7 +164,7 @@ class SpaPumpFan(CoordinatorEntity, FanEntity):
                 if not success:
                     raise HomeAssistantError("Failed to send pump off->low command")
 
-                if await self._refresh_and_get_pump_state() != "low":
+                if await self._refresh_and_get_jets_state() != "low":
                     raise HomeAssistantError(
                         "Pump transition off->low not confirmed; refusing low->high step"
                     )
@@ -181,9 +179,9 @@ class SpaPumpFan(CoordinatorEntity, FanEntity):
 
         await coordinator.async_request_refresh()
 
-    async def _refresh_and_get_pump_state(self) -> str:
-        """Refresh coordinator data and return the current pump state."""
+    async def _refresh_and_get_jets_state(self) -> str:
+        """Refresh coordinator data and return the current jets state."""
         coordinator: JoyonwayP25B85Coordinator = self.coordinator
         await coordinator.async_request_refresh()
-        return coordinator.adapter.get_pump_state(coordinator.data or {})
+        return coordinator.adapter.get_jets_state(coordinator.data or {})
 

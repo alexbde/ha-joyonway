@@ -83,6 +83,7 @@ class JoyonwayBridgeConnectivity(CoordinatorEntity, BinarySensorEntity):
     _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
     _attr_translation_key = "bridge_connectivity"
     _attr_icon = "mdi:wifi-check"
+    _attr_entity_registry_enabled_default = False
 
     def __init__(
         self,

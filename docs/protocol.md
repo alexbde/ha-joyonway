@@ -37,8 +37,8 @@ to the content between delimiters.
 
 ### 2. CRC-32
 
-All command frames carry a 4-byte CRC. Verified against 21 unique
-same-session frames covering all command types.
+All command frames carry a 4-byte CRC. Verified against 44 unique
+frames across multiple capture sessions (21 session-1 + 23 phase-6).
 
 | Parameter | Value |
 |-----------|-------|
@@ -94,9 +94,15 @@ These are long frames (60+ bytes) prefixed with destination `0xFF`.
 | 14 | Heater/blower flags (see below) |
 | 16 | Setpoint temperature (°F) |
 | 17 | Light flags (bit 0 = light ON) |
-| 19 | Schedule config byte (changes on heat/filter schedule writes) |
+| 19 | Heat slot 1 start hour + enable flag (hour \| 0x40 if enabled) |
+| 21 | Heat slot 1 end hour |
+| 23 | Heat slot 2 start hour + enable flag (hour \| 0x40 if enabled) |
+| 25 | Heat slot 2 end hour |
 | 28 | Activity flags (bit 3=blower, bit 5=activity/disinfection-related) |
-| 29 | Filter schedule config (observed: `0x4C` → `0xCD` on write) |
+| 29 | Filter slot 1 start hour + enable flag (hour \| 0x40 if enabled) |
+| 31 | Filter slot 1 end hour |
+| 33 | Filter slot 2 start hour + enable flag (hour \| 0x40 if enabled) |
+| 35 | Filter slot 2 end hour |
 | 53–58 | Date/time: year, month, day, hour, minute, second |
 
 **Byte 14 — heater/blower states:**
@@ -104,10 +110,19 @@ These are long frames (60+ bytes) prefixed with destination `0xFF`.
 | Value | Meaning |
 |-------|---------|
 | `0x40` | Idle (heater off, blower off) |
+| `0x48` | Blower active (base `0x40` + bit 3) |
 | `0x50` | Circulation pump running |
-| `0x54` / `0x55` | Heater active |
-| `0x41` / `0xC1` | Disinfection cycle |
-| `0x58` | Blower active (base `0x50` + bit 3) |
+| `0x51` | Heating standby (circulation started, heater about to engage) |
+| `0x54` / `0x55` | Heater actively heating |
+| `0x41` / `0xC1` | Disinfection cycle (ozone) |
+| `0x58` | Blower + circulation (base `0x50` + bit 3) |
+
+**Byte 14 bit fields:**
+- Bit 0: disinfection active (`0x01`)
+- Bit 3: blower active (`0x08`)
+- Bit 4: circulation/heating base (`0x10`)
+- Bit 6: base idle (`0x40`)
+- Bit 7: disinfection variant flag (`0x80`, seen in `0xC1`)
 
 For disinfection state, byte 14 (`0x41`/`0xC1`) is the authoritative indicator.
 Byte 28 bit 5 is useful activity context but not UV-specific on its own.
@@ -141,36 +156,48 @@ Where `[type]` = `A1` / `A2` / `A3` / `A4`.
 | Bytes | Content |
 |-------|---------|
 | 0–6 | Header: `01 20 10 3C A1 10 A1` |
-| 7 | Pump byte high (transition target) |
-| 8 | Pump byte low (transition source) |
+| 7 | Pump command byte 1 (transition encoding) |
+| 8 | Pump command byte 2 (transition encoding) |
 | 9 | Button group identifier |
-| 10 | Button value (ON/OFF) |
-| 11 | Always `0x00` |
-| 12 | Always `0xC0` |
+| 10 | Button action / value |
+| 11 | Modifier byte (usually `0x00`; `0x80` for ozone mode) |
+| 12 | Context byte (usually `0xC0`; `0x40` for ozone manual mode) |
 | 13 | Always `0x00` |
 | 14 | Current setpoint (°F) at time of command |
 | 15 | Always `0x00` |
 
-**Button group byte (byte 9) and value byte (byte 10):**
+**Button group byte (byte 9) and action byte (byte 10):**
 
-| Button | byte[9] | byte[10] ON | byte[10] OFF |
-|--------|---------|-------------|--------------|
-| Light | `0x40` | `0x58` (same-session) / `0x40` (legacy replay) | same as ON (toggle) |
-| Heater | `0x08` | `0x08` | `0x00` |
-| Blower | `0x04` | `0x04` (same-session) / `0x0C` (legacy replay) | `0x00` (same-session) / `0x08` (legacy replay) |
-| Temperature | `0x80` | `0x80`/`0x99`/`0x98` | — |
+| Button | byte[9] | byte[10] ON | byte[10] OFF | Notes |
+|--------|---------|-------------|--------------|-------|
+| Light | `0x40` | `0x40` | same (toggle) | Same frame for ON/OFF |
+| Heater | `0x08` | `0x18` / `0x08` | `0x11` / `0x00` | Two session variants observed |
+| Blower | `0x04` | `0x04` | `0x00` | Distinct ON/OFF |
+| Temperature | `0x80` | `0x80`/`0x99`/`0x98` | — | Value variant depends on session state |
+| Ozone manual | `0x01` | `0x01` | `0x10` | Distinct ON/OFF; ozone mode must be Manual |
 
-Current integration is-state: entity writes still use replay/lookup frames from
-`custom_components/joyonway_p25b85/adapters/p25b85.py` (legacy variants for
-light/blower, same CRC-valid frame family).
+**Ozone mode commands** (byte[9]=`0x00`, byte[11]=`0x80`):
+
+| Mode | byte[12] | Notes |
+|------|----------|-------|
+| Auto | `0xC0` | Standard scheduling mode |
+| Manual | `0x40` | Enables manual ON/OFF from panel/RS485 |
+
+These use the pattern: `pump_b9=0x00, btn=0x00, modifier=0x80` with byte[12]
+distinguishing the mode. No broadcast state change occurs from mode switch
+alone — only the panel UI changes.
 
 **Pump commands** use bytes 7–8 (pump state transition):
 
 | Transition | byte[7] | byte[8] | byte[9] | byte[10] |
 |------------|---------|---------|---------|----------|
-| OFF → Low | `0x02` | `0x02` | `0x00` | `0x08` |
-| Low → High | `0x06` | `0x04` | `0x00` | `0x08` |
-| High → OFF | `0x04` | `0x00` | `0x00` | `0x08` |
+| OFF → Low | `0x02` | `0x02` | `0x00` | `0x00` |
+| Low → High | `0x06` | `0x04` | `0x00` | `0x00` |
+| High → OFF | `0x04` | `0x00` | `0x00` | `0x00` |
+
+> **Note on legacy pump commands:** Earlier sessions captured byte[10]=`0x08`
+> for pump transitions. Phase 6 captures show `0x00`. Both appear to work.
+> The controller likely ignores byte[10] for pump commands.
 
 ### 4.2. DateTime Set (type 0xA2)
 
@@ -182,17 +209,18 @@ Sets the spa's internal clock.
 |-------|---------|
 | 0–6 | Header: `01 20 10 3C A2 10 A1` |
 | 7 | `0x50` (fixed prefix) |
-| 8 | Year (low byte, BCD or raw — see captured example) |
-| 9 | Day |
-| 10 | Month |
-| 11 | Hour |
+| 8 | Year (offset from 2000, e.g. `0x1A` = 26 = 2026) |
+| 9 | Month |
+| 10 | Day |
+| 11 | Hour (24h) |
 | 12 | Minute |
-| 13 | Second? (observed `0x00`) |
+| 13 | Second |
 | 14 | `0x00` |
 | 15 | `0x00` |
 
-> **Note:** Byte ordering/encoding needs further capture sessions to fully
-> confirm. The CRC is now cracked, so any encoding can be tested live.
+Verified from two captures at known times:
+- `50 1A 05 15 16 35 00 00 00` → 2026-05-21 22:53:00
+- `50 1A 05 15 0F 09 00 00 00` → 2026-05-21 15:09:00
 
 ### 4.3. Heat Schedule (type 0xA3)
 
@@ -203,92 +231,89 @@ Programs heating time windows.
 | Bytes | Content |
 |-------|---------|
 | 0–6 | Header: `01 20 10 3C A3 10 A1` |
-| 7 | Config/flags byte |
-| 8 | Duration or slot ID |
-| 9 | `0x00` |
-| 10 | Slot 1 start hour |
-| 11 | `0x00` |
-| 12 | Slot 1 end hour |
-| 13 | `0x00` |
-| 14 | Slot 2 start hour |
-| 15 | `0x00` (padding or slot 2 end) |
+| 7 | Enable flags byte (see below) |
+| 8 | Slot 1 start hour |
+| 9 | Slot 1 start minute |
+| 10 | Slot 1 end hour |
+| 11 | Slot 1 end minute |
+| 12 | Slot 2 start hour |
+| 13 | Slot 2 start minute |
+| 14 | Slot 2 end hour |
+| 15 | Slot 2 end minute |
 
-> Broadcast byte[19] changes when a heat schedule is written.
+**Flags byte (byte 7) — slot enable encoding:**
+
+| Value | Slot 1 | Slot 2 | Binary |
+|-------|--------|--------|--------|
+| `0xAA` | ✅ Enabled | ✅ Enabled | `10101010` |
+| `0x62` | ✅ Enabled | ❌ Disabled | `01100010` |
+| `0x9A` | ❌ Disabled | ✅ Enabled | `10011010` |
+| `0x52` | ❌ Disabled | ❌ Disabled | `01010010` |
+
+The encoding uses 2-bit pairs per slot (not single-bit flags). The same four
+values apply to both heat and filter schedules — the command type byte
+(`0xA3` vs `0xA4`) distinguishes them.
+
+> **Verified (Phase 6):** Three of the four values captured live (`0xAA`,
+> `0x62`, `0x9A`). The fourth (`0x52`) is derived by XOR consistency and
+> verified by CRC match. `test_build_schedule_command_phase6_match` confirms
+> byte-for-byte frame identity against captured wire data.
 
 ### 4.4. Filter Schedule (type 0xA4)
 
 Programs filtration time windows.
 
-**Payload layout:**
+**Payload layout:** Same as heat schedule (section 4.3) but with type `0xA4`.
 
-| Bytes | Content |
-|-------|---------|
-| 0–6 | Header: `01 20 10 3C A4 10 A1` |
-| 7 | Config/flags byte |
-| 8 | Duration or slot ID |
-| 9 | `0x00` |
-| 10 | Slot 1 start hour |
-| 11 | `0x00` |
-| 12 | Slot 1 end hour |
-| 13 | `0x00` |
-| 14 | Slot 2 start hour |
-| 15 | `0x00` (padding or slot 2 end) |
+**Flags byte (byte 7) — slot enable encoding:**
 
-> Broadcast byte[29] changes (`0x4C` → `0xCD`) when a filter schedule is written.
+Same lookup table as heat schedule (section 4.3): `0xAA` = both on,
+`0x62` = s1 on / s2 off, `0x9A` = s1 off / s2 on, `0x52` = both off.
+
+> **Verified (Phase 6):** Filter slot enable/disable confirmed to use the same
+> flags byte encoding as heat schedules.
 
 ### 5. Captured Frame Examples
 
 All frames below are complete wire-level hex (including `0x1A` start and
 `0x1D` end delimiters). Escape sequences are present where needed. CRC has
-been verified for all same-session frames.
+been verified for all frames.
 
-#### 5.1. Button Commands (same-session capture)
-
-| Action | Wire hex |
-|--------|----------|
-| Temperature +1 (setpoint 102°F) | `1a0120103ca110a10000808000c00066004d5767581d` |
-| Temperature +1 (setpoint 104°F) | `1a0120103ca110a10000809900c00068005c3c6d881d` |
-| Temperature −1 (setpoint 98°F) | `1a0120103ca110a10000809900c00062006a0119851d` |
-| Temperature −1 (setpoint 96°F) | `1a0120103ca110a10000809900c00060006458a8861d` |
-| Temperature −1 (setpoint 95°F) | `1a0120103ca110a10000809800c0005f00484baee41d` |
-| Temperature −1 (setpoint 93°F) | `1a0120103ca110a10000809800c0005d0046121fe71d` |
-| Temperature +1 (setpoint 78°F) | `1a0120103ca110a10000808000c0004e0095a3b76d1d` |
-| Temperature +1 (setpoint 80°F) | `1a0120103ca110a10000808000c0005000cfe42b7a1d` |
-| Temperature −1 (setpoint 77°F) | `1a0120103ca110a10000808000c0004d001b1356de6f1d` |
-| Light ON (toggle) | `1a0120103ca110a10000405800c0005d00ab2c092b1d` |
-| Light OFF (toggle) | `1a0120103ca110a10000405800c0005d00ab2c092b1d` |
-| Pump OFF → Low | `1a0120103ca110a10202000800c0005d002a3881141d` |
-| Pump Low → High | `1a0120103ca110a10604000800c0005d00abf8b4b91d` |
-| Pump High → OFF | `1a0120103ca110a10400000800c0005d0024bdad961d` |
-| Heater ON | `1a0120103ca110a10000080800c0005d00fc5a36501d` |
-| Heater OFF | `1a0120103ca110a10000080000c0005d001b11210f231d` |
-| Blower ON | `1a0120103ca110a10000040400c0005d00c9c273af1d` |
-| Blower OFF | `1a0120103ca110a10000040000c0005d003a7fef961d` |
-
-#### 5.2. Configuration Commands (same-session capture)
+#### 5.1. Button Commands (Phase 6 capture — 2026-05-27)
 
 | Action | Wire hex |
 |--------|----------|
-| DateTime set | `1a0120103ca210a1501b110515163500000087ecf6541d` |
-| Filter schedule | `1a0120103ca410a1aa0c000c00110012007b62bdb61d` |
-| Heat schedule | `1a0120103ca310a1620c001000140016005787b0ed1d` |
+| Light toggle | `1a0120103ca110a10000404000c0006200bcdb13931d` |
+| Pump OFF → Low | `1a0120103ca110a10202000000c0006200f138e94a1d` |
+| Pump Low → High | `1a0120103ca110a10604000000c000620070f8dce71d` |
+| Pump High → OFF | `1a0120103ca110a10400000000c0006200ffbdc5c81d` |
+| Blower ON | `1a0120103ca110a10000040400c0006200f4b922821d` |
+| Blower OFF | `1a0120103ca110a10000040000c00062000704bebb1d` |
+| Heater ON (variant 1) | `1a0120103ca110a10000081800c00062000dd6159b1d` |
+| Heater OFF (variant 1) | `1a0120103ca110a10000081100c0006200fac57ba71d` |
+| Temperature +2°F (98→100) | `1a0120103ca110a10000808000c0006400430ed65b1d` |
+| Temperature −2°F (100→98) | `1a0120103ca110a10000809900c00062006a0119851d` |
+| Ozone mode → Auto | `1a0120103ca110a10000000080c0006200d4641b15ae1d` |
+| Ozone mode → Manual | `1a0120103ca110a10000000080400062003a8412c71d` |
+| Ozone manual ON | `1a0120103ca110a100000101004000620060b46dea1d` |
+| Ozone manual OFF | `1a0120103ca110a1000001100040006200bd2b48431d` |
 
-#### 5.2.1. Same-session button bytes (double-check from captures)
+#### 5.2. Configuration Commands (Phase 6 capture)
 
-Extracted from `tools/captures_crc/crc_session.json` payload bytes 9-10:
+| Action | Wire hex |
+|--------|----------|
+| DateTime set (→09:12:00) | `1a0120103ca210a1501b11051b0b090c0000001b0b16f6891d` |
+| Heat sched (s1 off, s2 on) | `1a0120103ca310a19a0c001000150016009eab3f581d` |
+| Heat sched (both on) | `1a0120103ca310a1aa0c001000150016003efb8dd91d` |
+| Heat sched (s1 on, s2 off) | `1a0120103ca310a1620c00100015001600e09a71e91d` |
+| Filter sched (s1 on, s2 off)| `1a0120103ca410a1620b000d0011001200a040f5321d` |
+| Filter sched (both on) | `1a0120103ca410a1aa0b000d00110012007e2109021d` |
 
-| Action | byte[9] | byte[10] |
-|--------|---------|----------|
-| Light toggle | `0x40` | `0x58` |
-| Heater ON / OFF | `0x08` | `0x08` / `0x00` |
-| Blower ON / OFF | `0x04` | `0x04` / `0x00` |
-| Pump transitions | `0x00` | `0x08` |
+#### 5.3. Button Commands (earlier sessions — pre-Phase 6)
 
-#### 5.3. Button Commands (earlier sessions — pre-CRC, replay-only)
-
-These were captured in earlier sessions. CRC is baked into the frame but
-was not independently verifiable at the time. Use as replay frames or for
-reference; the CRC formula can regenerate them if payloads are known.
+These were captured in earlier sessions. CRC verified. Byte[10] values differ
+from Phase 6 for some commands (session-dependent), but all are accepted by
+the controller.
 
 | Action | Wire hex |
 |--------|----------|
@@ -303,6 +328,17 @@ reference; the CRC formula can regenerate them if payloads are known.
 | DateTime set | `1a0120103ca210a1501b1105150f090000004cbc3d971d` |
 | Filter schedule | `1a0120103ca410a1aa0d000c0011001200f605b0ff1d` |
 | Heat schedule | `1a0120103ca310a1620e001000140016004d48aa7f1d` |
+
+#### 5.4. Same-session button bytes comparison
+
+| Action | Session 1 byte[10] | Phase 6 byte[10] | Notes |
+|--------|--------------------|-------------------|-------|
+| Light toggle | `0x58` | `0x40` | Both toggle, both work |
+| Heater ON | `0x08` | `0x18` | Distinct variant |
+| Heater OFF | `0x00` | `0x11` | Distinct variant |
+| Blower ON | `0x04` | `0x04` | Same |
+| Blower OFF | `0x00` | `0x00` | Same |
+| Pump transitions | `0x08` | `0x00` | Controller likely ignores |
 
 ### 6. Temperature Command Byte Encoding
 
@@ -329,6 +365,42 @@ state at time of capture). With CRC cracked, any variant can be tested.
 Then call `compute_crc(payload)` and `build_frame(payload)`.
 
 
+### 6b. Schedule Broadcast Encoding
+
+The controller broadcasts schedule state in bytes 19–35 of the broadcast frame.
+Each schedule has 2 time slots, encoded as 4 bytes per slot pair:
+
+```
+[slot1_start] 00 [slot1_end] 00 [slot2_start] 00 [slot2_end]
+```
+
+**Enable flag:** The start byte of each slot uses bit 6 (0x40) as a slot-enabled
+flag. The actual hour is in the lower 6 bits (mask 0x3F).
+
+| Raw byte | Enabled? | Hour |
+|----------|----------|------|
+| `0x4B` | Yes (bit 6 set) | 0x0B = 11 |
+| `0x14` | No (bit 6 clear) | 0x14 = 20 |
+| `0x51` | Yes (bit 6 set) | 0x11 = 17 |
+
+**Byte positions:**
+
+| Bytes | Schedule |
+|-------|----------|
+| 19, 21, 23, 25 | Heat: slot1 start, slot1 end, slot2 start, slot2 end |
+| 29, 31, 33, 35 | Filter: slot1 start, slot1 end, slot2 start, slot2 end |
+
+**Example** (live capture):
+- Byte 19 = `0x4B` → heat slot 1: start=11:00, enabled
+- Byte 21 = `0x10` → heat slot 1: end=16:00
+- Byte 23 = `0x14` → heat slot 2: start=20:00, disabled
+- Byte 25 = `0x16` → heat slot 2: end=22:00
+- Byte 29 = `0x4B` → filter slot 1: start=11:00, enabled
+- Byte 31 = `0x0C` → filter slot 1: end=12:00
+- Byte 33 = `0x51` → filter slot 2: start=17:00, enabled
+- Byte 35 = `0x12` → filter slot 2: end=18:00
+
+
 ### 7. Notes
 
 - **Light is a toggle** — same frame for ON and OFF. Software must track
@@ -338,13 +410,25 @@ Then call `compute_crc(payload)` and `build_frame(payload)`.
   command.
 - **Heater and blower** have distinct ON/OFF frames — safe to send
   regardless of current state.
+- **Ozone / disinfection** can be toggled via RS485 when mode is set to
+  Manual. Two-step process: (1) send ozone mode → Manual command, then
+  (2) send ozone manual ON/OFF command. Auto mode is schedule-only.
+  Broadcast byte 14 transitions: `0x40` → `0xC1` (ozone on), `0xC1` → `0x40`
+  (ozone off). Mode switch (Auto↔Manual) produces no broadcast change — only
+  the panel UI updates.
 - **Setpoint byte (byte 14)** is the CURRENT setpoint at time of capture,
   embedded in every button command. For non-temperature commands, it acts
   as a "current state echo." The controller accepts commands regardless of
   this byte's value matching actual state.
 - **Auto-off**: pump high speed auto-stops after 20 minutes (hardware timer).
-- **Disinfection cycle** (ozone) is schedule-only; cannot be toggled or
-  cancelled via RS-485 from the PB554.
+- **Panel-local settings** confirmed: Auto Lock, Brightness, and Screen Flip
+  produce no RS485 command frames and no broadcast state changes. These are
+  handled entirely within the PB554 panel.
+- **Light mode setting** was not captured in Phase 6 (skipped). Whether
+  light color mode is RS485 or panel-local remains unknown.
+- **Byte 17 bit 7** (`0x80`): Set during heating and disinfection. Not a
+  light flag — appears to be a general "active operation" indicator.
+  The actual light state is byte 17 bit 0 only.
 
 ### 8. CRC Derivation Notes
 
@@ -382,4 +466,5 @@ model is trustworthy, without repeating the full brute-force notebook history.
 - Preprocessing: word32 byte-swap on payload bytes `0..15`
 - CRC storage: little-endian at bytes `16..19`
 - Verification: full match on all 21 unique same-session frames
+- Phase 6 verification: 23 additional unique frames, 100% match
 

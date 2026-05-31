@@ -19,8 +19,9 @@ The P25B85 controls spas like the **Home Deluxe White Marble** outdoor whirlpool
 > **Status: Entities and write control implemented** — the P25B85 byte map has
 > been validated against local RS485 captures for temperature, setpoint, pump,
 > light, heater, blower, and disinfection states. CRC-32 is cracked and verified
-> (21/21 unique frames) and implemented in `protocol.py`; current entity writes
-> still use captured replay frames / lookup tables (is-state).
+> (44/44 unique frames) and implemented in `protocol.py`. Schedule enable/disable
+> uses the cracked flags byte encoding. Temperature writes still use captured
+> replay frames / lookup tables.
 
 > **Discussion thread:** [JoyOnWay Spa Control — Home Assistant Community](https://community.home-assistant.io/t/joyonway-spa-control/582344)
 
@@ -36,38 +37,41 @@ The P25B85 controls spas like the **Home Deluxe White Marble** outdoor whirlpool
 | **Pump**         | 1× dual-speed (low = filtration, high = massage jets)         |
 | **Light**        | RGB LED (9 colour states via button press)                    |
 | **Heater**       | 2 kW resistive, thermostat-controlled                         |
-| **UV/ozone port**| Scheduled disinfection cycle state (not user-toggleable)      |
+| **UV/ozone port**| Disinfection cycle (Auto or Manual mode controllable via RS485) |
 
 ## Features
 
 - **Water temperature** monitoring (°C)
+- **Setpoint temperature** monitoring (°C)
 - **Thermostat control** (10°C to 40°C) with debounced slider writes
 - **Jets control** (off/low/high) via fan preset modes
+- **Filtration** manual on/off switch
 - **Light** on/off via replay toggle command
 - **Heater** manual on/off via replay command
 - **Blower** on/off via replay command
-- **Heater state** — off / circulation / heating / disinfection
-- **Bridge connectivity** sensor
-- **Diagnostic sensors** for raw protocol bytes (disabled by default)
+- **Heat schedule** — 2 time slots with start/end times and enable/disable
+- **Filter schedule** — 2 time slots with start/end times and enable/disable
+- **Clock sync** — sync spa clock to Home Assistant time (disabled by default)
+- **Status sensor** — off / circulation / heating / disinfection (with dynamic icons)
+- **Jets sensor** — off / low / high
 - Fully local, no cloud, no internet
 - English, French, and German UI translations
 
 ### What this integration does NOT do
 
-- ❌ No filtration schedule or heating schedule control (planned)
-- ❌ No date/time sync (planned)
-- ❌ No disinfection cycle manual control (hardware limitation — schedule only)
+- ❌ No ozone/disinfection manual control entity yet (command frames captured, implementation pending)
+- ❌ Temperature commands still use replay lookup table (dynamic generation possible but needs live testing)
 
 ## Safety Philosophy
 
-The P25B85 uses a 4-byte CRC-32 on all command frames. The CRC algorithm has been fully reverse-engineered (standard CRC-32 polynomial `0x04C11DB7` with word-swap preprocessing) and verified against 21 unique captured frames covering all command types.
+The P25B85 uses a 4-byte CRC-32 on all command frames. The CRC algorithm has been fully reverse-engineered (standard CRC-32 polynomial `0x04C11DB7` with word-swap preprocessing) and verified against 44 unique captured frames covering all command types.
 
 - ✅ CRC algorithm is implemented and verified for dynamic frame building
 - ✅ Current runtime writes send captured frames with known-good CRC bytes
 - ✅ All commands are validated against observed state changes from physical captures
 - ✅ Write pacing enforces a 1-second cooldown between commands
 
-> **Note:** KDy documented that sending a frame with an invalid CRC can activate the heater unexpectedly. This integration currently sends captured commands with known-good CRC; dynamic CRC generation is verified and available for future migration.
+> **Note:** KDy documented that sending a frame with an invalid CRC can activate the heater unexpectedly. This integration uses the verified CRC algorithm for schedule writes and captured commands with known-good CRC for button actions.
 
 ## Requirements
 
@@ -108,7 +112,7 @@ After restart, go to **Settings → Devices & Services → Add integration** and
 
 The integration performs a TCP connection test before saving.
 
-> **⚠️ Single-client limitation:** Most RS485 bridges only accept one TCP connection at a time. Stop the phone app or other tools before using HA.
+> **⚠️ Connection note:** The Elfin EW11 supports up to 4 simultaneous TCP connections. Home Assistant uses one; you can still use debug/capture tools in parallel.
 
 ## Entities
 
@@ -117,24 +121,30 @@ The integration performs a TCP connection test before saving.
 | Entity            | Description                                                                |
 |-------------------|----------------------------------------------------------------------------|
 | Water temperature | Current water temp in °C                                                   |
-| Heater state      | off / circulation / heating / disinfection                                 |
+| Setpoint          | Current target temperature in °C                                           |
+| Status            | off / circulation / heating / disinfection (icon changes per state)         |
+| Jets (Düsen)      | off / low / high                                                           |
 | Spa clock         | Controller date/time as timestamp sensor (diagnostic, disabled by default) |
-| Raw pump byte     | Diagnostic (disabled by default)                                           |
-| Raw heater byte   | Diagnostic (disabled by default)                                           |
 
 ### Binary sensors
 
-| Entity                  | Description                |
-|-------------------------|----------------------------|
-| RS485 bridge connection | TCP connectivity to bridge |
+| Entity                  | Description                                  |
+|-------------------------|----------------------------------------------|
+| RS485 bridge connection | TCP connectivity to bridge (disabled by default) |
 
 ### Switches
 
-| Entity  | Description                                   |
-|---------|-----------------------------------------------|
-| Light   | Light on/off (toggle replay with state guard) |
-| Heater  | Heater manual on/off (distinct replay frames) |
-| Blower  | Air blower on/off (distinct replay frames)    |
+| Entity             | Description                                   |
+|--------------------|-----------------------------------------------|
+| Heater             | Heater manual on/off (distinct replay frames) |
+| Filtration         | Manual filtration on/off (pump low speed)      |
+| Light              | Light on/off (toggle replay with state guard) |
+| Blower             | Air blower on/off (distinct replay frames)    |
+| Heat slot 1 / 2   | Enable/disable heating schedule slots         |
+| Filter slot 1 / 2 | Enable/disable filtration schedule slots      |
+
+> **Schedule enable/disable** uses a dedicated flags byte in the command payload
+> (cracked from Phase 6 RS485 captures). Slot times are preserved when toggling.
 
 ### Fan
 
@@ -148,17 +158,33 @@ The integration performs a TCP connection test before saving.
 |------------|----------------------------------------|
 | Thermostat | Target setpoint control (10°C to 40°C) |
 
+### Time
+
+| Entity                       | Description                        |
+|------------------------------|------------------------------------|
+| Heat slot 1/2 start/end     | Heating schedule times (HH:MM)     |
+| Filter slot 1/2 start/end   | Filtration schedule times (HH:MM)  |
+
+### Button
+
+| Entity     | Description                                           |
+|------------|-------------------------------------------------------|
+| Sync clock | Sends current HA time to spa controller (disabled by default) |
+
 ## Development Plan
 
 Roadmap and session handoff live in `docs/plan.md`.
 
 Current high-level status:
 
-- Capture + byte-map validation: done
-- Integration entities: implemented
-- CRC cracking + protocol implementation: done
-- Runtime writes: replay/lookup is-state
-- Next: live spa testing, then migrate writes to algorithm-based frame generation
+- Capture + byte-map validation: done (Phase 6 complete)
+- Integration entities: implemented (including schedule time/switch entities)
+- CRC cracking + protocol implementation: done (44/44 frames verified)
+- Schedule writes: dynamic frame generation with flags byte enable/disable
+- Schedule enable/disable: flags byte lookup table (cracked and implemented)
+- Button/heater/blower writes: replay frames (is-state)
+- Ozone control: command frames captured, entity not yet implemented
+- Next: live spa testing, then migrate remaining writes to algorithm-based frames
 
 ## Testing
 

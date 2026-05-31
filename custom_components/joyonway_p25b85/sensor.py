@@ -55,8 +55,10 @@ class JoyonwaySensor(CoordinatorEntity, SensorEntity):
         self._attr_unique_id = f"{entry.entry_id}_{description.key}"
         self._attr_device_info = device_info(entry)
         self._attr_entity_registry_enabled_default = description.enabled_by_default
+        self._icon_map = description.icon_map
+        self._default_icon = description.icon
 
-        if description.icon:
+        if description.icon and not description.icon_map:
             self._attr_icon = description.icon
 
         # Map string device_class to HA enum
@@ -75,6 +77,15 @@ class JoyonwaySensor(CoordinatorEntity, SensorEntity):
 
         if description.entity_category == "diagnostic":
             self._attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    @property
+    def icon(self) -> str | None:
+        """Return icon based on current state if icon_map is defined."""
+        if self._icon_map and self.coordinator.data:
+            value = self.coordinator.data.get(self._key)
+            if value in self._icon_map:
+                return self._icon_map[value]
+        return self._default_icon
 
     @property
     def native_value(self):
