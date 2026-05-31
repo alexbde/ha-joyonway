@@ -1,0 +1,14 @@
+{
+  "domain": "joyonway_p25b85",
+  "name": "Joyonway P25B85 Spa (RS485)",
+  "codeowners": ["@alexbde"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/alexbde/ha-joyonway-p25b85",
+  "integration_type": "device",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/alexbde/ha-joyonway-p25b85/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}
+

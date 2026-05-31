@@ -1,0 +1,21 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Joyonway P25B85",
+        "description": "Entrez l'adresse IP et le port TCP de votre pont RS485 (ex. Elfin EW11, USR-W610).",
+        "data": {
+          "host": "Adresse IP",
+          "port": "Port TCP"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Impossible de se connecter au pont RS485. Vérifiez l'IP, le port et que le pont est allumé. Assurez-vous qu'aucun autre client (app téléphone, autre intégration) n'est connecté."
+    },
+    "abort": {
+      "already_configured": "Ce pont est déjà configuré."
+    }
+  }
+}
+

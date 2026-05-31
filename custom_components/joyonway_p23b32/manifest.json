@@ -1,0 +1,13 @@
+{
+  "domain": "joyonway_p23b32",
+  "name": "Joyonway P23B32 Spa (RS485 via USR-W610)",
+  "codeowners": ["@KnapTheBuilder"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/KnapTheBuilder/ha-joyonway-p23b32",
+  "integration_type": "device",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/KnapTheBuilder/ha-joyonway-p23b32/issues",
+  "requirements": [],
+  "version": "0.1.1"
+}

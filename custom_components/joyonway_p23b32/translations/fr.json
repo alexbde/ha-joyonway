@@ -1,0 +1,20 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Joyonway P23B32",
+        "description": "Saisis l'adresse IP et le port TCP de ton pont USR-W610 RS485.",
+        "data": {
+          "host": "Adresse IP",
+          "port": "Port TCP"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Connexion impossible au pont USR-W610. Verifie l'IP, le port et que le pont est alimente."
+    },
+    "abort": {
+      "already_configured": "Ce pont est deja configure."
+    }
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Joyonway P25B85",
+        "description": "Geben Sie die IP-Adresse und den TCP-Port Ihrer RS485-Brücke ein (z.B. Elfin EW11, USR-W610).",
+        "data": {
+          "host": "IP-Adresse",
+          "port": "TCP-Port"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Verbindung zur RS485-Brücke nicht möglich. Überprüfen Sie IP, Port und ob die Brücke eingeschaltet ist. Stellen Sie sicher, dass kein anderer Client (Telefon-App, andere Integration) verbunden ist."
+    },
+    "abort": {
+      "already_configured": "Diese Brücke ist bereits konfiguriert."
+    }
+  }
+}
+

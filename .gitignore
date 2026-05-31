@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+*.bak
+*.bak.*
+*.bak2
+*.bak_kdy
+.env
+captures/
+.idea/
+*.pdf
