@@ -21,6 +21,9 @@ captures_phase6/
 captures_crc/
 captures_temp/
 captures_write_test/
+tools/captures_schedule_test/
+tools/captures_schedule_s1_on_s2_off/
+tests/live/artifacts_schedule_matrix/
 *.bin
 
 # Virtual environments

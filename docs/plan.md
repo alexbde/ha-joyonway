@@ -177,6 +177,10 @@ custom_components/joyonway_p25b85/
 - **Temperatures as integers** — spa only shows whole °C.
 - **Schedule** — `time` entities for pickers, `switch` entities for enables.
   Schedule sends REFUSE if any data key is missing (prevents overwrite with zeros).
+- **Schedule command intent split (confirmed)** — schedule writes use two flag
+  modes: `write_mode="state"` for enable toggles (`0xAA/0x62/0x9A/0x52`) and
+  `write_mode="time"` for time edits (`0xAA/0x6A/0x9A/0x5A`). This matches
+  PB554 panel captures and fixes slot 2 time writes when slot 2 is disabled.
 - **Clock write** — uses `set_date=True` (prefix=0x05) by default.
 - **Auto clock sync** — disabled by default. When enabled, syncs if drift > 30s
   with 1-hour cooldown. Cooldown now applies to both successful syncs and failed
@@ -207,25 +211,26 @@ custom_components/joyonway_p25b85/
 **Root cause:** Asymmetric controller behavior — slot 1 times always apply,
 but slot 2 times are only accepted when slot 2 is enabled in the flags byte.
 
-**Fix:** When writing slot 2 times with slot 2 disabled, the integration now
-uses the force-write flags byte (`0x58` for both-disabled, `0x68` for
-s1-on/s2-off). This is what the PB554 panel does: it uses `0x58` when the
-user enables slot 2 → edits times → disables slot 2 → saves.
+**Final fix (confirmed):** schedule commands now use two intent modes:
+- **State mode** (slot enable/disable): `0xAA`, `0x62`, `0x9A`, `0x52`
+- **Time mode** (time edits): `0xAA`, `0x6A`, `0x9A`, `0x5A`
 
-**Capture evidence:** `tools/captures_schedule_slot2/capture_slot2_20260531_091843.jsonl`
-All 4 slot 2 time changes (heat start/end, filter start/end) confirmed
-accepted by the controller with flags=`0x58`.
+`0x6A` for s1-on/s2-off slot 2 time edits was captured live from PB554 for
+both heat and filter schedules.
 
-**Note:** `0x68` (s1-on/s2-off force-write) is derived by XOR pattern, not
-yet confirmed live. If slot 2 time writes fail when slot 1 is enabled, a
-panel capture for that scenario is needed.
+**Capture evidence:**
+- `tools/captures_schedule_slot2/capture_slot2_20260531_091843.jsonl` (slot2 disabled case, `0x58`)
+- `tools/captures_schedule_s1_on_s2_off/session_20260531_161502.jsonl` (s1-on/s2-off slot2 edit, `0x6A`)
+- `tools/captures_schedule_test/slot_test_20260531_164513.jsonl` (first reliable HA-UI matrix, 50/0 pass)
 
 ### Priority 2: Remaining live verification
 1. **Test ozone** — still untested live (mode byte 13 detection already confirmed)
 2. **Verify auto clock sync** — check logs for drift-triggered sync path
 3. **Live test resilient UI** — verify persistent connection, reconnect, optimistic snap-back
    - What we can tell already: the HA UI is way faster than the panel. This means, if I activate heat slot 1 and 2 more or less at the same time (because hitting buttons is fast), one of the 2 actions is reverted. Does it make sense to work with some kind of action queue and execute the actions one after another? This would give the controller enough time to process the first action and then execute the second action without reverting it. Alternative: Declarative approach like Terraform. HA holds the state, operator ensures the spa looks like configured. This might be a bit more tricky with changes made on the display. We could always assume that the user is either using the display or the HA UI, not both at the same time.
-4. **Test schedule writes** — verify schedule freshness gating and force-write flags in live panel tests
+4. **Test schedule writes** — ✅ completed. Reliable HA-UI live matrix now
+   covers all UI-reachable schedule combinations (state toggles + single-field
+   time edits across all enable combos), with retries and convergence waits.
 
 ### Priority 3: Diagnostics enrichment (next implementation)
 - Capture and expose controller diagnostic metadata from frames, starting with
@@ -268,7 +273,7 @@ panel capture for that scenario is needed.
 
 - **`.env` file** holds bridge IP (gitignored). Tools auto-load it.
 - **Restart required** after any code change to the integration.
-- **Tests**: `source .venv/bin/activate && pytest -q` → `111 passed`.
+- **Tests**: `source .venv/bin/activate && pytest -q` → `114 passed`.
   Single venv (Python 3.12 + HA test deps via `pip install -e ".[test]"`).
 - **EW11 connection limit**: 4 concurrent TCP clients. HA uses 1, tools can use up to 3 more.
 - **Community feedback source**: https://community.home-assistant.io/t/joyonway-spa-control/582344/
@@ -319,3 +324,17 @@ panel capture for that scenario is needed.
   All user panel confirmations positive. Capture data in
   `tools/captures_schedule_changes/`, `tools/captures_schedule_both/`, and
   `tools/captures_schedule_test/`. Tests: `113 passed`.
+- **Session 20 (2026-05-31):** Resolved s1-on/s2-off slot2 time-edit flags.
+  Created focused capture script `tools/capture_schedule_s1_on_s2_off.py` and
+  verified panel sends `0x6A` (not `0x68`) for both heat and filter when slot
+  1 is enabled, slot 2 disabled, and slot 2 time is edited. Updated
+  `docs/protocol.md` and implementation to split schedule intent:
+  - state mode flags: `0xAA/0x62/0x9A/0x52`
+  - time mode flags: `0xAA/0x6A/0x9A/0x5A`
+- **Session 21 (2026-05-31):** Reworked the schedule live runner into a
+  reliable HA-UI-realistic test (no manual confirmation). Added retries,
+  convergence waiting, and robust restore. Coverage: all state combos + all
+  single-field time edits across all enable combos for heat and filter.
+  Live result: **50 passed, 0 failed**.
+  Runner path: `tests/live/livetest_schedule_ui_matrix.py`.
+  New artifact directory: `tests/live/artifacts_schedule_matrix/`.

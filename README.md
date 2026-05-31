@@ -155,9 +155,6 @@ After setup, go to **Settings → Devices & Services → Joyonway P25B85 → Con
 | Heat slot 1 / 2   | Enable/disable heating schedule slots         |
 | Filter slot 1 / 2 | Enable/disable filtration schedule slots      |
 
-> **Schedule enable/disable** uses a dedicated flags byte in the command payload
-> (cracked from Phase 6 RS485 captures). Slot times are preserved when toggling.
-
 ### Fan
 
 | Entity | Description                                                  |
@@ -212,6 +209,17 @@ pytest -q
 
 Requires Python 3.12 (Home Assistant compatibility). The `[test]` extra installs
 `pytest-homeassistant-custom-component` and all HA runtime dependencies.
+
+### Live schedule matrix test (optional)
+
+The repository includes a reliable live runner that validates HA-UI schedule
+actions (state toggles + single-field time edits) across all enable combos,
+with retries and convergence waits:
+
+```zsh
+source .venv/bin/activate
+python tests/live/livetest_schedule_ui_matrix.py
+```
 
 ## Related Projects
 

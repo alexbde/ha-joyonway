@@ -40,11 +40,11 @@ if env_path.exists():
             k, v = line.split("=", 1)
             os.environ.setdefault(k.strip(), v.strip())
 
-HOST = os.environ.get("EW11_IP", os.environ.get("SPA_HOST", ""))
-PORT = int(os.environ.get("EW11_PORT", os.environ.get("SPA_PORT", "8899")))
+HOST = os.environ.get("SPA_BRIDGE_HOST", os.environ.get("SPA_HOST", ""))
+PORT = int(os.environ.get("SPA_BRIDGE_PORT", os.environ.get("SPA_PORT", "8899")))
 
 if not HOST:
-    print("ERROR: Set EW11_IP in .env or environment")
+    print("ERROR: Set SPA_BRIDGE_HOST in .env or environment")
     sys.exit(1)
 
 PUMP_MAP = {0x00: "off", 0x02: "low", 0x04: "high"}
