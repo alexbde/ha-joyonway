@@ -199,30 +199,26 @@ custom_components/joyonway_p25b85/
 
 ## 5. Next Steps
 
-### Priority 1: Schedule slot 2 write bug — panel capture needed
-**Bug:** Changing time on disabled slot 2 (heat or filter) via HA snaps back
-after 10s. Slot 1 works fine even when disabled.
+### Priority 1: Schedule slot 2 write bug — ✅ FIXED
+**Bug (resolved):** Changing time on disabled slot 2 via HA snapped back after
+10s because the controller ignores slot 2 time values when the normal
+"disabled" flags byte is used (`0x52` / `0x62`).
 
-**Evidence from write test capture log** (`write_test_20260528_212402.jsonl`):
-- Test command sent slot 2 times with flags=0xAA (both enabled) → ✅ accepted.
-- Restore command sent slot 2 times with flags=0x52 (both disabled) → ❌ slot 2
-  times were NOT restored (broadcast still showed the test values). Slot 1 times
-  WERE restored correctly with the same flags=0x52.
-- The test script only verified slot 1 on restore, so it reported "pass"
-  despite slot 2 restore silently failing.
+**Root cause:** Asymmetric controller behavior — slot 1 times always apply,
+but slot 2 times are only accepted when slot 2 is enabled in the flags byte.
 
-**Hypothesis:** Controller ignores slot 2 time values when slot 2 is disabled
-in the flags byte (asymmetric behavior — slot 1 always applies).
+**Fix:** When writing slot 2 times with slot 2 disabled, the integration now
+uses the force-write flags byte (`0x58` for both-disabled, `0x68` for
+s1-on/s2-off). This is what the PB554 panel does: it uses `0x58` when the
+user enables slot 2 → edits times → disables slot 2 → saves.
 
-**Next step:** Run `tools/capture_schedule_slot2.py` at the spa to capture what
-command the PB554 panel sends when changing disabled slot 2 times. This will
-reveal whether the panel uses a different flags byte (e.g. temporarily enables
-slot 2) or a different command structure.
+**Capture evidence:** `tools/captures_schedule_slot2/capture_slot2_20260531_091843.jsonl`
+All 4 slot 2 time changes (heat start/end, filter start/end) confirmed
+accepted by the controller with flags=`0x58`.
 
-**After capture:** Based on findings, either:
-- Force-enable slot 2 in the flags byte when writing times (then restore
-  disabled state with follow-up command), OR
-- Replicate whatever the panel does differently.
+**Note:** `0x68` (s1-on/s2-off force-write) is derived by XOR pattern, not
+yet confirmed live. If slot 2 time writes fail when slot 1 is enabled, a
+panel capture for that scenario is needed.
 
 ### Priority 2: Remaining live verification
 1. **Test ozone** — still untested live (mode byte 13 detection already confirmed)
@@ -296,3 +292,25 @@ slot 2) or a different command structure.
   save all frames as JSONL with byte-change tracking. Created
   `analyze_heating_frames.py` for post-hoc analysis. Tools in
   `tools/captures_heating/`. Tests: `111 passed`.
+- **Session 18 (2026-05-31):** Fixed schedule slot 2 write bug. Panel capture
+  revealed the PB554 uses flags byte `0x58` when writing disabled slot 2
+  times (panel flow: enable → edit → disable → save). Implemented
+  `force_slot2_write` parameter in `build_schedule_command` and automatic
+  detection in `time.py`. Added `SCHED_FLAGS_FORCE_SLOT2_TABLE` with `0x58`
+  (confirmed) and `0x68` (derived). Capture data in
+  `tools/captures_schedule_slot2/`.
+- **Session 19 (2026-05-31):** Comprehensive schedule slot write verification.
+  Created `tools/test_schedule_slots.py` (automated write tests with full raw
+  binary capture) and `tools/capture_schedule_changes.py` (guided 4-step panel
+  capture for slot 1/2 × heat/filter while disabled). Also created
+  `tools/capture_schedule_both_slots.py` for both-slots-at-once captures.
+  Live captures confirmed three distinct flags bytes:
+  - `0x52` = slot 1 edited while disabled (slot 1 always accepted)
+  - `0x58` = slot 2 edited while disabled (force-writes slot 2)
+  - `0x5A` = both slots edited while disabled (force-writes both)
+  Simplified implementation: always use `0x5A` for both-disabled case so
+  slot 1 and slot 2 behave identically. Removed asymmetric `force_slot2_write`
+  logic — replaced `SCHED_FLAGS_FORCE_SLOT2_TABLE` with
+  `SCHED_FLAGS_FORCE_WRITE_TABLE`. Updated `protocol.md` with full findings.
+  Capture data in `tools/captures_schedule_changes/` and
+  `tools/captures_schedule_both/`. Tests: `113 passed`.

@@ -300,6 +300,44 @@ values apply to both heat and filter schedules — the command type byte
 > verified by CRC match. `test_build_schedule_command_phase6_match` confirms
 > byte-for-byte frame identity against captured wire data.
 
+**Slot 2 write quirk — force-write flags:**
+
+The controller **ignores slot 2 time values** when the normal flags byte
+indicates slot 2 is disabled (`0x52` or `0x62`). Slot 1 times are always
+applied regardless of enable state (asymmetric behavior).
+
+The PB554 panel works around this by sending a different flags byte when the
+user edits times on disabled slots. Captures from 2026-05-31 confirm:
+
+| Scenario on panel | Flags byte | Meaning |
+|-------------------|-----------|---------|
+| Only slot 1 time edited (both disabled) | `0x52` | Normal both-off (slot 1 always accepted) |
+| Only slot 2 time edited (both disabled) | `0x58` | Force-write slot 2 times |
+| Both slot 1 AND slot 2 times edited (both disabled) | `0x5A` | Force-write both slots |
+
+Binary analysis:
+- `0x52` = `01010010` — base "both disabled" flags
+- `0x58` = `01011000` — force-write slot 2
+- `0x5A` = `01011010` — force-write both
+
+**Implementation:** Since `0x5A` forces the controller to accept ALL time
+values regardless of enable state, the integration always uses `0x5A` when
+writing schedule times while both slots are disabled. This eliminates any
+asymmetry between slot 1 and slot 2 — both are treated identically.
+
+For other enable combinations with force-write:
+
+| Value | Slot 1 | Slot 2 | Purpose | Status |
+|-------|--------|--------|---------|--------|
+| `0x5A` | ❌ Disabled | ❌ Disabled | Force-write both | ✅ Captured live |
+| `0x58` | ❌ Disabled | ❌ Disabled | Force-write slot 2 only | ✅ Captured live |
+| `0x68` | ✅ Enabled | ❌ Disabled | Force-write slot 2 (derived) | ⚠️ Unconfirmed |
+
+> **Verified (2026-05-31 captures):** All three flags bytes (`0x52`, `0x58`,
+> `0x5A`) captured live from PB554 panel across heat and filter schedules.
+> Each capture contains exactly 1 schedule command per change, confirming the
+> panel sends a single frame regardless of how many slots are edited.
+
 ### 4.4. Filter Schedule (type 0xA4)
 
 Programs filtration time windows.
