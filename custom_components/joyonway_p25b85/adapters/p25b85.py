@@ -108,10 +108,16 @@ SCHED_FLAGS_TABLE: dict[tuple[bool, bool], int] = {
 # We always use 0x5A when both slots are disabled, so both slots behave
 # identically. This is the simplest approach — no need to track which slot
 # is being edited. Confirmed from PB554 panel capture 2026-05-31.
+#
+# NOTE: The (True, False) case (s1 on, s2 off) still uses the normal 0x62.
+# The slot 2 quirk DOES apply here — if slot 2 times are written with 0x62,
+# the controller may ignore them. The derived force-write value would be 0x68
+# but this is UNCONFIRMED. If slot 2 time writes fail when slot 1 is enabled,
+# a panel capture for that scenario is needed to determine the correct flag.
 SCHED_FLAGS_FORCE_WRITE_TABLE: dict[tuple[bool, bool], int] = {
     (True, True): 0xAA,     # both enabled — no override needed
-    (True, False): 0x62,    # s1 on, s2 off — slot 2 is enabled so no quirk
-    (False, True): 0x9A,    # s2 on, s1 off — slot 2 is enabled so no quirk
+    (True, False): 0x62,    # s1 on, s2 off — ⚠️ slot 2 quirk applies! (0x68 unconfirmed)
+    (False, True): 0x9A,    # s1 off, s2 on — slot 2 enabled, no quirk
     (False, False): 0x5A,   # both off — force-write both slots (captured live)
 }
 
