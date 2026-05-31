@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
-"""Test schedule slot writes — verify slot 1 vs slot 2 behavior.
+"""Test schedule slot writes — verify 0x5A flags work for all cases.
 
-Tests the hypothesis that slot 2 time values are ignored by the controller
-when slot 2 is disabled (requiring a special force-write flags byte), while
-slot 1 times are always accepted regardless of enable state.
+We now always use flags=0x5A when both slots are disabled. This script
+verifies that the controller accepts time values correctly in all scenarios:
 
-Runs systematic write tests for both heat and filter schedules:
-  - Write slot 1 times while slot 1 is DISABLED → expect accepted
-  - Write slot 2 times while slot 2 is DISABLED (normal flags) → expect ignored
-  - Write slot 2 times while slot 2 is DISABLED (force-write) → expect accepted
-  - Write slot 2 times while slot 2 is ENABLED → expect accepted
+  A. Change ONLY slot 1 time (slot 2 unchanged), both disabled, flags=0x5A
+  B. Change ONLY slot 2 time (slot 1 unchanged), both disabled, flags=0x5A
+  C. Change BOTH slot times, both disabled, flags=0x5A
+  D. Change BOTH slot times, both enabled, flags=0xAA (sanity check)
 
-After each test, reads the broadcast to verify what actually changed.
+Tests both heat and filter schedules (8 tests total).
 All originals are restored at the end.
 
 All data is captured for later analysis:
@@ -319,10 +317,10 @@ async def run() -> None:
     print(f"{'='*70}")
     print()
     print(f"  {BOLD}What this tests:{RESET}")
-    print(f"  1. Write slot 1 times while DISABLED — should be accepted")
-    print(f"  2. Write slot 2 times while DISABLED (normal flags) — quirk test")
-    print(f"  3. Write slot 2 times while DISABLED (force-write 0x58) — should work")
-    print(f"  4. Write both slots while ENABLED — should work")
+    print(f"  A. Change ONLY slot 1 time, both disabled (0x5A) — should be accepted")
+    print(f"  B. Change ONLY slot 2 time, both disabled (0x5A) — should be accepted")
+    print(f"  C. Change BOTH slot times, both disabled (0x5A) — should be accepted")
+    print(f"  D. Change BOTH slot times, both enabled (0xAA) — sanity check")
     print()
     print(f"  Tests both heat (0xA3) and filter (0xA4) schedules.")
     print(f"  All original values are restored at the end.")
@@ -440,96 +438,53 @@ async def _run_tests(
         test_s2_start = ((s2_start[0] + 3) % 24, 17 if s2_start[1] != 17 else 47)
         test_s2_end = ((s2_end[0] + 3) % 24, 33 if s2_end[1] != 33 else 3)
 
-        # ── TEST A: Write slot 1 times while slot 1 DISABLED ──
-        test_name = f"{cmd_label}: slot 1 write while DISABLED"
+        # ── TEST A: Change ONLY slot 1, both disabled (0x5A) ──
+        test_name = f"{cmd_label}: slot 1 only changed, both disabled (0x5A)"
         print(f"\n{'─'*70}")
         print(f"  {BOLD}TEST: {test_name}{RESET}")
-        print(f"  Expecting: slot 1 times accepted (no force flag needed)")
+        print(f"  Sending: new slot 1 times + ORIGINAL slot 2 times, flags=0x5A")
+        print(f"  Expecting: slot 1 times ACCEPTED, slot 2 UNCHANGED")
         _log_event("test_start", test=test_name,
                    sent_s1_start=list(test_s1_start), sent_s1_end=list(test_s1_end),
                    sent_s2_start=list(s2_start), sent_s2_end=list(s2_end),
-                   s1_enabled=False, s2_enabled=s2_en)
+                   s1_enabled=False, s2_enabled=False, flags="0x5A")
 
         frame = adapter.build_schedule_command(
             sched_type,
             test_s1_start, test_s1_end,  # new slot 1 times
-            s2_start, s2_end,            # keep slot 2 unchanged
-            slot1_enabled=False,         # slot 1 DISABLED
-            slot2_enabled=s2_en,         # keep slot 2 state
+            s2_start, s2_end,            # keep slot 2 ORIGINAL times
+            slot1_enabled=False,
+            slot2_enabled=False,         # both disabled → 0x5A
         )
-        await send_command(reader, writer, frame, f"{sched_type} schedule: slot1 disabled + new times")
+        await send_command(reader, writer, frame, f"{sched_type}: slot1 new, slot2 unchanged, flags=0x5A")
         new_state = await read_broadcast(reader)
 
         if new_state:
             state = new_state
-            s_ok, e_ok = check_times(new_state, sched_type, 1, test_s1_start, test_s1_end)
-            actual_s = new_state.get(f"{sched_type}_slot1_start")
-            actual_e = new_state.get(f"{sched_type}_slot1_end")
-            test_passed = s_ok and e_ok
-            if test_passed:
-                ok(f"Slot 1 times ACCEPTED while disabled: "
-                   f"{actual_s[0]:02d}:{actual_s[1]:02d}-{actual_e[0]:02d}:{actual_e[1]:02d}")
+            s1_s_ok, s1_e_ok = check_times(new_state, sched_type, 1, test_s1_start, test_s1_end)
+            s2_s_ok, s2_e_ok = check_times(new_state, sched_type, 2, s2_start, s2_end)
+            actual_s1s = new_state.get(f"{sched_type}_slot1_start")
+            actual_s1e = new_state.get(f"{sched_type}_slot1_end")
+            actual_s2s = new_state.get(f"{sched_type}_slot2_start")
+            actual_s2e = new_state.get(f"{sched_type}_slot2_end")
+            s1_ok = s1_s_ok and s1_e_ok
+            s2_ok = s2_s_ok and s2_e_ok
+            test_passed = s1_ok and s2_ok
+            if s1_ok:
+                ok(f"Slot 1 ACCEPTED: {actual_s1s[0]:02d}:{actual_s1s[1]:02d}-{actual_s1e[0]:02d}:{actual_s1e[1]:02d}")
             else:
-                fail(f"Slot 1 times NOT applied while disabled!")
+                fail(f"Slot 1 NOT applied!")
                 info(f"  Expected: {test_s1_start[0]:02d}:{test_s1_start[1]:02d}-{test_s1_end[0]:02d}:{test_s1_end[1]:02d}")
-                info(f"  Got:      {actual_s[0]:02d}:{actual_s[1]:02d}-{actual_e[0]:02d}:{actual_e[1]:02d}")
-            _log_event("test_check", test=test_name,
-                       expected_start=list(test_s1_start), expected_end=list(test_s1_end),
-                       actual_start=list(actual_s), actual_end=list(actual_e),
-                       start_match=s_ok, end_match=e_ok, passed=test_passed)
-            results.append((test_name, test_passed))
-            info(f"Full: {format_schedule(new_state, sched_type)}")
-        else:
-            fail("No broadcast received")
-            _log_event("test_check", test=test_name, error="no_broadcast", passed=False)
-            results.append((test_name, False))
-
-        if not confirm(f"Check panel: {sched_type} slot 1 shows new times?"):
-            warn("User reports slot 1 times did not change on panel")
-            if results and results[-1][0] == test_name:
-                results[-1] = (test_name, False)
-
-        # ── TEST B: Write slot 2 times while slot 2 DISABLED (normal flags) ──
-        test_name = f"{cmd_label}: slot 2 write while DISABLED (normal flags)"
-        print(f"\n{'─'*70}")
-        print(f"  {BOLD}TEST: {test_name}{RESET}")
-        print(f"  Expecting: slot 2 times IGNORED (this is the quirk)")
-        _log_event("test_start", test=test_name,
-                   sent_s1_start=list(test_s1_start), sent_s1_end=list(test_s1_end),
-                   sent_s2_start=list(test_s2_start), sent_s2_end=list(test_s2_end),
-                   s1_enabled=False, s2_enabled=False, force_slot2_write=False)
-
-        frame = adapter.build_schedule_command(
-            sched_type,
-            test_s1_start, test_s1_end,  # keep slot 1 from test A
-            test_s2_start, test_s2_end,  # new slot 2 times
-            slot1_enabled=False,         # keep disabled
-            slot2_enabled=False,         # slot 2 DISABLED (normal flags → 0x52)
-            force_slot2_write=False,     # do NOT use force-write
-        )
-        await send_command(reader, writer, frame, f"{sched_type} schedule: slot2 disabled, normal flags, new times")
-        new_state = await read_broadcast(reader)
-
-        if new_state:
-            state = new_state
-            s_ok, e_ok = check_times(new_state, sched_type, 2, test_s2_start, test_s2_end)
-            actual_s = new_state.get(f"{sched_type}_slot2_start")
-            actual_e = new_state.get(f"{sched_type}_slot2_end")
-            if not s_ok or not e_ok:
-                ok(f"Slot 2 times IGNORED with normal flags (as expected — quirk confirmed)")
-                info(f"  Sent:     {test_s2_start[0]:02d}:{test_s2_start[1]:02d}-{test_s2_end[0]:02d}:{test_s2_end[1]:02d}")
-                info(f"  Actual:   {actual_s[0]:02d}:{actual_s[1]:02d}-{actual_e[0]:02d}:{actual_e[1]:02d}")
-                test_passed = True
+                info(f"  Got:      {actual_s1s[0]:02d}:{actual_s1s[1]:02d}-{actual_s1e[0]:02d}:{actual_s1e[1]:02d}")
+            if s2_ok:
+                ok(f"Slot 2 unchanged: {actual_s2s[0]:02d}:{actual_s2s[1]:02d}-{actual_s2e[0]:02d}:{actual_s2e[1]:02d}")
             else:
-                warn(f"Slot 2 times ACCEPTED with normal flags — quirk NOT confirmed!")
-                info(f"  This means slot 2 behaves the same as slot 1.")
-                info(f"  The force-write mechanism may not be needed.")
-                test_passed = False
+                fail(f"Slot 2 unexpectedly CHANGED!")
+                info(f"  Expected: {s2_start[0]:02d}:{s2_start[1]:02d}-{s2_end[0]:02d}:{s2_end[1]:02d}")
+                info(f"  Got:      {actual_s2s[0]:02d}:{actual_s2s[1]:02d}-{actual_s2e[0]:02d}:{actual_s2e[1]:02d}")
             _log_event("test_check", test=test_name,
-                       expected_start=list(test_s2_start), expected_end=list(test_s2_end),
-                       actual_start=list(actual_s), actual_end=list(actual_e),
-                       start_match=s_ok, end_match=e_ok,
-                       quirk_expected_ignored=True, was_ignored=not (s_ok and e_ok),
+                       s1_start_match=s1_s_ok, s1_end_match=s1_e_ok,
+                       s2_start_match=s2_s_ok, s2_end_match=s2_e_ok,
                        passed=test_passed)
             results.append((test_name, test_passed))
             info(f"Full: {format_schedule(new_state, sched_type)}")
@@ -538,44 +493,59 @@ async def _run_tests(
             _log_event("test_check", test=test_name, error="no_broadcast", passed=False)
             results.append((test_name, False))
 
-        # ── TEST C: Write slot 2 times while slot 2 DISABLED (force-write 0x58) ──
-        test_name = f"{cmd_label}: slot 2 write while DISABLED (force-write 0x58)"
+        if not confirm(f"Panel: {sched_type} slot 1 changed, slot 2 same?"):
+            warn("User reports incorrect state on panel")
+            if results and results[-1][0] == test_name:
+                results[-1] = (test_name, False)
+
+        # ── TEST B: Change ONLY slot 2, both disabled (0x5A) ──
+        test_name = f"{cmd_label}: slot 2 only changed, both disabled (0x5A)"
         print(f"\n{'─'*70}")
         print(f"  {BOLD}TEST: {test_name}{RESET}")
-        print(f"  Expecting: slot 2 times ACCEPTED (force-write flags)")
+        print(f"  Sending: slot 1 from test A + NEW slot 2 times, flags=0x5A")
+        print(f"  Expecting: slot 1 UNCHANGED (from test A), slot 2 ACCEPTED")
         _log_event("test_start", test=test_name,
                    sent_s1_start=list(test_s1_start), sent_s1_end=list(test_s1_end),
                    sent_s2_start=list(test_s2_start), sent_s2_end=list(test_s2_end),
-                   s1_enabled=False, s2_enabled=False, force_slot2_write=True)
+                   s1_enabled=False, s2_enabled=False, flags="0x5A")
 
         frame = adapter.build_schedule_command(
             sched_type,
-            test_s1_start, test_s1_end,  # keep slot 1
+            test_s1_start, test_s1_end,  # keep slot 1 from test A
             test_s2_start, test_s2_end,  # new slot 2 times
-            slot1_enabled=False,         # keep disabled
-            slot2_enabled=False,         # slot 2 DISABLED
-            force_slot2_write=True,      # USE force-write → flags=0x58
+            slot1_enabled=False,
+            slot2_enabled=False,         # both disabled → 0x5A
         )
-        await send_command(reader, writer, frame, f"{sched_type} schedule: slot2 disabled, FORCE-WRITE, new times")
+        await send_command(reader, writer, frame, f"{sched_type}: slot1 same, slot2 new, flags=0x5A")
         new_state = await read_broadcast(reader)
 
         if new_state:
             state = new_state
-            s_ok, e_ok = check_times(new_state, sched_type, 2, test_s2_start, test_s2_end)
-            actual_s = new_state.get(f"{sched_type}_slot2_start")
-            actual_e = new_state.get(f"{sched_type}_slot2_end")
-            test_passed = s_ok and e_ok
-            if test_passed:
-                ok(f"Slot 2 times ACCEPTED with force-write: "
-                   f"{actual_s[0]:02d}:{actual_s[1]:02d}-{actual_e[0]:02d}:{actual_e[1]:02d}")
+            s1_s_ok, s1_e_ok = check_times(new_state, sched_type, 1, test_s1_start, test_s1_end)
+            s2_s_ok, s2_e_ok = check_times(new_state, sched_type, 2, test_s2_start, test_s2_end)
+            actual_s1s = new_state.get(f"{sched_type}_slot1_start")
+            actual_s1e = new_state.get(f"{sched_type}_slot1_end")
+            actual_s2s = new_state.get(f"{sched_type}_slot2_start")
+            actual_s2e = new_state.get(f"{sched_type}_slot2_end")
+            s1_ok = s1_s_ok and s1_e_ok
+            s2_ok = s2_s_ok and s2_e_ok
+            test_passed = s1_ok and s2_ok
+            if s1_ok:
+                ok(f"Slot 1 unchanged: {actual_s1s[0]:02d}:{actual_s1s[1]:02d}-{actual_s1e[0]:02d}:{actual_s1e[1]:02d}")
             else:
-                fail(f"Slot 2 times NOT applied even with force-write!")
+                fail(f"Slot 1 unexpectedly CHANGED!")
+                info(f"  Expected: {test_s1_start[0]:02d}:{test_s1_start[1]:02d}-{test_s1_end[0]:02d}:{test_s1_end[1]:02d}")
+                info(f"  Got:      {actual_s1s[0]:02d}:{actual_s1s[1]:02d}-{actual_s1e[0]:02d}:{actual_s1e[1]:02d}")
+            if s2_ok:
+                ok(f"Slot 2 ACCEPTED: {actual_s2s[0]:02d}:{actual_s2s[1]:02d}-{actual_s2e[0]:02d}:{actual_s2e[1]:02d}")
+            else:
+                fail(f"Slot 2 NOT applied! (0x5A did not force-write slot 2)")
                 info(f"  Expected: {test_s2_start[0]:02d}:{test_s2_start[1]:02d}-{test_s2_end[0]:02d}:{test_s2_end[1]:02d}")
-                info(f"  Got:      {actual_s[0]:02d}:{actual_s[1]:02d}-{actual_e[0]:02d}:{actual_e[1]:02d}")
+                info(f"  Got:      {actual_s2s[0]:02d}:{actual_s2s[1]:02d}-{actual_s2e[0]:02d}:{actual_s2e[1]:02d}")
             _log_event("test_check", test=test_name,
-                       expected_start=list(test_s2_start), expected_end=list(test_s2_end),
-                       actual_start=list(actual_s), actual_end=list(actual_e),
-                       start_match=s_ok, end_match=e_ok, passed=test_passed)
+                       s1_start_match=s1_s_ok, s1_end_match=s1_e_ok,
+                       s2_start_match=s2_s_ok, s2_end_match=s2_e_ok,
+                       passed=test_passed)
             results.append((test_name, test_passed))
             info(f"Full: {format_schedule(new_state, sched_type)}")
         else:
@@ -583,59 +553,57 @@ async def _run_tests(
             _log_event("test_check", test=test_name, error="no_broadcast", passed=False)
             results.append((test_name, False))
 
-        if not confirm(f"Check panel: {sched_type} slot 2 shows new times now?"):
-            warn("User reports slot 2 times did not change on panel")
+        if not confirm(f"Panel: {sched_type} slot 2 changed, slot 1 same as before?"):
+            warn("User reports incorrect state on panel")
             if results and results[-1][0] == test_name:
                 results[-1] = (test_name, False)
 
-        # ── TEST D: Write both slots while ENABLED ──
-        test_name = f"{cmd_label}: both slots write while ENABLED"
+        # ── TEST C: Change BOTH slots, both disabled (0x5A) ──
+        test_name = f"{cmd_label}: both slots changed, both disabled (0x5A)"
         print(f"\n{'─'*70}")
         print(f"  {BOLD}TEST: {test_name}{RESET}")
-        print(f"  Expecting: both slot times accepted")
+        print(f"  Sending: NEW slot 1 + NEW slot 2 times, flags=0x5A")
+        print(f"  Expecting: both slots ACCEPTED")
 
-        # Use slightly different times to distinguish from test C
-        test2_s1_start = ((test_s1_start[0] + 1) % 24, test_s1_start[1])
-        test2_s1_end = ((test_s1_end[0] + 1) % 24, test_s1_end[1])
-        test2_s2_start = ((test_s2_start[0] + 1) % 24, test_s2_start[1])
-        test2_s2_end = ((test_s2_end[0] + 1) % 24, test_s2_end[1])
+        # Use different times from tests A/B to confirm both changed
+        test_c_s1_start = ((test_s1_start[0] + 1) % 24, test_s1_start[1])
+        test_c_s1_end = ((test_s1_end[0] + 1) % 24, test_s1_end[1])
+        test_c_s2_start = ((test_s2_start[0] + 1) % 24, test_s2_start[1])
+        test_c_s2_end = ((test_s2_end[0] + 1) % 24, test_s2_end[1])
 
         _log_event("test_start", test=test_name,
-                   sent_s1_start=list(test2_s1_start), sent_s1_end=list(test2_s1_end),
-                   sent_s2_start=list(test2_s2_start), sent_s2_end=list(test2_s2_end),
-                   s1_enabled=True, s2_enabled=True)
+                   sent_s1_start=list(test_c_s1_start), sent_s1_end=list(test_c_s1_end),
+                   sent_s2_start=list(test_c_s2_start), sent_s2_end=list(test_c_s2_end),
+                   s1_enabled=False, s2_enabled=False, flags="0x5A")
 
         frame = adapter.build_schedule_command(
             sched_type,
-            test2_s1_start, test2_s1_end,
-            test2_s2_start, test2_s2_end,
-            slot1_enabled=True,
-            slot2_enabled=True,
+            test_c_s1_start, test_c_s1_end,
+            test_c_s2_start, test_c_s2_end,
+            slot1_enabled=False,
+            slot2_enabled=False,         # both disabled → 0x5A
         )
-        await send_command(reader, writer, frame, f"{sched_type} schedule: both enabled, new times")
+        await send_command(reader, writer, frame, f"{sched_type}: both new, flags=0x5A")
         new_state = await read_broadcast(reader)
 
         if new_state:
             state = new_state
-            s1_s_ok, s1_e_ok = check_times(new_state, sched_type, 1, test2_s1_start, test2_s1_end)
-            s2_s_ok, s2_e_ok = check_times(new_state, sched_type, 2, test2_s2_start, test2_s2_end)
-            all_ok = s1_s_ok and s1_e_ok and s2_s_ok and s2_e_ok
-            if all_ok:
-                ok(f"Both slot times accepted when enabled")
-            else:
-                if not s1_s_ok or not s1_e_ok:
-                    fail(f"Slot 1 times mismatch")
-                if not s2_s_ok or not s2_e_ok:
-                    fail(f"Slot 2 times mismatch")
+            s1_s_ok, s1_e_ok = check_times(new_state, sched_type, 1, test_c_s1_start, test_c_s1_end)
+            s2_s_ok, s2_e_ok = check_times(new_state, sched_type, 2, test_c_s2_start, test_c_s2_end)
             actual_s1s = new_state.get(f"{sched_type}_slot1_start")
             actual_s1e = new_state.get(f"{sched_type}_slot1_end")
             actual_s2s = new_state.get(f"{sched_type}_slot2_start")
             actual_s2e = new_state.get(f"{sched_type}_slot2_end")
+            all_ok = s1_s_ok and s1_e_ok and s2_s_ok and s2_e_ok
+            if s1_s_ok and s1_e_ok:
+                ok(f"Slot 1 ACCEPTED: {actual_s1s[0]:02d}:{actual_s1s[1]:02d}-{actual_s1e[0]:02d}:{actual_s1e[1]:02d}")
+            else:
+                fail(f"Slot 1 NOT applied!")
+            if s2_s_ok and s2_e_ok:
+                ok(f"Slot 2 ACCEPTED: {actual_s2s[0]:02d}:{actual_s2s[1]:02d}-{actual_s2e[0]:02d}:{actual_s2e[1]:02d}")
+            else:
+                fail(f"Slot 2 NOT applied!")
             _log_event("test_check", test=test_name,
-                       expected_s1_start=list(test2_s1_start), expected_s1_end=list(test2_s1_end),
-                       expected_s2_start=list(test2_s2_start), expected_s2_end=list(test2_s2_end),
-                       actual_s1_start=list(actual_s1s), actual_s1_end=list(actual_s1e),
-                       actual_s2_start=list(actual_s2s), actual_s2_end=list(actual_s2e),
                        s1_start_match=s1_s_ok, s1_end_match=s1_e_ok,
                        s2_start_match=s2_s_ok, s2_end_match=s2_e_ok,
                        passed=all_ok)
@@ -646,8 +614,68 @@ async def _run_tests(
             _log_event("test_check", test=test_name, error="no_broadcast", passed=False)
             results.append((test_name, False))
 
-        if not confirm(f"Check panel: {sched_type} both slots show new times, both enabled?"):
-            warn("User reports schedule did not update correctly on panel")
+        if not confirm(f"Panel: {sched_type} both slots show new times?"):
+            warn("User reports incorrect state on panel")
+            if results and results[-1][0] == test_name:
+                results[-1] = (test_name, False)
+
+        # ── TEST D: Change BOTH slots, both ENABLED (0xAA — sanity) ──
+        test_name = f"{cmd_label}: both slots changed, both enabled (0xAA)"
+        print(f"\n{'─'*70}")
+        print(f"  {BOLD}TEST: {test_name}{RESET}")
+        print(f"  Sending: NEW slot 1 + NEW slot 2 times, flags=0xAA (both enabled)")
+        print(f"  Expecting: both slots ACCEPTED (sanity check)")
+
+        # Use yet different times
+        test_d_s1_start = ((test_c_s1_start[0] + 1) % 24, test_c_s1_start[1])
+        test_d_s1_end = ((test_c_s1_end[0] + 1) % 24, test_c_s1_end[1])
+        test_d_s2_start = ((test_c_s2_start[0] + 1) % 24, test_c_s2_start[1])
+        test_d_s2_end = ((test_c_s2_end[0] + 1) % 24, test_c_s2_end[1])
+
+        _log_event("test_start", test=test_name,
+                   sent_s1_start=list(test_d_s1_start), sent_s1_end=list(test_d_s1_end),
+                   sent_s2_start=list(test_d_s2_start), sent_s2_end=list(test_d_s2_end),
+                   s1_enabled=True, s2_enabled=True, flags="0xAA")
+
+        frame = adapter.build_schedule_command(
+            sched_type,
+            test_d_s1_start, test_d_s1_end,
+            test_d_s2_start, test_d_s2_end,
+            slot1_enabled=True,
+            slot2_enabled=True,          # both enabled → 0xAA
+        )
+        await send_command(reader, writer, frame, f"{sched_type}: both new, flags=0xAA (enabled)")
+        new_state = await read_broadcast(reader)
+
+        if new_state:
+            state = new_state
+            s1_s_ok, s1_e_ok = check_times(new_state, sched_type, 1, test_d_s1_start, test_d_s1_end)
+            s2_s_ok, s2_e_ok = check_times(new_state, sched_type, 2, test_d_s2_start, test_d_s2_end)
+            actual_s1s = new_state.get(f"{sched_type}_slot1_start")
+            actual_s1e = new_state.get(f"{sched_type}_slot1_end")
+            actual_s2s = new_state.get(f"{sched_type}_slot2_start")
+            actual_s2e = new_state.get(f"{sched_type}_slot2_end")
+            all_ok = s1_s_ok and s1_e_ok and s2_s_ok and s2_e_ok
+            if all_ok:
+                ok(f"Both slots ACCEPTED when enabled")
+            else:
+                if not s1_s_ok or not s1_e_ok:
+                    fail(f"Slot 1 mismatch")
+                if not s2_s_ok or not s2_e_ok:
+                    fail(f"Slot 2 mismatch")
+            _log_event("test_check", test=test_name,
+                       s1_start_match=s1_s_ok, s1_end_match=s1_e_ok,
+                       s2_start_match=s2_s_ok, s2_end_match=s2_e_ok,
+                       passed=all_ok)
+            results.append((test_name, all_ok))
+            info(f"Full: {format_schedule(new_state, sched_type)}")
+        else:
+            fail("No broadcast received")
+            _log_event("test_check", test=test_name, error="no_broadcast", passed=False)
+            results.append((test_name, False))
+
+        if not confirm(f"Panel: {sched_type} both slots updated, both enabled?"):
+            warn("User reports incorrect state on panel")
             if results and results[-1][0] == test_name:
                 results[-1] = (test_name, False)
 
@@ -656,8 +684,7 @@ async def _run_tests(
         _log_event("restore_start", schedule_type=sched_type,
                    s1_start=list(s1_start), s1_end=list(s1_end),
                    s2_start=list(s2_start), s2_end=list(s2_end),
-                   s1_enabled=s1_en, s2_enabled=s2_en,
-                   force_slot2_write=not s2_en)
+                   s1_enabled=s1_en, s2_enabled=s2_en)
 
         frame = adapter.build_schedule_command(
             sched_type,
@@ -665,8 +692,6 @@ async def _run_tests(
             s2_start, s2_end,
             slot1_enabled=s1_en,
             slot2_enabled=s2_en,
-            # If slot 2 was disabled, we need force-write to restore times
-            force_slot2_write=not s2_en,
         )
         await send_command(reader, writer, frame, f"{sched_type} schedule: RESTORE original")
         new_state = await read_broadcast(reader)

@@ -224,6 +224,8 @@ panel capture for that scenario is needed.
 1. **Test ozone** — still untested live (mode byte 13 detection already confirmed)
 2. **Verify auto clock sync** — check logs for drift-triggered sync path
 3. **Live test resilient UI** — verify persistent connection, reconnect, optimistic snap-back
+   - What we can tell already: the HA UI is way faster than the panel. This means, if I activate heat slot 1 and 2 more or less at the same time (because hitting buttons is fast), one of the 2 actions is reverted. Does it make sense to work with some kind of action queue and execute the actions one after another? This would give the controller enough time to process the first action and then execute the second action without reverting it. Alternative: Declarative approach like Terraform. HA holds the state, operator ensures the spa looks like configured. This might be a bit more tricky with changes made on the display. We could always assume that the user is either using the display or the HA UI, not both at the same time.
+4. **Test schedule writes** — verify schedule freshness gating and force-write flags in live panel tests
 
 ### Priority 3: Diagnostics enrichment (next implementation)
 - Capture and expose controller diagnostic metadata from frames, starting with
@@ -312,5 +314,8 @@ panel capture for that scenario is needed.
   slot 1 and slot 2 behave identically. Removed asymmetric `force_slot2_write`
   logic — replaced `SCHED_FLAGS_FORCE_SLOT2_TABLE` with
   `SCHED_FLAGS_FORCE_WRITE_TABLE`. Updated `protocol.md` with full findings.
-  Capture data in `tools/captures_schedule_changes/` and
-  `tools/captures_schedule_both/`. Tests: `113 passed`.
+  **Verified live:** 8/8 tests passed — `0x5A` works correctly when changing
+  only slot 1, only slot 2, or both slots simultaneously (heat + filter).
+  All user panel confirmations positive. Capture data in
+  `tools/captures_schedule_changes/`, `tools/captures_schedule_both/`, and
+  `tools/captures_schedule_test/`. Tests: `113 passed`.

@@ -337,6 +337,11 @@ For other enable combinations with force-write:
 > `0x5A`) captured live from PB554 panel across heat and filter schedules.
 > Each capture contains exactly 1 schedule command per change, confirming the
 > panel sends a single frame regardless of how many slots are edited.
+>
+> **Verified (2026-05-31 write tests):** `0x5A` confirmed working for all
+> cases: changing only slot 1 (slot 2 unchanged), changing only slot 2
+> (slot 1 unchanged), and changing both slots simultaneously. 8/8 automated
+> tests passed with user panel confirmation. Safe to use universally.
 
 ### 4.4. Filter Schedule (type 0xA4)
 
