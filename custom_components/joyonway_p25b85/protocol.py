@@ -19,9 +19,6 @@ ESCAPE_MAP: dict[int, int] = {
     0x15: 0x1E,
 }
 
-# Minimum viable broadcast frame length (start + header + some payload + CRC + end)
-MIN_BROADCAST_LEN = 20
-
 
 def find_frames(stream: bytes) -> list[bytes]:
     """Extract frames delimited by 0x1A ... 0x1D from a raw byte stream.

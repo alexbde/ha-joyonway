@@ -24,6 +24,7 @@ from frame_parser_38400 import (
     fahrenheit_to_celsius,
     is_broadcast,
     check_escape_positions,
+    annotate_p25b85,
     FRAME_START,
     FRAME_END,
     ESCAPE_BYTE,
@@ -223,7 +224,9 @@ class TestKDyGoldenSample(unittest.TestCase):
         self.assertEqual(fahrenheit_to_celsius(0x5E), 34.4)
 
     def test_heater_state(self):
-        """byte[15] = 0x00 → heater off."""
+        """byte[14] = 0x40 → cooldown (KDy used 1-based: "byte 15")."""
+        self.assertEqual(self.logical[14], 0x40)
+        # byte[15] is always 0x00, NOT heater state
         self.assertEqual(self.logical[15], 0x00)
 
     def test_setpoint(self):
@@ -232,16 +235,26 @@ class TestKDyGoldenSample(unittest.TestCase):
         self.assertEqual(fahrenheit_to_celsius(0x68), 40.0)
 
     def test_light_off(self):
-        """byte[18] = 0x00 → light OFF."""
+        """byte[17] = 0x01 → light ON (KDy used 1-based: "byte 18")."""
+        self.assertEqual(self.logical[17], 0x01)
+        self.assertTrue(bool(self.logical[17] & 0x01))
+        # byte[18] is always 0x00, NOT light flags
         self.assertEqual(self.logical[18], 0x00)
-        self.assertFalse(bool(self.logical[18] & 0x01))
 
     def test_uv_flag(self):
-        """byte[29] UV flag check (0x20 mask)."""
+        """byte[28] UV/activity flag (KDy used 1-based: "byte 29")."""
+        self.assertEqual(self.logical[28], 0x00)  # UV not active in KDy frame
+        # byte[29] = 0x43, static value — not the UV flag
         self.assertEqual(self.logical[29], 0x43)
         # 0x43 & 0x20 = 0x00 → UV is off (0x43 has bits 0x40 + 0x02 + 0x01)
         self.assertTrue(bool(self.logical[29] & 0x40))
         self.assertFalse(bool(self.logical[29] & 0x20))
+
+    def test_byte_28_annotation_is_not_uv_specific(self):
+        annotations = annotate_p25b85(self.logical)
+        byte_28 = next(a for a in annotations if a["byte"] == 28)
+        self.assertEqual(byte_28["name"], "activity_flag")
+        self.assertIn("heating_or_uv", byte_28["decoded"])
 
     def test_escape_in_raw(self):
         """KDy sample has 0x1B 0x11 escape sequence (should unescape to 0x1A)."""

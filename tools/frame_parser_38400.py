@@ -34,8 +34,9 @@ ESCAPE_MAP: dict[int, int] = {
 MODEL_SIGNATURES: dict[int, str] = {0x03: "P25B85", 0x02: "P23B32"}
 
 HEATER_STATES = {
-    0x00: "off", 0x50: "circulation", 0x54: "heating",
-    0x40: "cooldown", 0xC1: "UV/ozone",
+    0x40: "cooldown", 0x41: "UV/ozone", 0x50: "circulation",
+    0x54: "heating", 0x55: "heating",
+    0xC1: "UV/ozone",  # KDy variant (bit 7 differs from 0x41)
 }
 
 # ──────────────────────────────────────────────────────────────
@@ -145,12 +146,12 @@ def annotate_p25b85(frame: bytes) -> list[dict]:
             annotations.append(e)
     add(8, "model_id", lambda v: MODEL_SIGNATURES.get(v, f"unknown(0x{v:02X})"))
     add(9, "water_temp_F", lambda v: f"{v}°F = {fahrenheit_to_celsius(v)}°C")
-    add(12, "pump_candidate_1")
-    add(13, "pump_candidate_2")
-    add(15, "heater_state", lambda v: HEATER_STATES.get(v, f"unknown(0x{v:02X})"))
+    add(12, "pump_byte", lambda v: f"low={'ON' if v & 0x02 else 'off'}, high={'ON' if v & 0x04 else 'off'}")
+    add(14, "heater_state", lambda v: HEATER_STATES.get(v, f"unknown(0x{v:02X})"))
     add(16, "setpoint_F", lambda v: f"{v}°F = {fahrenheit_to_celsius(v)}°C")
-    add(18, "light_flags", lambda v: f"light={'ON' if v & 0x01 else 'OFF'}, flag_0x80={'SET' if v & 0x80 else 'clear'}")
-    add(29, "uv_ozone_flag", lambda v: f"UV={'ACTIVE' if v & 0x20 else 'off'}")
+    add(17, "light_flags", lambda v: f"light={'ON' if v & 0x01 else 'OFF'}, flag_0x80={'SET' if v & 0x80 else 'clear'}")
+    add(27, "pump_mirror", lambda v: f"low={'ON' if v & 0x02 else 'off'}, high={'ON' if v & 0x04 else 'off'}")
+    add(28, "activity_flag", lambda v: f"heating_or_uv={'SET' if v & 0x20 else 'off'}")
     if len(frame) > 58:
         dt = frame[53:59]
         try:
@@ -324,8 +325,8 @@ def print_diff_result(r: dict):
     if not diffs:
         print("\n  ✅ No differences found.")
         return
-    p25_labels = {9: "water_temp", 12: "pump_cand1", 13: "pump_cand2",
-                  15: "heater", 16: "setpoint", 18: "light", 29: "uv"}
+    p25_labels = {9: "water_temp", 12: "pump", 14: "heater",
+                   16: "setpoint", 17: "light", 27: "pump_mirror", 28: "activity"}
     p23_labels = {9: "water_temp", 12: "pump1", 14: "pump2", 16: "setpoint", 17: "light"}
     labels = p25_labels if r["model"] == "P25B85" else p23_labels if r["model"] == "P23B32" else {}
     print(f"\n  {len(diffs)} byte position(s) differ:\n")

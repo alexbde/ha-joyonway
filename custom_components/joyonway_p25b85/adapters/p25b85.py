@@ -1,50 +1,104 @@
 """P25B85 model adapter — byte map and entity definitions.
 
-Byte positions from KDy's reverse engineering (HA community post #74).
-All indexes are logical-frame positions (after full-frame unescape).
+Byte positions validated against local RS485 captures.
+All indexes are 0-based logical-frame positions (after full-frame unescape).
 
-⚠️ Pump byte index (12 vs 13) is UNCONFIRMED — needs local capture validation.
+KDy's HA community post #74 used 1-based byte numbering, which caused an
+off-by-one when we originally transcribed the byte map. KDy's data is fully
+consistent with our captures once the indexing is corrected:
+  KDy "byte 13" → 0-based byte 12 (pump)
+  KDy "byte 15" → 0-based byte 14 (heater state)
+  KDy "byte 18" → 0-based byte 17 (light flags)
+  KDy "byte 28" → 0-based byte 27 (pump mirror)
+  KDy "byte 29" → 0-based byte 28 (activity flag)
+
+Capture validation summary:
+  - Byte 12: pump (0x02=low, 0x04=high) ✅ confirmed (matches KDy)
+  - Byte 14: heater state ✅ confirmed (KDy's "byte 15", 1-based)
+  - Byte 17: light flags ✅ confirmed (KDy's "byte 18", 1-based)
+  - Byte 28: activity flag ✅ confirmed (KDy's "byte 29", 1-based)
+    Set during both heating and UV/ozone, so it is not UV-specific.
+  - Byte 27: mirrors byte 12 (pump), not used
+  - Byte 13: static in local captures, not pump data
+  - Byte 15: static in local captures, not heater state
 """
 from __future__ import annotations
 
-from .base import ModelAdapter, SpaEntityDescription
+from .base import SpaEntityDescription
 
 # Broadcast frame header signature for P25B85 (bytes 0-8)
 # byte[8] = 0x03 distinguishes P25B85 from P23B32 (0x02)
 P25B85_SIGNATURE = bytes([0x1A, 0xFF, 0x01, 0x3C, 0xD2, 0xB4, 0xFF, 0x08, 0x03])
 
-# Byte positions in the logical (unescaped) broadcast frame
-IDX_WATER_TEMP = 9  # Fahrenheit
-IDX_PUMP_BYTE = 12  # ⚠️ UNCONFIRMED: could be 12 or 13. Using 12 as primary candidate.
-IDX_HEATER_STATE = 15
-IDX_SETPOINT = 16  # Fahrenheit
-IDX_LIGHT_FLAGS = 18
-IDX_UV_FLAG = 29
+# Byte positions in the logical (unescaped) broadcast frame (0-based)
+IDX_WATER_TEMP = 9   # Fahrenheit
+IDX_PUMP_BYTE = 12   # ✅ confirmed: 0x02=low, 0x04=high (KDy "byte 13")
+IDX_HEATER_STATE = 14  # ✅ confirmed (KDy "byte 15")
+IDX_SETPOINT = 16    # Fahrenheit
+IDX_LIGHT_FLAGS = 17   # ✅ confirmed (KDy "byte 18")
+IDX_ACTIVITY_FLAG = 28  # ✅ confirmed (KDy "byte 29"); set during heating and UV/ozone
+# Legacy alias kept for raw diagnostics/backward compatibility.
+IDX_UV_FLAG = IDX_ACTIVITY_FLAG
 IDX_DATETIME_START = 53  # bytes 53-58: year, month, day, hour, minute, second
 
-# Pump masks (from KDy status table)
-MASK_PUMP_LOW = 0x02  # filtration / circulation
-MASK_PUMP_HIGH = 0x04  # massage jets
+# Pump masks
+MASK_PUMP_LOW = 0x02   # filtration / circulation ✅
+MASK_PUMP_HIGH = 0x04  # massage jets ✅
 
 # Light
-MASK_LIGHT = 0x01
+MASK_LIGHT = 0x01  # ✅ bit 0 at byte 17
 
-# UV/Ozone
-MASK_UV = 0x20
+# Activity flag at byte 28 (not UV-specific; use heater byte for UV detection)
+MASK_ACTIVITY = 0x20
+# Legacy alias kept for callers that imported the old name.
+MASK_UV = MASK_ACTIVITY
 
-# Heater state values
-HEATER_OFF = 0x00
-HEATER_CIRCULATION = 0x50
-HEATER_HEATING = 0x54
-HEATER_COOLDOWN = 0x40
-HEATER_UV_OZONE = 0xC1
+# Heater state values (at byte 14)
+# KDy describes three heating stages: circulation → heating → cooldown
+# Our captures confirm 0x40 and 0x50; heating and UV differ by 1 bit
+# from KDy's values (firmware variant or sub-state). Both sets are mapped.
+HEATER_COOLDOWN = 0x40    # Post-heating cooldown / idle (KDy: "cooldown") ✅ confirmed
+HEATER_CIRCULATION = 0x50  # Circulation pump pre-heating (KDy: "circulation") ✅ confirmed
+HEATER_HEATING = 0x55     # Actively heating (our capture) ✅ confirmed
+HEATER_HEATING_ALT = 0x54  # Actively heating (KDy's value, differs by bit 0)
+HEATER_UV_OZONE = 0x41    # UV lamp / ozone cycle (our capture) ✅ confirmed
+HEATER_UV_OZONE_ALT = 0xC1  # UV lamp / ozone cycle (KDy's value, differs by bit 7)
+
+# Legacy alias
+HEATER_OFF = HEATER_COOLDOWN  # backward compat
 
 HEATER_STATE_MAP: dict[int, str] = {
-    HEATER_OFF: "off",
+    HEATER_COOLDOWN: "cooldown",
     HEATER_CIRCULATION: "circulation",
     HEATER_HEATING: "heating",
-    HEATER_COOLDOWN: "cooldown",
+    HEATER_HEATING_ALT: "heating",      # KDy variant
     HEATER_UV_OZONE: "uv_ozone",
+    HEATER_UV_OZONE_ALT: "uv_ozone",   # KDy variant
+}
+
+# ──────────────────────────────────────────────────────────────
+# Command frames (captured from PB554 panel, replay-only)
+# CRC algorithm is proprietary; we ONLY replay verbatim frames.
+# ──────────────────────────────────────────────────────────────
+
+# Light toggle — same frame for ON and OFF (it's a toggle)
+CMD_LIGHT_TOGGLE = bytes.fromhex("1a0120103ca110a10000404000c00056003031eeb21d")
+
+# Pump transitions (must match current state → target state)
+CMD_PUMP_OFF_TO_LOW = bytes.fromhex("1a0120103ca110a10202000000c00056007dd2146b1d")
+CMD_PUMP_LOW_TO_HIGH = bytes.fromhex("1a0120103ca110a10604000000c0005600fc1221c61d")
+CMD_PUMP_HIGH_TO_OFF = bytes.fromhex("1a0120103ca110a10400000000c0005600735738e91d")
+
+# Temperature setpoints (only two captured values)
+# Byte 15 = target °F, but CRC is proprietary so we can't generate new values.
+CMD_TEMP_SET_87F = bytes.fromhex("1a0120103ca110a10000808000c00057005aa3207f1d")  # 30.6°C
+CMD_TEMP_SET_86F = bytes.fromhex("1a0120103ca110a10000808000c0005600dd0ff87e1d")  # 30.0°C
+
+# Pump state → next command mapping for cycling
+PUMP_CYCLE_MAP: dict[str, tuple[bytes, str]] = {
+    "off": (CMD_PUMP_OFF_TO_LOW, "low"),
+    "low": (CMD_PUMP_LOW_TO_HIGH, "high"),
+    "high": (CMD_PUMP_HIGH_TO_OFF, "off"),
 }
 
 
@@ -56,12 +110,12 @@ def _fahrenheit_to_celsius(f: int) -> float | None:
 
 
 class P25B85Adapter:
-    """Adapter for the Joyonway P25B85 controller (read-only)."""
+    """Adapter for the Joyonway P25B85 controller."""
 
     model: str = "P25B85"
     broadcast_signature: bytes = P25B85_SIGNATURE
     unescape_full_frame: bool = True
-    supports_writes: bool = False
+    supports_writes: bool = True
 
     def parse_status(self, frame: bytes) -> dict | None:
         """Extract state dict from an unescaped broadcast frame.
@@ -89,9 +143,9 @@ class P25B85Adapter:
             "pump_low": bool(pump_byte & MASK_PUMP_LOW),
             "pump_high": bool(pump_byte & MASK_PUMP_HIGH),
             "light": bool(light_byte & MASK_LIGHT),
-            "heater_active": heater_byte == HEATER_HEATING,
+            "heater_active": heater_byte in (HEATER_HEATING, HEATER_HEATING_ALT),
             "heater_state": heater_state,
-            "uv_lamp": heater_byte == HEATER_UV_OZONE or bool(uv_byte & MASK_UV),
+            "uv_lamp": heater_byte in (HEATER_UV_OZONE, HEATER_UV_OZONE_ALT),
             # Raw diagnostic values
             "raw_pump_byte": pump_byte,
             "raw_heater_byte": heater_byte,
@@ -119,6 +173,36 @@ class P25B85Adapter:
     def entity_descriptions(self) -> list[SpaEntityDescription]:
         """Return entity descriptions for P25B85."""
         return _P25B85_ENTITIES
+
+    def get_pump_state(self, data: dict) -> str:
+        """Return current pump state as 'off', 'low', or 'high'."""
+        if data.get("pump_high"):
+            return "high"
+        if data.get("pump_low"):
+            return "low"
+        return "off"
+
+    def get_pump_command(self, current_state: str, target_state: str) -> bytes | None:
+        """Return command frame to transition pump from current to target state.
+
+        Returns None if transition is not directly possible (need intermediate steps).
+        """
+        if current_state == target_state:
+            return None
+
+        # Direct transitions
+        transitions = {
+            ("off", "low"): CMD_PUMP_OFF_TO_LOW,
+            ("low", "high"): CMD_PUMP_LOW_TO_HIGH,
+            ("high", "off"): CMD_PUMP_HIGH_TO_OFF,
+        }
+        return transitions.get((current_state, target_state))
+
+    def get_pump_cycle_command(self, data: dict) -> bytes | None:
+        """Return command to advance pump to next state in cycle."""
+        current = self.get_pump_state(data)
+        entry = PUMP_CYCLE_MAP.get(current)
+        return entry[0] if entry else None
 
 
 _P25B85_ENTITIES: list[SpaEntityDescription] = [
@@ -184,7 +268,7 @@ _P25B85_ENTITIES: list[SpaEntityDescription] = [
     SpaEntityDescription(
         platform="binary_sensor",
         key="uv_lamp",
-        name="UV lamp",
+        name="UV/ozone",
         icon="mdi:lightbulb-fluorescent-tube",
     ),
     # Diagnostic raw values (disabled by default)
@@ -205,4 +289,3 @@ _P25B85_ENTITIES: list[SpaEntityDescription] = [
         enabled_by_default=False,
     ),
 ]
-

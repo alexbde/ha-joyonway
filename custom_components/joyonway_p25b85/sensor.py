@@ -10,7 +10,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_HOST, UnitOfTemperature
+from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -19,6 +19,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .adapters.base import SpaEntityDescription
 from .const import DOMAIN
 from .coordinator import JoyonwayP25B85Coordinator
+from .entity import device_info
 
 
 async def async_setup_entry(
@@ -36,17 +37,6 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-def _device_info(entry: ConfigEntry) -> dict:
-    """Build device info dict."""
-    return {
-        "identifiers": {(DOMAIN, entry.entry_id)},
-        "name": "Joyonway P25B85",
-        "manufacturer": "Joyonway",
-        "model": "P25B85",
-        "configuration_url": f"http://{entry.data[CONF_HOST]}",
-    }
-
-
 class JoyonwaySensor(CoordinatorEntity, SensorEntity):
     """A sensor entity driven by the model adapter."""
 
@@ -61,9 +51,9 @@ class JoyonwaySensor(CoordinatorEntity, SensorEntity):
         """Initialize the sensor."""
         super().__init__(coordinator)
         self._key = description.key
-        self._attr_name = description.name
+        self._attr_translation_key = description.key
         self._attr_unique_id = f"{entry.entry_id}_{description.key}"
-        self._attr_device_info = _device_info(entry)
+        self._attr_device_info = device_info(entry)
         self._attr_entity_registry_enabled_default = description.enabled_by_default
 
         if description.icon:

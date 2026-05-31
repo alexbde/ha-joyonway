@@ -20,6 +20,6 @@ TCP_TIMEOUT: float = 5.0
 # Coordinator polling interval (seconds between broadcast reads)
 SCAN_INTERVAL: int = 30
 
-# Loaded platforms (read-only: no button platform)
-PLATFORMS: list[str] = ["sensor", "binary_sensor"]
+# Loaded platforms
+PLATFORMS: list[str] = ["sensor", "binary_sensor", "switch", "button"]
 

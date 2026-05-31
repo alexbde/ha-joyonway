@@ -16,6 +16,30 @@
     "abort": {
       "already_configured": "This bridge is already configured."
     }
+  },
+  "entity": {
+    "sensor": {
+      "water_temperature": { "name": "Water temperature" },
+      "setpoint": { "name": "Setpoint" },
+      "heater_state": { "name": "Heater state" },
+      "spa_datetime": { "name": "Spa clock" },
+      "raw_pump_byte": { "name": "Raw pump byte" },
+      "raw_heater_byte": { "name": "Raw heater byte" }
+    },
+    "binary_sensor": {
+      "pump_low": { "name": "Pump low (filtration)" },
+      "pump_high": { "name": "Pump high (jets)" },
+      "light": { "name": "Light" },
+      "heater_active": { "name": "Heater active" },
+      "uv_lamp": { "name": "UV/ozone" },
+      "bridge_connectivity": { "name": "RS485 bridge connection" }
+    },
+    "switch": {
+      "light": { "name": "Light" }
+    },
+    "button": {
+      "pump_cycle": { "name": "Pump cycle" },
+      "pump_off": { "name": "Pump off" }
+    }
   }
 }
-
