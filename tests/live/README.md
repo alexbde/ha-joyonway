@@ -21,7 +21,7 @@ Naming convention: use `livetest_*.py` for runnable scripts in this folder.
 Run:
 
 ```zsh
-cd /Users/alex/IdeaProjects/alexbde/ha-joyonway-p25b85
+cd /path/to/ha-joyonway
 source .venv/bin/activate
 python tests/live/livetest_schedule_ui_matrix.py
 ```
