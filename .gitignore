@@ -13,18 +13,15 @@ __pycache__/
 *.bak2
 *.bak_kdy
 
-# Local capture files
-captures/
-captures_phase4/
-captures_phase5/
-captures_phase6/
-captures_crc/
-captures_temp/
-captures_write_test/
-tools/captures_schedule_test/
-tools/captures_schedule_s1_on_s2_off/
-tests/live/artifacts_schedule_matrix/
+# Capture session data (contains timestamps, IPs, local paths)
+tools/captures/
+*.jsonl
+
+# Binary capture files
 *.bin
+
+# Live test artifacts
+tests/live/artifacts_*/
 
 # Virtual environments
 .venv*/

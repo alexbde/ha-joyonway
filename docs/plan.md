@@ -3,11 +3,11 @@
 > **Goal:** A Home Assistant integration for the Joyonway P25B85 controller,
 > with a model adapter interface ready for future multi-model expansion.
 >
-> **Repo:** `alexbde/ha-joyonway-p25b85` — independent from upstream
+> **Repo:** `alexbde/ha-joyonway` (migrated from `ha-joyonway-p25b85`)
 > **Upstream:** christopheknap keeps `ha-joyonway-p23b32` P23B32-only.
 > His code remains at https://github.com/KnapTheBuilder/ha-joyonway-p23b32.
 >
-> **Integration domain:** `joyonway_p25b85`
+> **Integration domain:** `joyonway`
 > **Hardware:** P25B85 + PB554 + Elfin EW11
 > **Status:** Resilient UI refactor implemented with intent-queue follow-up fixes merged.
 > Persistent TCP connection, optimistic state, grace-mode availability, explicit
@@ -66,7 +66,7 @@ All protocol details—including framing, byte maps, command payloads, schedule 
 ### File structure
 
 ```
-custom_components/joyonway_p25b85/
+custom_components/joyonway/
 ├── __init__.py          # entry setup, coordinator lifecycle, strict unload
 ├── const.py             # domain, config keys, timing constants, PLATFORMS
 ├── manifest.json        # HACS-compatible, v0.1.0
@@ -277,7 +277,7 @@ both heat and filter schedules.
   - Directory: `custom_components/joyonway/`
 - **Execution checklist:**
   1. Create fresh GitHub repo `alexbde/ha-joyonway` (no fork relationship).
-  2. Rename `custom_components/joyonway_p25b85/` → `custom_components/joyonway/`.
+  2. Rename `custom_components/joyonway/` → `custom_components/joyonway/`.
   3. Update all internal references: domain in `const.py`, `manifest.json`,
      `hacs.json`, `config_flow.py`, `__init__.py`, translations, tests.
   4. Squash history into clean meaningful commits (or single initial commit).

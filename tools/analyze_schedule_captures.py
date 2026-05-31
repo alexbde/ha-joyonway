@@ -5,7 +5,7 @@ from pathlib import Path
 from importlib.util import module_from_spec, spec_from_file_location
 
 os.chdir(Path(__file__).resolve().parent.parent)
-_comp_dir = Path("custom_components/joyonway_p25b85")
+_comp_dir = Path("custom_components/joyonway")
 
 def _load(name, path):
     spec = spec_from_file_location(name, path)
@@ -14,17 +14,17 @@ def _load(name, path):
     spec.loader.exec_module(mod)
     return mod
 
-_pkg = types.ModuleType("joyonway_p25b85")
+_pkg = types.ModuleType("joyonway")
 _pkg.__path__ = [str(_comp_dir)]
-sys.modules["joyonway_p25b85"] = _pkg
-_adapters_pkg = types.ModuleType("joyonway_p25b85.adapters")
+sys.modules["joyonway"] = _pkg
+_adapters_pkg = types.ModuleType("joyonway.adapters")
 _adapters_pkg.__path__ = [str(_comp_dir / "adapters")]
-sys.modules["joyonway_p25b85.adapters"] = _adapters_pkg
-_load("joyonway_p25b85.adapters.base", _comp_dir / "adapters" / "base.py")
-_load("joyonway_p25b85.protocol", _comp_dir / "protocol.py")
-_load("joyonway_p25b85.adapters.p25b85", _comp_dir / "adapters" / "p25b85.py")
+sys.modules["joyonway.adapters"] = _adapters_pkg
+_load("joyonway.adapters.base", _comp_dir / "adapters" / "base.py")
+_load("joyonway.protocol", _comp_dir / "protocol.py")
+_load("joyonway.adapters.p25b85", _comp_dir / "adapters" / "p25b85.py")
 
-from joyonway_p25b85.protocol import find_frames, is_broadcast, pseudo_unescape
+from joyonway.protocol import find_frames, is_broadcast, pseudo_unescape
 
 captures_dir = "tools/captures_schedule_changes"
 both_dir = "tools/captures_schedule_both"

@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from custom_components.joyonway_p25b85.const import (
+from custom_components.joyonway.const import (
     AVAILABILITY_GRACE_SECONDS,
     COMMAND_COOLDOWN,
     CONF_HOST,
@@ -29,7 +29,7 @@ from custom_components.joyonway_p25b85.const import (
     OPTIMISTIC_TIMEOUT_SECONDS,
     RX_STALE_SECONDS,
 )
-from custom_components.joyonway_p25b85.coordinator import (
+from custom_components.joyonway.coordinator import (
     IntentBuildError,
     JoyonwayP25B85Coordinator,
 )
@@ -345,7 +345,7 @@ class _DummyIntentQueue:
 @pytest.mark.asyncio
 async def test_optimistic_timeout_clears_pending_state():
     """Pending state auto-clears after timeout."""
-    from custom_components.joyonway_p25b85.switch import SpaHeaterSwitch
+    from custom_components.joyonway.switch import SpaHeaterSwitch
 
     class QuickCoordinator:
         data = {"status": "off"}
@@ -367,7 +367,7 @@ async def test_optimistic_timeout_clears_pending_state():
     heater.async_write_ha_state = MagicMock()
 
     # Monkeypatch timeout to be very short
-    import custom_components.joyonway_p25b85.switch as switch_mod
+    import custom_components.joyonway.switch as switch_mod
     original = switch_mod.OPTIMISTIC_TIMEOUT_SECONDS
     switch_mod.OPTIMISTIC_TIMEOUT_SECONDS = 0.05
 
@@ -385,7 +385,7 @@ async def test_optimistic_timeout_clears_pending_state():
 @pytest.mark.asyncio
 async def test_optimistic_timeout_canceled_on_coordinator_update():
     """Pending timeout is canceled when _handle_coordinator_update fires."""
-    from custom_components.joyonway_p25b85.switch import SpaHeaterSwitch
+    from custom_components.joyonway.switch import SpaHeaterSwitch
 
     class QuickCoordinator:
         data = {"status": "off"}
@@ -406,7 +406,7 @@ async def test_optimistic_timeout_canceled_on_coordinator_update():
     heater.hass = FakeHass()
     heater.async_write_ha_state = MagicMock()
 
-    import custom_components.joyonway_p25b85.switch as switch_mod
+    import custom_components.joyonway.switch as switch_mod
     original = switch_mod.OPTIMISTIC_TIMEOUT_SECONDS
     switch_mod.OPTIMISTIC_TIMEOUT_SECONDS = 5.0  # long timeout
 
@@ -432,7 +432,7 @@ async def test_optimistic_timeout_canceled_on_coordinator_update():
 @pytest.mark.asyncio
 async def test_pending_timeout_canceled_on_entity_removal():
     """Pending timeout task is canceled on async_will_remove_from_hass."""
-    from custom_components.joyonway_p25b85.switch import SpaHeaterSwitch
+    from custom_components.joyonway.switch import SpaHeaterSwitch
 
     class QuickCoordinator:
         data = {"status": "off"}
@@ -453,7 +453,7 @@ async def test_pending_timeout_canceled_on_entity_removal():
     heater.hass = FakeHass()
     heater.async_write_ha_state = MagicMock()
 
-    import custom_components.joyonway_p25b85.switch as switch_mod
+    import custom_components.joyonway.switch as switch_mod
     original = switch_mod.OPTIMISTIC_TIMEOUT_SECONDS
     switch_mod.OPTIMISTIC_TIMEOUT_SECONDS = 5.0
 

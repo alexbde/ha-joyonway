@@ -11,21 +11,21 @@ import pytest
 from _loader import load_module
 
 ROOT = Path(__file__).resolve().parents[1]
-PKG_DIR = ROOT / "custom_components" / "joyonway_p25b85"
+PKG_DIR = ROOT / "custom_components" / "joyonway"
 
-protocol = load_module("joyonway_p25b85.protocol", PKG_DIR / "protocol.py")
+protocol = load_module("joyonway.protocol", PKG_DIR / "protocol.py")
 adapters_base = load_module(
-    "joyonway_p25b85.adapters.base", PKG_DIR / "adapters" / "base.py"
+    "joyonway.adapters.base", PKG_DIR / "adapters" / "base.py"
 )
-adapters_pkg_mod = types.ModuleType("joyonway_p25b85.adapters")
+adapters_pkg_mod = types.ModuleType("joyonway.adapters")
 adapters_pkg_mod.base = adapters_base
 adapters_pkg_mod.SpaEntityDescription = adapters_base.SpaEntityDescription
-sys.modules["joyonway_p25b85.adapters"] = adapters_pkg_mod
+sys.modules["joyonway.adapters"] = adapters_pkg_mod
 adapters_p25b85 = load_module(
-    "joyonway_p25b85.adapters.p25b85", PKG_DIR / "adapters" / "p25b85.py"
+    "joyonway.adapters.p25b85", PKG_DIR / "adapters" / "p25b85.py"
 )
 adapters_registry = load_module(
-    "joyonway_p25b85.adapters_init", PKG_DIR / "adapters" / "__init__.py"
+    "joyonway.adapters_init", PKG_DIR / "adapters" / "__init__.py"
 )
 
 find_frames = protocol.find_frames

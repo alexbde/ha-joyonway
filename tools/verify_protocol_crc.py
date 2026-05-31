@@ -2,7 +2,7 @@
 """Verify protocol.py CRC implementation against all captured frames."""
 import json, sys, os
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'custom_components', 'joyonway_p25b85'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'custom_components', 'joyonway'))
 from protocol import compute_crc, build_frame, pseudo_unescape
 
 ESCAPE_MAP = {0x11: 0x1A, 0x0B: 0x1B, 0x13: 0x1C, 0x14: 0x1D, 0x15: 0x1E}

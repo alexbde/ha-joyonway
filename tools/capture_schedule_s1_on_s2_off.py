@@ -38,7 +38,7 @@ if env_path.exists():
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-_comp_dir = Path(__file__).resolve().parent.parent / "custom_components" / "joyonway_p25b85"
+_comp_dir = Path(__file__).resolve().parent.parent / "custom_components" / "joyonway"
 
 
 def _load(name: str, path: Path):
@@ -50,20 +50,20 @@ def _load(name: str, path: Path):
 
 
 # Set up package hierarchy so relative imports work
-_pkg = types.ModuleType("joyonway_p25b85")
+_pkg = types.ModuleType("joyonway")
 _pkg.__path__ = [str(_comp_dir)]
-sys.modules["joyonway_p25b85"] = _pkg
+sys.modules["joyonway"] = _pkg
 
-_adapters_pkg = types.ModuleType("joyonway_p25b85.adapters")
+_adapters_pkg = types.ModuleType("joyonway.adapters")
 _adapters_pkg.__path__ = [str(_comp_dir / "adapters")]
-sys.modules["joyonway_p25b85.adapters"] = _adapters_pkg
+sys.modules["joyonway.adapters"] = _adapters_pkg
 
-_load("joyonway_p25b85.adapters.base", _comp_dir / "adapters" / "base.py")
-_load("joyonway_p25b85.protocol", _comp_dir / "protocol.py")
-_load("joyonway_p25b85.adapters.p25b85", _comp_dir / "adapters" / "p25b85.py")
+_load("joyonway.adapters.base", _comp_dir / "adapters" / "base.py")
+_load("joyonway.protocol", _comp_dir / "protocol.py")
+_load("joyonway.adapters.p25b85", _comp_dir / "adapters" / "p25b85.py")
 
-from joyonway_p25b85.adapters.p25b85 import P25B85Adapter
-from joyonway_p25b85.protocol import (
+from joyonway.adapters.p25b85 import P25B85Adapter
+from joyonway.protocol import (
     find_frames,
     is_broadcast,
     pseudo_unescape,

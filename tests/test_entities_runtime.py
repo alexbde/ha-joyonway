@@ -26,23 +26,23 @@ from homeassistant.components.fan import FanEntityFeature
 from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.exceptions import HomeAssistantError
 
-from custom_components.joyonway_p25b85.adapters.base import SpaEntityDescription
-from custom_components.joyonway_p25b85.adapters.p25b85 import P25B85Adapter
-from custom_components.joyonway_p25b85.binary_sensor import (
+from custom_components.joyonway.adapters.base import SpaEntityDescription
+from custom_components.joyonway.adapters.p25b85 import P25B85Adapter
+from custom_components.joyonway.binary_sensor import (
     JoyonwayBinarySensor,
     JoyonwayBridgeConnectivity,
 )
-from custom_components.joyonway_p25b85.climate import SpaClimate
-from custom_components.joyonway_p25b85.const import CONF_HOST
-from custom_components.joyonway_p25b85.fan import SpaPumpFan
-from custom_components.joyonway_p25b85.sensor import JoyonwaySensor
-from custom_components.joyonway_p25b85.switch import (
+from custom_components.joyonway.climate import SpaClimate
+from custom_components.joyonway.const import CONF_HOST
+from custom_components.joyonway.fan import SpaPumpFan
+from custom_components.joyonway.sensor import JoyonwaySensor
+from custom_components.joyonway.switch import (
     SpaBlowerSwitch,
     SpaHeaterSwitch,
     SpaLightSwitch,
     SpaScheduleSlotSwitch,
 )
-from custom_components.joyonway_p25b85.time import SpaScheduleTime
+from custom_components.joyonway.time import SpaScheduleTime
 
 # Build real command frames for assertion
 _adapter = P25B85Adapter()
@@ -251,7 +251,7 @@ async def test_climate_debounced_set_temperature_sends_command(
     climate = SpaClimate(coordinator, entry)
     climate.hass = DummyHass()
 
-    import custom_components.joyonway_p25b85.climate as climate_module
+    import custom_components.joyonway.climate as climate_module
 
     monkeypatch.setattr(climate_module, "TEMP_DEBOUNCE_SECONDS", 0)
     monkeypatch.setattr(climate, "async_write_ha_state", lambda: None)
