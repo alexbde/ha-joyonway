@@ -20,26 +20,51 @@
   "entity": {
     "sensor": {
       "water_temperature": { "name": "Water temperature" },
-      "setpoint": { "name": "Setpoint" },
-      "heater_state": { "name": "Heater state" },
-      "spa_datetime": { "name": "Spa clock" },
+      "heater_state": {
+        "name": "Heater state",
+        "state": {
+          "off": "Off",
+          "circulation": "Circulation",
+          "heating": "Heating",
+          "disinfection": "Disinfection",
+          "unknown": "Unknown"
+        }
+      },
+      "pump_state": {
+        "name": "Pump state",
+        "state": {
+          "off": "Off",
+          "low": "Low",
+          "high": "High"
+        }
+      },
+      "spa_datetime": { "name": "Date & time" },
       "raw_pump_byte": { "name": "Raw pump byte" },
       "raw_heater_byte": { "name": "Raw heater byte" }
     },
     "binary_sensor": {
-      "pump_low": { "name": "Pump low (filtration)" },
-      "pump_high": { "name": "Pump high (jets)" },
-      "light": { "name": "Light" },
-      "heater_active": { "name": "Heater active" },
-      "uv_lamp": { "name": "UV/ozone" },
-      "bridge_connectivity": { "name": "RS485 bridge connection" }
+      "bridge_connectivity": { "name": "RS485 bridge" }
     },
     "switch": {
-      "light": { "name": "Light" }
+      "light": { "name": "Light" },
+      "heater": { "name": "Heater" },
+      "blower": { "name": "Blower" }
     },
-    "button": {
-      "pump_cycle": { "name": "Pump cycle" },
-      "pump_off": { "name": "Pump off" }
+    "fan": {
+      "jets": {
+        "name": "Jets",
+        "state_attributes": {
+          "preset_mode": {
+            "state": {
+              "low": "Low",
+              "high": "High"
+            }
+          }
+        }
+      }
+    },
+    "climate": {
+      "thermostat": { "name": "Thermostat" }
     }
   }
 }

@@ -1,12 +1,41 @@
+# OS/editor/local config
+.DS_Store
+.idea/
+.local/
+.env
+
+# Python bytecode and temp backups
 __pycache__/
 *.pyc
 *.pyo
-.DS_Store
 *.bak
 *.bak.*
 *.bak2
 *.bak_kdy
-.env
+
+# Local capture files
 captures/
-.idea/
-.local/
+captures_phase4/
+captures_phase5/
+captures_crc/
+captures_temp/
+*.bin
+
+# Virtual environments
+.venv*/
+
+# Build/package artifacts
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Test/type/lint caches and coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+

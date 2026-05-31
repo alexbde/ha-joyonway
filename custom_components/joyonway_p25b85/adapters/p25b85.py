@@ -24,6 +24,13 @@ Capture validation summary:
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
+try:
+    from homeassistant.util import dt as dt_util
+except ImportError:  # standalone / test usage without HA
+    dt_util = None  # type: ignore[assignment]
+
 from .base import SpaEntityDescription
 
 # Broadcast frame header signature for P25B85 (bytes 0-8)
@@ -53,27 +60,27 @@ MASK_ACTIVITY = 0x20
 # Legacy alias kept for callers that imported the old name.
 MASK_UV = MASK_ACTIVITY
 
+# Blower flag at byte 28 (bit 3)
+MASK_BLOWER = 0x08
+
 # Heater state values (at byte 14)
-# KDy describes three heating stages: circulation → heating → cooldown
+# KDy describes three heating stages: circulation → heating → cooldown/off
 # Our captures confirm 0x40 and 0x50; heating and UV differ by 1 bit
 # from KDy's values (firmware variant or sub-state). Both sets are mapped.
-HEATER_COOLDOWN = 0x40    # Post-heating cooldown / idle (KDy: "cooldown") ✅ confirmed
+HEATER_OFF = 0x40    # Idle/off (KDy called this "cooldown") ✅ confirmed
 HEATER_CIRCULATION = 0x50  # Circulation pump pre-heating (KDy: "circulation") ✅ confirmed
 HEATER_HEATING = 0x55     # Actively heating (our capture) ✅ confirmed
 HEATER_HEATING_ALT = 0x54  # Actively heating (KDy's value, differs by bit 0)
-HEATER_UV_OZONE = 0x41    # UV lamp / ozone cycle (our capture) ✅ confirmed
-HEATER_UV_OZONE_ALT = 0xC1  # UV lamp / ozone cycle (KDy's value, differs by bit 7)
-
-# Legacy alias
-HEATER_OFF = HEATER_COOLDOWN  # backward compat
+HEATER_DISINFECTION = 0x41    # Scheduled disinfection cycle (our capture) ✅ confirmed
+HEATER_DISINFECTION_ALT = 0xC1  # KDy variant (differs by bit 7)
 
 HEATER_STATE_MAP: dict[int, str] = {
-    HEATER_COOLDOWN: "cooldown",
+    HEATER_OFF: "off",
     HEATER_CIRCULATION: "circulation",
     HEATER_HEATING: "heating",
     HEATER_HEATING_ALT: "heating",      # KDy variant
-    HEATER_UV_OZONE: "uv_ozone",
-    HEATER_UV_OZONE_ALT: "uv_ozone",   # KDy variant
+    HEATER_DISINFECTION: "disinfection",
+    HEATER_DISINFECTION_ALT: "disinfection",   # KDy variant
 }
 
 # ──────────────────────────────────────────────────────────────
@@ -89,10 +96,17 @@ CMD_PUMP_OFF_TO_LOW = bytes.fromhex("1a0120103ca110a10202000000c00056007dd2146b1
 CMD_PUMP_LOW_TO_HIGH = bytes.fromhex("1a0120103ca110a10604000000c0005600fc1221c61d")
 CMD_PUMP_HIGH_TO_OFF = bytes.fromhex("1a0120103ca110a10400000000c0005600735738e91d")
 
-# Temperature setpoints (only two captured values)
-# Byte 15 = target °F, but CRC is proprietary so we can't generate new values.
-CMD_TEMP_SET_87F = bytes.fromhex("1a0120103ca110a10000808000c00057005aa3207f1d")  # 30.6°C
-CMD_TEMP_SET_86F = bytes.fromhex("1a0120103ca110a10000808000c0005600dd0ff87e1d")  # 30.0°C
+# Heater manual ON/OFF (Phase 5 captures)
+# byte[10-11] = 0x08,0x08 for ON; 0x08,0x00 for OFF
+# byte[15] = 0x64 (100°F) was the setpoint at capture time
+CMD_HEATER_ON = bytes.fromhex("1a0120103ca110a10000080800c0006400d3cab4791d")
+CMD_HEATER_OFF = bytes.fromhex("1a0120103ca110a10000080000c000640035b18d0a1d")
+
+# Blower ON/OFF (Phase 5 captures)
+# byte[10-11] = 0x04,0x0C for ON; 0x04,0x08 for OFF
+# Broadcast: byte[14] bit 3 (0x08) = blower active, byte[28] bit 3 (0x08) = blower
+CMD_BLOWER_ON = bytes.fromhex("1a0120103ca110a10000040c00c00064000029c8f51d")
+CMD_BLOWER_OFF = bytes.fromhex("1a0120103ca110a10000040800c0006400f39454cc1d")
 
 # Pump state → next command mapping for cycling
 PUMP_CYCLE_MAP: dict[str, tuple[bytes, str]] = {
@@ -101,12 +115,57 @@ PUMP_CYCLE_MAP: dict[str, tuple[bytes, str]] = {
     "high": (CMD_PUMP_HIGH_TO_OFF, "off"),
 }
 
+# Temperature setpoint command frames (captured from PB554 panel).
+# Keys are target °C; values are raw wire-format hex frames (replay verbatim).
+# 31 frames covering 10°C (50°F) to 40°C (104°F) in 1°C steps.
+# The °C→°F mapping follows the panel's +1,+2,+2,+2,+2 repeating pattern.
+TEMP_COMMAND_TABLE: dict[int, bytes] = {
+    10: bytes.fromhex("1a0120103ca110a10000809800c0003200cb80efa11d"),   # 50°F
+    11: bytes.fromhex("1a0120103ca110a10000808800c000330080db45461d"),   # 51°F
+    12: bytes.fromhex("1a0120103ca110a10000808800c0003500923096421d"),   # 53°F
+    13: bytes.fromhex("1a0120103ca110a10000808800c00037009c6927411d"),   # 55°F
+    14: bytes.fromhex("1a0120103ca110a10000808800c0003900b6e6314b1d"),   # 57°F
+    15: bytes.fromhex("1a0120103ca110a10000808800c0003b00b8bf80481d"),   # 59°F
+    16: bytes.fromhex("1a0120103ca110a10000808800c0003c002df88b4d1d"),   # 60°F
+    17: bytes.fromhex("1a0120103ca110a10000808800c0003e0023a13a4e1d"),   # 62°F
+    18: bytes.fromhex("1a0120103ca110a10000808800c0004000595798141d"),   # 64°F
+    19: bytes.fromhex("1a0120103ca110a10000808800c0004200570e29171d"),   # 66°F
+    20: bytes.fromhex("1a0120103ca110a10000808800c000440045e5fa131d"),   # 68°F
+    21: bytes.fromhex("1a0120103ca110a10000808800c0004500c24922121d"),   # 69°F
+    22: bytes.fromhex("1a0120103ca110a10000808800c0004700cc1093111d"),   # 71°F
+    23: bytes.fromhex("1a0120103ca110a10000808800c0004900e69f851b0b1d"),  # 73°F (escaped CRC)
+    24: bytes.fromhex("1a0120103ca110a10000808800c0004b00e8c634181d"),   # 75°F
+    25: bytes.fromhex("1a0120103ca110a10000809800c0004d0036da95fa1d"),   # 77°F
+    26: bytes.fromhex("1a0120103ca110a10000809800c0004e00bf2ffcf81d"),   # 78°F
+    27: bytes.fromhex("1a0120103ca110a10000808800c0005000299f12091d"),   # 80°F
+    28: bytes.fromhex("1a0120103ca110a10000808800c000520027c6a30a1d"),   # 82°F
+    29: bytes.fromhex("1a0120103ca110a10000808800c0005400352d700e1d"),   # 84°F
+    30: bytes.fromhex("1a0120103ca110a10000808800c00056003b74c10d1d"),   # 86°F
+    31: bytes.fromhex("1a0120103ca110a10000808800c0005700bcd8190c1d"),   # 87°F
+    32: bytes.fromhex("1a0120103ca110a10000809900c00059004bc82aaf1d"),   # 89°F
+    33: bytes.fromhex("1a0120103ca110a10000809900c0005b0045919bac1d"),   # 91°F
+    34: bytes.fromhex("1a0120103ca110a10000809900c0005d00577a48a81d"),   # 93°F
+    35: bytes.fromhex("1a0120103ca110a10000809900c0005f005923f9ab1d"),   # 95°F
+    36: bytes.fromhex("1a0120103ca110a10000809900c00060006458a8861d"),   # 96°F
+    37: bytes.fromhex("1a0120103ca110a10000809900c00062006a0119851d"),   # 98°F
+    38: bytes.fromhex("1a0120103ca110a10000809900c000640078eaca811d"),   # 100°F
+    39: bytes.fromhex("1a0120103ca110a10000809900c000660076b37b821d"),   # 102°F
+    40: bytes.fromhex("1a0120103ca110a10000809900c00068005c3c6d881d"),   # 104°F
+}
 
-def _fahrenheit_to_celsius(f: int) -> float | None:
-    """Convert Fahrenheit to Celsius, return None for invalid values."""
+TEMP_MIN_C = 10
+TEMP_MAX_C = 40
+
+
+def _fahrenheit_to_celsius(f: int) -> int | None:
+    """Convert Fahrenheit to Celsius, return None for invalid values.
+
+    Returns an integer because the spa panel only displays whole-degree
+    values; the extra decimal from °F→°C conversion is false precision.
+    """
     if f == 0 or f > 200:
         return None
-    return round((f - 32) * 5 / 9, 1)
+    return round((f - 32) * 5 / 9)
 
 
 class P25B85Adapter:
@@ -133,35 +192,54 @@ class P25B85Adapter:
         pump_byte = frame[IDX_PUMP_BYTE]
         heater_byte = frame[IDX_HEATER_STATE]
         light_byte = frame[IDX_LIGHT_FLAGS]
-        uv_byte = frame[IDX_UV_FLAG]
+        activity_byte = frame[IDX_UV_FLAG]
 
         heater_state = HEATER_STATE_MAP.get(heater_byte, "unknown")
+
+        # Derive pump state string
+        if pump_byte & MASK_PUMP_HIGH:
+            pump_state = "high"
+        elif pump_byte & MASK_PUMP_LOW:
+            pump_state = "low"
+        else:
+            pump_state = "off"
 
         result: dict = {
             "water_temperature": _fahrenheit_to_celsius(water_temp_f),
             "setpoint": _fahrenheit_to_celsius(setpoint_f),
             "pump_low": bool(pump_byte & MASK_PUMP_LOW),
             "pump_high": bool(pump_byte & MASK_PUMP_HIGH),
+            "pump_state": pump_state,
             "light": bool(light_byte & MASK_LIGHT),
             "heater_active": heater_byte in (HEATER_HEATING, HEATER_HEATING_ALT),
             "heater_state": heater_state,
-            "uv_lamp": heater_byte in (HEATER_UV_OZONE, HEATER_UV_OZONE_ALT),
+            "disinfection_active": heater_byte in (HEATER_DISINFECTION, HEATER_DISINFECTION_ALT),
+            "blower": bool(activity_byte & MASK_BLOWER),
             # Raw diagnostic values
             "raw_pump_byte": pump_byte,
             "raw_heater_byte": heater_byte,
             "raw_light_byte": light_byte,
-            "raw_uv_byte": uv_byte,
+            "raw_activity_byte": activity_byte,
             "raw_water_temp_f": water_temp_f,
             "raw_setpoint_f": setpoint_f,
         }
 
-        # Parse datetime if frame is long enough
+        # Parse datetime if frame is long enough.
+        # The controller clock sends local time without timezone info.
+        # We attach the HA instance timezone so the timestamp sensor displays
+        # the value as-is without any UTC offset conversion.
         if len(frame) > IDX_DATETIME_START + 5:
             dt_bytes = frame[IDX_DATETIME_START : IDX_DATETIME_START + 6]
             try:
-                result["spa_datetime"] = (
-                    f"20{dt_bytes[0]:02d}-{dt_bytes[1]:02d}-{dt_bytes[2]:02d} "
-                    f"{dt_bytes[3]:02d}:{dt_bytes[4]:02d}:{dt_bytes[5]:02d}"
+                local_tz = dt_util.DEFAULT_TIME_ZONE if dt_util else timezone.utc
+                result["spa_datetime"] = datetime(
+                    year=2000 + dt_bytes[0],
+                    month=dt_bytes[1],
+                    day=dt_bytes[2],
+                    hour=dt_bytes[3],
+                    minute=dt_bytes[4],
+                    second=dt_bytes[5],
+                    tzinfo=local_tz,
                 )
             except (ValueError, IndexError):
                 result["spa_datetime"] = None
@@ -204,6 +282,13 @@ class P25B85Adapter:
         entry = PUMP_CYCLE_MAP.get(current)
         return entry[0] if entry else None
 
+    def get_temp_command(self, target_celsius: int) -> bytes | None:
+        """Return the command frame for a target temperature in °C.
+
+        Returns None if the temperature is out of range (10-40°C).
+        """
+        return TEMP_COMMAND_TABLE.get(target_celsius)
+
 
 _P25B85_ENTITIES: list[SpaEntityDescription] = [
     # Sensors
@@ -218,58 +303,28 @@ _P25B85_ENTITIES: list[SpaEntityDescription] = [
     ),
     SpaEntityDescription(
         platform="sensor",
-        key="setpoint",
-        name="Setpoint",
-        icon="mdi:thermometer-chevron-up",
-        device_class="temperature",
-        state_class="measurement",
-        native_unit="°C",
-    ),
-    SpaEntityDescription(
-        platform="sensor",
         key="heater_state",
         name="Heater state",
         icon="mdi:fire",
+        device_class="enum",
+        options=["off", "circulation", "heating", "disinfection", "unknown"],
+    ),
+    SpaEntityDescription(
+        platform="sensor",
+        key="pump_state",
+        name="Pump state",
+        icon="mdi:pump",
+        device_class="enum",
+        options=["off", "low", "high"],
     ),
     SpaEntityDescription(
         platform="sensor",
         key="spa_datetime",
         name="Spa clock",
         icon="mdi:clock-outline",
+        device_class="timestamp",
         entity_category="diagnostic",
         enabled_by_default=False,
-    ),
-    # Binary sensors
-    SpaEntityDescription(
-        platform="binary_sensor",
-        key="pump_low",
-        name="Pump low (filtration)",
-        icon="mdi:pump",
-    ),
-    SpaEntityDescription(
-        platform="binary_sensor",
-        key="pump_high",
-        name="Pump high (jets)",
-        icon="mdi:pump",
-    ),
-    SpaEntityDescription(
-        platform="binary_sensor",
-        key="light",
-        name="Light",
-        icon="mdi:lightbulb",
-    ),
-    SpaEntityDescription(
-        platform="binary_sensor",
-        key="heater_active",
-        name="Heater active",
-        icon="mdi:fire",
-        device_class="heat",
-    ),
-    SpaEntityDescription(
-        platform="binary_sensor",
-        key="uv_lamp",
-        name="UV/ozone",
-        icon="mdi:lightbulb-fluorescent-tube",
     ),
     # Diagnostic raw values (disabled by default)
     SpaEntityDescription(

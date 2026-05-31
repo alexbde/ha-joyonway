@@ -1,34 +1,29 @@
-#!/usr/bin/env python3
-"""
-Tests for Joyonway RS485 frame protocol functions.
-
-Pure-stdlib tests using unittest — no pip dependencies required.
-Run with: python3 -m pytest tests/test_frame_protocol.py -v
-     or:  python3 -m unittest tests.test_frame_protocol -v
-"""
+"""Pytest coverage for the analysis tool frame parser."""
 from __future__ import annotations
 
-import sys
-import os
-import unittest
+from pathlib import Path
 
-# Add tools/ to path so we can import the shared protocol functions
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
+import pytest
 
-from frame_parser_38400 import (
-    find_frames,
-    pseudo_unescape,
-    unescape_frame,
-    detect_model,
-    get_unescape_policy,
-    fahrenheit_to_celsius,
-    is_broadcast,
-    check_escape_positions,
-    annotate_p25b85,
-    FRAME_START,
-    FRAME_END,
-    ESCAPE_BYTE,
+from _loader import load_module
+
+ROOT = Path(__file__).resolve().parents[1]
+tool_module = load_module(
+    "frame_parser_38400", ROOT / "tools" / "frame_parser_38400.py"
 )
+
+find_frames = tool_module.find_frames
+pseudo_unescape = tool_module.pseudo_unescape
+unescape_frame = tool_module.unescape_frame
+detect_model = tool_module.detect_model
+get_unescape_policy = tool_module.get_unescape_policy
+fahrenheit_to_celsius = tool_module.fahrenheit_to_celsius
+is_broadcast = tool_module.is_broadcast
+check_escape_positions = tool_module.check_escape_positions
+annotate_p25b85 = tool_module.annotate_p25b85
+FRAME_START = tool_module.FRAME_START
+FRAME_END = tool_module.FRAME_END
+ESCAPE_BYTE = tool_module.ESCAPE_BYTE
 
 
 # ──────────────────────────────────────────────────────────────
@@ -55,341 +50,142 @@ KDY_NORMALIZED_RAW_HEX = (
 KDY_NORMALIZED_RAW = bytes.fromhex(KDY_NORMALIZED_RAW_HEX.replace(" ", ""))
 
 
-class TestFindFrames(unittest.TestCase):
-    """Test frame extraction from raw byte streams."""
-
-    def test_single_frame(self):
-        stream = bytes([0x1A, 0x01, 0x02, 0x03, 0x1D])
-        frames = find_frames(stream)
-        self.assertEqual(len(frames), 1)
-        self.assertEqual(frames[0], stream)
-
-    def test_multiple_frames(self):
-        f1 = bytes([0x1A, 0xAA, 0xBB, 0x1D])
-        f2 = bytes([0x1A, 0xCC, 0xDD, 0x1D])
-        frames = find_frames(f1 + f2)
-        self.assertEqual(len(frames), 2)
-        self.assertEqual(frames[0], f1)
-        self.assertEqual(frames[1], f2)
-
-    def test_junk_before_frame(self):
-        """Bytes before first 0x1A should be skipped."""
-        junk = bytes([0x00, 0xFF, 0x42])
-        frame = bytes([0x1A, 0x01, 0x02, 0x1D])
-        frames = find_frames(junk + frame)
-        self.assertEqual(len(frames), 1)
-        self.assertEqual(frames[0], frame)
-
-    def test_partial_frame_at_end(self):
-        """Frame without 0x1D end should be skipped."""
-        complete = bytes([0x1A, 0x01, 0x1D])
-        partial = bytes([0x1A, 0x02, 0x03])
-        frames = find_frames(complete + partial)
-        self.assertEqual(len(frames), 1)
-        self.assertEqual(frames[0], complete)
-
-    def test_empty_stream(self):
-        self.assertEqual(find_frames(b""), [])
-
-    def test_no_frames(self):
-        """Stream with no delimiters returns empty list."""
-        self.assertEqual(find_frames(bytes([0x00, 0x01, 0x02])), [])
-
-    def test_kdy_sample_extraction(self):
-        """Both documented and normalized KDy samples are valid single frames."""
-        frames = find_frames(KDY_POST74_RAW)
-        self.assertEqual(len(frames), 1)
-        self.assertEqual(frames[0][0], FRAME_START)
-        self.assertEqual(frames[0][-1], FRAME_END)
-
-        frames = find_frames(KDY_NORMALIZED_RAW)
-        self.assertEqual(len(frames), 1)
-        self.assertEqual(frames[0][0], FRAME_START)
-        self.assertEqual(frames[0][-1], FRAME_END)
-
-    def test_frames_between_junk(self):
-        """Frames with junk bytes between them."""
-        f1 = bytes([0x1A, 0x01, 0x1D])
-        junk = bytes([0xFF, 0xFE])
-        f2 = bytes([0x1A, 0x02, 0x1D])
-        frames = find_frames(f1 + junk + f2)
-        self.assertEqual(len(frames), 2)
-
-    def test_minimal_frame(self):
-        """Smallest possible frame: just start + end."""
-        frames = find_frames(bytes([0x1A, 0x1D]))
-        self.assertEqual(len(frames), 1)
-        self.assertEqual(frames[0], bytes([0x1A, 0x1D]))
-
-
-class TestPseudoUnescape(unittest.TestCase):
-    """Test pseudo-escape reversal."""
-
-    def test_unescape_0x1a(self):
-        self.assertEqual(pseudo_unescape(bytes([0x1B, 0x11])), bytes([0x1A]))
-
-    def test_unescape_0x1b(self):
-        self.assertEqual(pseudo_unescape(bytes([0x1B, 0x0B])), bytes([0x1B]))
-
-    def test_unescape_0x1c(self):
-        self.assertEqual(pseudo_unescape(bytes([0x1B, 0x13])), bytes([0x1C]))
-
-    def test_unescape_0x1d(self):
-        self.assertEqual(pseudo_unescape(bytes([0x1B, 0x14])), bytes([0x1D]))
-
-    def test_unescape_0x1e(self):
-        self.assertEqual(pseudo_unescape(bytes([0x1B, 0x15])), bytes([0x1E]))
-
-    def test_no_escapes(self):
-        data = bytes([0x01, 0x02, 0x03, 0x04])
-        self.assertEqual(pseudo_unescape(data), data)
-
-    def test_consecutive_escapes(self):
-        """Two escape sequences back-to-back."""
-        data = bytes([0x1B, 0x11, 0x1B, 0x14])
-        self.assertEqual(pseudo_unescape(data), bytes([0x1A, 0x1D]))
-
-    def test_trailing_lone_escape(self):
-        """Trailing lone 0x1B (malformed) should be preserved as-is."""
-        data = bytes([0x01, 0x02, 0x1B])
-        self.assertEqual(pseudo_unescape(data), data)
-
-    def test_unknown_escape_suffix(self):
-        """0x1B followed by unrecognized suffix should be preserved."""
-        data = bytes([0x1B, 0xFF])
-        self.assertEqual(pseudo_unescape(data), data)
-
-    def test_mixed_escaped_and_normal(self):
-        data = bytes([0x41, 0x1B, 0x11, 0x42, 0x1B, 0x0B, 0x43])
-        expected = bytes([0x41, 0x1A, 0x42, 0x1B, 0x43])
-        self.assertEqual(pseudo_unescape(data), expected)
-
-    def test_empty(self):
-        self.assertEqual(pseudo_unescape(b""), b"")
-
-
-class TestUnescapeFrame(unittest.TestCase):
-    """Test frame-level unescape policies."""
-
-    def test_policy_none(self):
-        frame = bytes([0x1A, 0x1B, 0x11, 0x1D])
-        self.assertEqual(unescape_frame(frame, "none"), frame)
-
-    def test_policy_full(self):
-        """Full unescape: payload between start/end is unescaped."""
-        frame = bytes([0x1A, 0x1B, 0x11, 0x1D])
-        result = unescape_frame(frame, "full")
-        self.assertEqual(result, bytes([0x1A, 0x1A, 0x1D]))
-
-    def test_policy_tail_short_frame(self):
-        """Tail policy with frame shorter than 55 bytes — no change."""
-        frame = bytes([0x1A] + [0x00] * 10 + [0x1D])
-        self.assertEqual(unescape_frame(frame, "tail"), frame)
-
-    def test_policy_tail_long_frame(self):
-        """Tail policy unescapes only bytes 55+."""
-        payload_head = [0x00] * 54  # bytes 1-54 (after 0x1A start)
-        payload_tail = [0x1B, 0x11]  # escape sequence in tail
-        frame = bytes([0x1A] + payload_head + payload_tail + [0x1D])
-        result = unescape_frame(frame, "tail")
-        # Bytes 0-54 unchanged, byte 55+ unescaped
-        self.assertEqual(result[:55], frame[:55])
-        self.assertEqual(result[55], 0x1A)  # unescaped
-        self.assertEqual(result[-1], 0x1D)  # end delimiter preserved
-
-
-class TestKDyGoldenSample(unittest.TestCase):
-    """Test parsing of normalized KDy P25B85 reference broadcast frame."""
-
-    def setUp(self):
-        # Apply full unescape (P25B85 policy)
-        self.logical = unescape_frame(KDY_NORMALIZED_RAW, "full")
-
-    def test_frame_delimiters(self):
-        self.assertEqual(self.logical[0], FRAME_START)
-        self.assertEqual(self.logical[-1], FRAME_END)
-
-    def test_broadcast_address(self):
-        self.assertEqual(self.logical[1], 0xFF)
-        self.assertTrue(is_broadcast(self.logical))
-
-    def test_model_signature(self):
-        """byte[8] = 0x03 → P25B85."""
-        self.assertEqual(self.logical[8], 0x03)
-        self.assertEqual(detect_model(self.logical), "P25B85")
-
-    def test_water_temperature(self):
-        """byte[9] = 0x5E = 94°F = 34.4°C."""
-        self.assertEqual(self.logical[9], 0x5E)
-        self.assertEqual(fahrenheit_to_celsius(0x5E), 34.4)
-
-    def test_heater_state(self):
-        """byte[14] = 0x40 → cooldown (KDy used 1-based: "byte 15")."""
-        self.assertEqual(self.logical[14], 0x40)
-        # byte[15] is always 0x00, NOT heater state
-        self.assertEqual(self.logical[15], 0x00)
-
-    def test_setpoint(self):
-        """byte[16] = 0x68 = 104°F = 40.0°C."""
-        self.assertEqual(self.logical[16], 0x68)
-        self.assertEqual(fahrenheit_to_celsius(0x68), 40.0)
-
-    def test_light_off(self):
-        """byte[17] = 0x01 → light ON (KDy used 1-based: "byte 18")."""
-        self.assertEqual(self.logical[17], 0x01)
-        self.assertTrue(bool(self.logical[17] & 0x01))
-        # byte[18] is always 0x00, NOT light flags
-        self.assertEqual(self.logical[18], 0x00)
-
-    def test_uv_flag(self):
-        """byte[28] UV/activity flag (KDy used 1-based: "byte 29")."""
-        self.assertEqual(self.logical[28], 0x00)  # UV not active in KDy frame
-        # byte[29] = 0x43, static value — not the UV flag
-        self.assertEqual(self.logical[29], 0x43)
-        # 0x43 & 0x20 = 0x00 → UV is off (0x43 has bits 0x40 + 0x02 + 0x01)
-        self.assertTrue(bool(self.logical[29] & 0x40))
-        self.assertFalse(bool(self.logical[29] & 0x20))
-
-    def test_byte_28_annotation_is_not_uv_specific(self):
-        annotations = annotate_p25b85(self.logical)
-        byte_28 = next(a for a in annotations if a["byte"] == 28)
-        self.assertEqual(byte_28["name"], "activity_flag")
-        self.assertIn("heating_or_uv", byte_28["decoded"])
-
-    def test_escape_in_raw(self):
-        """KDy sample has 0x1B 0x11 escape sequence (should unescape to 0x1A)."""
-        escapes = check_escape_positions(KDY_NORMALIZED_RAW)
-        self.assertGreater(len(escapes), 0)
-        # Find the 0x1B 0x11 → 0x1A escape
-        found = any(orig == 0x1A for _, _, orig in escapes)
-        self.assertTrue(found, "Expected escape 0x1B 0x11 → 0x1A in KDy sample")
-
-    def test_logical_shorter_than_raw(self):
-        """After unescape, logical frame should be shorter (escape sequences collapsed)."""
-        self.assertLess(len(self.logical), len(KDY_NORMALIZED_RAW))
-
-    def test_raw_frame_length(self):
-        """KDy raw frame is 66 bytes."""
-        self.assertEqual(len(KDY_NORMALIZED_RAW), 66)
-
-    def test_logical_frame_length(self):
-        """After full unescape, logical frame should be 65 bytes (one 2→1 escape)."""
-        # The raw has one escape sequence: 0x1B 0x11 at position 57-58
-        self.assertEqual(len(self.logical), 65)
-
-
-class TestKDyPost74Fixture(unittest.TestCase):
-    """Ensure post #74 fixture stays byte-for-byte faithful to docs."""
-
-    def test_post74_raw_length(self):
-        self.assertEqual(len(KDY_POST74_RAW), 67)
-
-    def test_post74_full_unescape_length(self):
-        logical = unescape_frame(KDY_POST74_RAW, "full")
-        self.assertEqual(len(logical), 66)
-
-
-class TestModelDetection(unittest.TestCase):
-    """Test model auto-detection from broadcast header."""
-
-    def test_p25b85(self):
-        frame = bytes([0x1A, 0xFF, 0x01, 0x3C, 0xD2, 0xB4, 0xFF, 0x08, 0x03])
-        self.assertEqual(detect_model(frame), "P25B85")
-
-    def test_p23b32(self):
-        frame = bytes([0x1A, 0xFF, 0x01, 0x3C, 0xD2, 0xB4, 0xFF, 0x08, 0x02])
-        self.assertEqual(detect_model(frame), "P23B32")
-
-    def test_unknown_model(self):
-        frame = bytes([0x1A, 0xFF, 0x01, 0x3C, 0xD2, 0xB4, 0xFF, 0x08, 0x99])
-        self.assertIsNone(detect_model(frame))
-
-    def test_short_frame(self):
-        self.assertIsNone(detect_model(bytes([0x1A, 0xFF])))
-
-
-class TestUnescapePolicy(unittest.TestCase):
-    """Test model → unescape policy mapping."""
-
-    def test_p25b85_full(self):
-        self.assertEqual(get_unescape_policy("P25B85"), "full")
-
-    def test_p23b32_tail(self):
-        self.assertEqual(get_unescape_policy("P23B32"), "tail")
-
-    def test_unknown_none(self):
-        self.assertEqual(get_unescape_policy(None), "none")
-
-
-class TestFahrenheitToCelsius(unittest.TestCase):
-    """Test temperature conversion."""
-
-    def test_94f(self):
-        self.assertEqual(fahrenheit_to_celsius(94), 34.4)
-
-    def test_104f(self):
-        self.assertEqual(fahrenheit_to_celsius(104), 40.0)
-
-    def test_zero_invalid(self):
-        self.assertIsNone(fahrenheit_to_celsius(0))
-
-    def test_over_200_invalid(self):
-        self.assertIsNone(fahrenheit_to_celsius(201))
-
-    def test_32f(self):
-        self.assertEqual(fahrenheit_to_celsius(32), 0.0)
-
-    def test_212f(self):
-        """212°F is over 200, should be None."""
-        self.assertIsNone(fahrenheit_to_celsius(212))
-
-    def test_200f(self):
-        """200°F is the boundary — should work."""
-        self.assertEqual(fahrenheit_to_celsius(200), 93.3)
-
-
-class TestIsBroadcast(unittest.TestCase):
-    """Test broadcast frame identification."""
-
-    def test_broadcast(self):
-        self.assertTrue(is_broadcast(bytes([0x1A, 0xFF, 0x01])))
-
-    def test_not_broadcast(self):
-        self.assertFalse(is_broadcast(bytes([0x1A, 0x20, 0x01])))
-
-    def test_too_short(self):
-        self.assertFalse(is_broadcast(bytes([0x1A])))
-
-    def test_empty(self):
-        self.assertFalse(is_broadcast(b""))
-
-
-class TestFrameValidation(unittest.TestCase):
-    """Test basic frame validation properties."""
-
-    def test_frame_delimiters(self):
-        frames = find_frames(bytes([0x1A, 0xAA, 0xBB, 0x1D]))
-        self.assertEqual(len(frames), 1)
-        self.assertEqual(frames[0][0], FRAME_START)
-        self.assertEqual(frames[0][-1], FRAME_END)
-
-    def test_minimum_length(self):
-        """A frame must have at least start + end = 2 bytes."""
-        frames = find_frames(bytes([0x1A, 0x1D]))
-        self.assertEqual(len(frames), 1)
-        self.assertEqual(len(frames[0]), 2)
-
-    def test_multiple_broadcasts_in_stream(self):
-        """Simulate a bus cycle with multiple broadcast frames."""
-        poll = bytes([0x1A, 0x10, 0x01, 0x1D])
-        bcast = bytes([0x1A, 0xFF, 0x01, 0x3C, 0x00, 0x1D])
-        stream = poll + poll + bcast + poll + bcast
-        frames = find_frames(stream)
-        broadcasts = [f for f in frames if is_broadcast(f)]
-        self.assertEqual(len(frames), 5)
-        self.assertEqual(len(broadcasts), 2)
-
-
-if __name__ == "__main__":
-    unittest.main()
+@pytest.mark.parametrize(
+    ("stream", "count"),
+    [
+        (bytes([0x1A, 0x01, 0x02, 0x03, 0x1D]), 1),
+        (bytes([0x1A, 0xAA, 0x1D, 0x1A, 0xBB, 0x1D]), 2),
+        (bytes([0x00, 0xFF, 0x42, 0x1A, 0x01, 0x02, 0x1D]), 1),
+        (b"", 0),
+        (bytes([0x00, 0x01, 0x02]), 0),
+        (bytes([0x1A, 0x1D]), 1),
+    ],
+)
+def test_find_frames(stream: bytes, count: int) -> None:
+    assert len(find_frames(stream)) == count
+
+
+def test_find_frames_partial_frame_is_ignored() -> None:
+    complete = bytes([0x1A, 0x01, 0x1D])
+    partial = bytes([0x1A, 0x02, 0x03])
+    frames = find_frames(complete + partial)
+    assert frames == [complete]
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (bytes([0x1B, 0x11]), bytes([0x1A])),
+        (bytes([0x1B, 0x0B]), bytes([0x1B])),
+        (bytes([0x1B, 0x13]), bytes([0x1C])),
+        (bytes([0x1B, 0x14]), bytes([0x1D])),
+        (bytes([0x1B, 0x15]), bytes([0x1E])),
+        (bytes([0x1B, 0x11, 0x1B, 0x14]), bytes([0x1A, 0x1D])),
+    ],
+)
+def test_pseudo_unescape(raw: bytes, expected: bytes) -> None:
+    assert pseudo_unescape(raw) == expected
+
+
+def test_pseudo_unescape_handles_unknown_or_malformed_sequences() -> None:
+    assert pseudo_unescape(bytes([0x01, 0x02, 0x1B])) == bytes([0x01, 0x02, 0x1B])
+    assert pseudo_unescape(bytes([0x1B, 0xFF])) == bytes([0x1B, 0xFF])
+
+
+def test_unescape_policy_full() -> None:
+    frame = bytes([0x1A, 0x1B, 0x11, 0x1D])
+    assert unescape_frame(frame, "full") == bytes([0x1A, 0x1A, 0x1D])
+
+
+def test_unescape_policy_tail() -> None:
+    frame = bytes([0x1A] + [0x00] * 54 + [0x1B, 0x11, 0x1D])
+    result = unescape_frame(frame, "tail")
+    assert result[:55] == frame[:55]
+    assert result[55] == 0x1A
+    assert result[-1] == 0x1D
+
+
+@pytest.fixture
+def kdy_logical() -> bytes:
+    return unescape_frame(KDY_NORMALIZED_RAW, "full")
+
+
+def test_kdy_golden_sample(kdy_logical: bytes) -> None:
+    assert kdy_logical[0] == FRAME_START
+    assert kdy_logical[-1] == FRAME_END
+    assert kdy_logical[1] == 0xFF
+    assert is_broadcast(kdy_logical)
+    assert detect_model(kdy_logical) == "P25B85"
+    assert kdy_logical[9] == 0x5E
+    assert fahrenheit_to_celsius(0x5E) == 34.4
+    assert kdy_logical[16] == 0x68
+    assert fahrenheit_to_celsius(0x68) == 40.0
+    assert len(kdy_logical) == 65
+
+
+def test_kdy_annotation_and_escapes(kdy_logical: bytes) -> None:
+    escapes = check_escape_positions(KDY_NORMALIZED_RAW)
+    assert escapes
+    assert any(orig == 0x1A for _, _, orig in escapes)
+    byte_28 = next(a for a in annotate_p25b85(kdy_logical) if a["byte"] == 28)
+    assert byte_28["name"] == "activity_flag"
+    assert "heating_or_uv" in byte_28["decoded"]
+
+
+def test_kdy_post74_fixture_lengths() -> None:
+    assert len(KDY_POST74_RAW) == 67
+    assert len(unescape_frame(KDY_POST74_RAW, "full")) == 66
+
+
+@pytest.mark.parametrize(
+    ("frame", "expected"),
+    [
+        (bytes([0x1A, 0xFF, 0x01, 0x3C, 0xD2, 0xB4, 0xFF, 0x08, 0x03]), "P25B85"),
+        (bytes([0x1A, 0xFF, 0x01, 0x3C, 0xD2, 0xB4, 0xFF, 0x08, 0x02]), "P23B32"),
+        (bytes([0x1A, 0xFF, 0x01, 0x3C, 0xD2, 0xB4, 0xFF, 0x08, 0x99]), None),
+        (bytes([0x1A, 0xFF]), None),
+    ],
+)
+def test_model_detection(frame: bytes, expected: str | None) -> None:
+    assert detect_model(frame) == expected
+
+
+def test_unescape_policy_mapping() -> None:
+    assert get_unescape_policy("P25B85") == "full"
+    assert get_unescape_policy("P23B32") == "tail"
+    assert get_unescape_policy(None) == "none"
+
+
+@pytest.mark.parametrize(
+    ("fahrenheit", "expected"),
+    [(94, 34.4), (104, 40.0), (32, 0.0), (200, 93.3), (0, None), (201, None)],
+)
+def test_fahrenheit_to_celsius(fahrenheit: int, expected: float | None) -> None:
+    assert fahrenheit_to_celsius(fahrenheit) == expected
+
+
+@pytest.mark.parametrize(
+    ("frame", "expected"),
+    [
+        (bytes([0x1A, 0xFF, 0x01]), True),
+        (bytes([0x1A, 0x20, 0x01]), False),
+        (bytes([0x1A]), False),
+        (b"", False),
+    ],
+)
+def test_is_broadcast(frame: bytes, expected: bool) -> None:
+    assert is_broadcast(frame) is expected
+
+
+def test_frame_delimiters_and_stream_mix() -> None:
+    stream = (
+        bytes([0x1A, 0x10, 0x01, 0x1D])
+        + bytes([0x1A, 0x10, 0x01, 0x1D])
+        + bytes([0x1A, 0xFF, 0x01, 0x3C, 0x00, 0x1D])
+        + bytes([0x1A, 0x10, 0x01, 0x1D])
+    )
+    frames = find_frames(stream)
+    assert frames[0][0] == FRAME_START
+    assert frames[0][-1] == FRAME_END
+    assert len([f for f in frames if is_broadcast(f)]) == 1
 

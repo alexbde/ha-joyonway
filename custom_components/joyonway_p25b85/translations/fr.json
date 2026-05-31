@@ -20,26 +20,51 @@
   "entity": {
     "sensor": {
       "water_temperature": { "name": "Température de l'eau" },
-      "setpoint": { "name": "Consigne" },
-      "heater_state": { "name": "État du chauffage" },
-      "spa_datetime": { "name": "Horloge spa" },
+      "heater_state": {
+        "name": "État du chauffage",
+        "state": {
+          "off": "Arrêt",
+          "circulation": "Circulation",
+          "heating": "Chauffage",
+          "disinfection": "Désinfection",
+          "unknown": "Inconnu"
+        }
+      },
+      "pump_state": {
+        "name": "État de la pompe",
+        "state": {
+          "off": "Arrêt",
+          "low": "Faible",
+          "high": "Fort"
+        }
+      },
+      "spa_datetime": { "name": "Date & heure" },
       "raw_pump_byte": { "name": "Octet pompe brut" },
       "raw_heater_byte": { "name": "Octet chauffage brut" }
     },
     "binary_sensor": {
-      "pump_low": { "name": "Pompe basse (filtration)" },
-      "pump_high": { "name": "Pompe haute (jets)" },
-      "light": { "name": "Lumière" },
-      "heater_active": { "name": "Chauffage actif" },
-      "uv_lamp": { "name": "UV/ozone" },
-      "bridge_connectivity": { "name": "Connexion pont RS485" }
+      "bridge_connectivity": { "name": "Pont RS485" }
     },
     "switch": {
-      "light": { "name": "Lumière" }
+      "light": { "name": "Lumière" },
+      "heater": { "name": "Chauffage" },
+      "blower": { "name": "Soufflerie" }
     },
-    "button": {
-      "pump_cycle": { "name": "Cycle pompe" },
-      "pump_off": { "name": "Pompe arrêt" }
+    "fan": {
+      "jets": {
+        "name": "Jets",
+        "state_attributes": {
+          "preset_mode": {
+            "state": {
+              "low": "Faible",
+              "high": "Fort"
+            }
+          }
+        }
+      }
+    },
+    "climate": {
+      "thermostat": { "name": "Thermostat" }
     }
   }
 }

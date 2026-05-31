@@ -48,7 +48,7 @@ DEFAULT_ACTIONS = [
     ("pump_low",  "Pump LOW — press pump button once (filtration/circulation)"),
     ("pump_high", "Pump HIGH — press pump button again (massage jets)"),
     ("heater",    "Heater active — raise setpoint above current water temp"),
-    ("uv_lamp",   "UV lamp — activate UV/ozone if accessible from panel"),
+    ("disinfection", "Disinfection cycle — activate scheduled disinfection if accessible from panel"),
     ("setpoint",  "Setpoint change — try 2–3 different °F values"),
 ]
 

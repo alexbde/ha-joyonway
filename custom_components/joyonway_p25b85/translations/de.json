@@ -20,26 +20,51 @@
   "entity": {
     "sensor": {
       "water_temperature": { "name": "Wassertemperatur" },
-      "setpoint": { "name": "Solltemperatur" },
-      "heater_state": { "name": "Heizungsstatus" },
-      "spa_datetime": { "name": "Spa-Uhr" },
+      "heater_state": {
+        "name": "Heizstatus",
+        "state": {
+          "off": "Aus",
+          "circulation": "Zirkulation",
+          "heating": "Heizen",
+          "disinfection": "Desinfektion",
+          "unknown": "Unbekannt"
+        }
+      },
+      "pump_state": {
+        "name": "Pumpenstatus",
+        "state": {
+          "off": "Aus",
+          "low": "Leicht",
+          "high": "Stark"
+        }
+      },
+      "spa_datetime": { "name": "Datum & Uhrzeit" },
       "raw_pump_byte": { "name": "Pumpenbyte-Rohdaten" },
       "raw_heater_byte": { "name": "Heizungsbyte-Rohdaten" }
     },
     "binary_sensor": {
-      "pump_low": { "name": "Pumpe niedrig (Filtration)" },
-      "pump_high": { "name": "Pumpe hoch (Massage)" },
-      "light": { "name": "Licht" },
-      "heater_active": { "name": "Heizung aktiv" },
-      "uv_lamp": { "name": "UV/Ozon" },
-      "bridge_connectivity": { "name": "Verbindung RS485-Bridge" }
+      "bridge_connectivity": { "name": "RS485-Bridge" }
     },
     "switch": {
-      "light": { "name": "Licht" }
+      "light": { "name": "Licht" },
+      "heater": { "name": "Heizung" },
+      "blower": { "name": "Gebläse" }
     },
-    "button": {
-      "pump_cycle": { "name": "Pumpe umschalten" },
-      "pump_off": { "name": "Pumpe aus" }
+    "fan": {
+      "jets": {
+        "name": "Düsen",
+        "state_attributes": {
+          "preset_mode": {
+            "state": {
+              "low": "Leicht",
+              "high": "Stark"
+            }
+          }
+        }
+      }
+    },
+    "climate": {
+      "thermostat": { "name": "Thermostat" }
     }
   }
 }

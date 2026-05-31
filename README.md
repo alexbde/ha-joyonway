@@ -2,7 +2,7 @@
 
 # Joyonway P25B85 Spa for Home Assistant
 
-**Local read-only integration for the Joyonway P25B85 spa controller via RS485 over an Elfin EW11 WiFi bridge.**
+**Local Home Assistant integration for the Joyonway P25B85 spa controller via RS485 over an Elfin EW11 WiFi bridge.**
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=for-the-badge)](https://github.com/hacs/integration)
 [![License](https://img.shields.io/github/license/alexbde/ha-joyonway-p25b85?style=for-the-badge&color=blue)](LICENSE)
@@ -10,83 +10,74 @@
 
 </div>
 
----
-
 ## Overview
 
-This integration brings **read-only monitoring** of a **Joyonway P25B85** spa controller into Home Assistant. Communication is purely local via RS485, bridged to your network through an **Elfin EW11** (or similar) WiFi-to-RS485 adapter in TCP server mode. No cloud, no internet required.
+This integration brings **local monitoring and control** of a **Joyonway P25B85** spa controller into Home Assistant. Communication is purely local via RS485, bridged to your network through an **Elfin EW11** (or similar) WiFi-to-RS485 adapter in TCP server mode. No cloud, no internet required.
 
 The P25B85 controls spas like the **Home Deluxe White Marble** outdoor whirlpool and similar rigid/hardshell hot tubs with a PB554 colour touchpad.
 
-> **Status: Read-only monitoring validated** — the P25B85 byte map has been
-> checked against local RS485 captures for temperature, setpoint, pump, light,
-> heater stages, and UV/ozone activity. Write commands remain intentionally
-> disabled until command frames are captured and verified safely.
+> **Status: Entities and write control implemented** — the P25B85 byte map has
+> been validated against local RS485 captures for temperature, setpoint, pump,
+> light, heater, blower, and disinfection states. CRC-32 is cracked and verified
+> (21/21 unique frames) and implemented in `protocol.py`; current entity writes
+> still use captured replay frames / lookup tables (is-state).
 
 > **Discussion thread:** [JoyOnWay Spa Control — Home Assistant Community](https://community.home-assistant.io/t/joyonway-spa-control/582344)
 
----
-
 ## My Hardware
 
-| Component | Details |
-|-----------|---------|
-| **Spa** | Home Deluxe White Marble (outdoor whirlpool, rigid/hardshell) |
-| **Controller** | Joyonway P25B85, PCB `P2325B0003 R05` |
-| **Touchpad** | PB554 colour screen |
-| **RS485 Bridge** | Elfin EW11, RS-485 → WiFi, TCP server mode |
-| **UART** | 38400 baud, 8N1 |
-| **Pump** | 1× dual-speed (low = filtration, high = massage jets) |
-| **Light** | RGB LED (9 colour states via button press) |
-| **Heater** | 2 kW resistive, thermostat-controlled |
-| **UV/ozone** | UV lamp connected on ozonator port |
+| Component        | Details                                                       |
+|------------------|---------------------------------------------------------------|
+| **Spa**          | Home Deluxe White Marble (outdoor whirlpool, rigid/hardshell) |
+| **Controller**   | Joyonway P25B85, PCB `P2325B0003 R05`                         |
+| **Touchpad**     | PB554 colour screen                                           |
+| **RS485 Bridge** | Elfin EW11, RS-485 → WiFi, TCP server mode                    |
+| **UART**         | 38400 baud, 8N1                                               |
+| **Pump**         | 1× dual-speed (low = filtration, high = massage jets)         |
+| **Light**        | RGB LED (9 colour states via button press)                    |
+| **Heater**       | 2 kW resistive, thermostat-controlled                         |
+| **UV/ozone port**| Scheduled disinfection cycle state (not user-toggleable)      |
 
----
+## Features
 
-## Features (read-only)
-
-- **Water temperature** and **setpoint** monitoring (°C)
-- **Pump state** — low speed (filtration) and high speed (jets)
-- **Light** on/off status
-- **Heater state** — circulation / heating / cooldown / UV-ozone
-- **UV/ozone** active indicator
+- **Water temperature** monitoring (°C)
+- **Thermostat control** (10°C to 40°C) with debounced slider writes
+- **Jets control** (off/low/high) via fan preset modes
+- **Light** on/off via replay toggle command
+- **Heater** manual on/off via replay command
+- **Blower** on/off via replay command
+- **Heater state** — off / circulation / heating / disinfection
 - **Bridge connectivity** sensor
-- **Diagnostic sensors** for raw byte values (disabled by default)
+- **Diagnostic sensors** for raw protocol bytes (disabled by default)
 - Fully local, no cloud, no internet
 - English, French, and German UI translations
 
-### What this integration does NOT do (yet)
+### What this integration does NOT do
 
-- ❌ No write commands (no buttons to toggle equipment)
-- ❌ No setpoint control
-- ❌ No synthetic RS485 frame construction
-
-Write support requires capturing verified command frames from the physical touchpad and is planned for a future phase.
-
----
+- ❌ No filtration schedule or heating schedule control (planned)
+- ❌ No date/time sync (planned)
+- ❌ No disinfection cycle manual control (hardware limitation — schedule only)
 
 ## Safety Philosophy
 
-The P25B85 uses a 4-byte CRC on all frames. KDy documented that **sending a frame with an invalid CRC can activate the heater unexpectedly**. Therefore:
+The P25B85 uses a 4-byte CRC-32 on all command frames. The CRC algorithm has been fully reverse-engineered (standard CRC-32 polynomial `0x04C11DB7` with word-swap preprocessing) and verified against 21 unique captured frames covering all command types.
 
-- ❌ We NEVER send frames with forged/guessed CRC
-- ❌ We NEVER construct synthetic command payloads
-- ✅ Write support will ONLY replay frames captured verbatim from the physical panel
-- ✅ Each command frame must be validated against an observed state change
+- ✅ CRC algorithm is implemented and verified for dynamic frame building
+- ✅ Current runtime writes send captured frames with known-good CRC bytes
+- ✅ All commands are validated against observed state changes from physical captures
+- ✅ Write pacing enforces a 1-second cooldown between commands
 
----
+> **Note:** KDy documented that sending a frame with an invalid CRC can activate the heater unexpectedly. This integration currently sends captured commands with known-good CRC; dynamic CRC generation is verified and available for future migration.
 
 ## Requirements
 
-| Item | Details |
-|------|---------|
-| Spa controller | Joyonway P25B85 with PB554 touchpad |
-| RS485 bridge | Elfin EW11, USR-W610, or any RS485-to-TCP bridge |
-| Bridge config | 38400 baud, 8N1, TCP Server mode, port 8899 |
-| Home Assistant | 2024.1.0 or later |
-| Network | HA and bridge on the same LAN |
-
----
+| Item           | Details                                          |
+|----------------|--------------------------------------------------|
+| Spa controller | Joyonway P25B85 with PB554 touchpad              |
+| RS485 bridge   | Elfin EW11, USR-W610, or any RS485-to-TCP bridge |
+| Bridge config  | 38400 baud, 8N1, TCP Server mode, port 8899      |
+| Home Assistant | 2024.1.0 or later                                |
+| Network        | HA and bridge on the same LAN                    |
 
 ## Installation
 
@@ -106,8 +97,6 @@ The P25B85 uses a 4-byte CRC on all frames. KDy documented that **sending a fram
 2. Restart Home Assistant
 3. Add the integration via the UI
 
----
-
 ## Configuration
 
 After restart, go to **Settings → Devices & Services → Add integration** and search for **Joyonway P25B85**.
@@ -121,65 +110,95 @@ The integration performs a TCP connection test before saving.
 
 > **⚠️ Single-client limitation:** Most RS485 bridges only accept one TCP connection at a time. Stop the phone app or other tools before using HA.
 
----
-
 ## Entities
 
 ### Sensors
 
-| Entity | Description |
-|--------|-------------|
-| Water temperature | Current water temp in °C |
-| Setpoint | Target temperature in °C |
-| Heater state | circulation / heating / cooldown / uv_ozone |
-| Spa clock | Controller date/time (diagnostic, disabled by default) |
-| Raw pump byte | Diagnostic (disabled by default) |
-| Raw heater byte | Diagnostic (disabled by default) |
+| Entity            | Description                                                                |
+|-------------------|----------------------------------------------------------------------------|
+| Water temperature | Current water temp in °C                                                   |
+| Heater state      | off / circulation / heating / disinfection                                 |
+| Spa clock         | Controller date/time as timestamp sensor (diagnostic, disabled by default) |
+| Raw pump byte     | Diagnostic (disabled by default)                                           |
+| Raw heater byte   | Diagnostic (disabled by default)                                           |
 
 ### Binary sensors
 
-| Entity | Description |
-|--------|-------------|
-| Pump low (filtration) | Low-speed pump active |
-| Pump high (jets) | High-speed pump active |
-| Light | Light on/off |
-| Heater active | Heating element drawing power |
-| UV/ozone | UV/ozone system active |
+| Entity                  | Description                |
+|-------------------------|----------------------------|
 | RS485 bridge connection | TCP connectivity to bridge |
 
----
+### Switches
+
+| Entity  | Description                                   |
+|---------|-----------------------------------------------|
+| Light   | Light on/off (toggle replay with state guard) |
+| Heater  | Heater manual on/off (distinct replay frames) |
+| Blower  | Air blower on/off (distinct replay frames)    |
+
+### Fan
+
+| Entity | Description                                                  |
+|--------|--------------------------------------------------------------|
+| Jets   | Pump control via preset modes `low` / `high` (off supported) |
+
+### Climate
+
+| Entity     | Description                            |
+|------------|----------------------------------------|
+| Thermostat | Target setpoint control (10°C to 40°C) |
 
 ## Development Plan
 
-This integration is built in phases:
+Roadmap and session handoff live in `docs/plan.md`.
 
-| Phase | Status | Description |
-|-------|--------|-------------|
-| 1. Capture tools | ✅ Done | CLI tools for guided RS485 capture and frame analysis |
-| 2. Integration skeleton | ✅ Done | HA integration with adapter architecture, protocol parser, entities |
-| 3. Capture & validate | ✅ Done | Local captures validated the P25B85 byte map |
-| 4. Write commands | Planned | Replay verified panel frames for equipment control |
-| 5. Polish & release | Planned | HACS validation, community testing, documentation |
+Current high-level status:
 
----
+- Capture + byte-map validation: done
+- Integration entities: implemented
+- CRC cracking + protocol implementation: done
+- Runtime writes: replay/lookup is-state
+- Next: live spa testing, then migrate writes to algorithm-based frame generation
+
+## Testing
+
+### Lightweight tests (no Home Assistant runtime)
+
+```zsh
+cd /path/to/ha-joyonway
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -U pip
+python -m pip install -e ".[test]"
+pytest -q
+```
+
+### Home Assistant runtime tests
+
+```zsh
+cd /path/to/ha-joyonway
+/opt/homebrew/bin/python3.12 -m venv .venv-ha
+source .venv-ha/bin/activate
+python -m pip install -U pip
+python -m pip install -e ".[ha-test]"
+pytest -q
+```
+
+Runtime entity tests auto-skip when `homeassistant` is not installed.
 
 ## Related Projects
 
 - **[ha-joyonway-p23b32](https://github.com/KnapTheBuilder/ha-joyonway-p23b32)** — HA integration for the P23B32 controller (by christopheknap)
 - **[joyonway-frame-analyzer](https://github.com/KnapTheBuilder/joyonway-frame-analyzer)** — Browser-based frame analysis tool for all Joyonway models
 
----
-
 ## Credits
 
-| Contributor | Contribution |
-|-------------|--------------|
-| **[KDy](https://community.home-assistant.io/u/kdy)** | Baud rate discovery (oscilloscope), P25B85 byte map, pseudo-escape mechanism, CRC safety warning |
-| **[christopheknap](https://github.com/KnapTheBuilder)** | P23B32 HACS integration, command frame captures, frame analyzer tool |
-| **[Gaet78](https://community.home-assistant.io/u/gaet78)** | P69B133 integration, 30s timing discovery |
-| **[c0mpleX](https://community.home-assistant.io/u/c0mplex)** | Frame samples and community discussion |
-
----
+| Contributor                                                  | Contribution                                                                                     |
+|--------------------------------------------------------------|--------------------------------------------------------------------------------------------------|
+| **[KDy](https://community.home-assistant.io/u/kdy)**         | Baud rate discovery (oscilloscope), P25B85 byte map, pseudo-escape mechanism, CRC safety warning |
+| **[christopheknap](https://github.com/KnapTheBuilder)**      | P23B32 HACS integration, command frame captures, frame analyzer tool                             |
+| **[Gaet78](https://community.home-assistant.io/u/gaet78)**   | P69B133 integration, 30s timing discovery                                                        |
+| **[c0mpleX](https://community.home-assistant.io/u/c0mplex)** | Frame samples and community discussion                                                           |
 
 ## License
 
@@ -187,7 +206,6 @@ This project is released under the [MIT License](LICENSE).
 
 <div align="center">
 
----
 
 **Made for the Home Assistant community. 🧖‍♂️**
 
