@@ -14,12 +14,11 @@ from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .adapters.base import SpaEntityDescription
 from .const import DOMAIN
 from .coordinator import JoyonwayP25B85Coordinator
-from .entity import device_info
+from .entity import JoyonwayCoordinatorEntity, device_info
 
 
 async def async_setup_entry(
@@ -37,7 +36,7 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class JoyonwaySensor(CoordinatorEntity, SensorEntity):
+class JoyonwaySensor(JoyonwayCoordinatorEntity, SensorEntity):
     """A sensor entity driven by the model adapter."""
 
     _attr_has_entity_name = True
@@ -94,8 +93,4 @@ class JoyonwaySensor(CoordinatorEntity, SensorEntity):
             return self.coordinator.data.get(self._key)
         return None
 
-    @property
-    def available(self) -> bool:
-        """Return True if coordinator has valid data."""
-        return self.coordinator.available
 

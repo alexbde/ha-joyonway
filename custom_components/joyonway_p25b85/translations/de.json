@@ -64,7 +64,7 @@
       "light": { "name": "Licht" },
       "heater": { "name": "Heizung" },
       "ozone": { "name": "Ozon" },
-      "blower": { "name": "Gebläse" },
+      "blower": { "name": "Luftsprudler" },
       "heat_slot1_enabled": { "name": "Heiz-Slot 1" },
       "heat_slot2_enabled": { "name": "Heiz-Slot 2" },
       "filter_slot1_enabled": { "name": "Filter-Slot 1" },

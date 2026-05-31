@@ -46,13 +46,15 @@ The P25B85 controls spas like the **Home Deluxe White Marble** outdoor whirlpool
 - **Ozone** manual on/off (available when mode set to Manual in options)
 - **Light** on/off via toggle command
 - **Heater** manual on/off
-- **Blower** on/off
+- **Blower (air bubbler, optional hardware)** on/off
 - **Heat schedule** — 2 time slots with start/end times and enable/disable
 - **Filter schedule** — 2 time slots with start/end times and enable/disable
 - **Clock sync** — manual button (auto-sync available via options, disabled by default)
 - **Options flow** — ozone mode (Auto/Manual, synced with spa) and auto clock sync toggle
 - **Status sensor** — off / circulation / heating / ozone (with dynamic icons)
 - **Jets sensor** — off / low / high
+- **Persistent TCP connection** — real-time state updates (~1–2 s), automatic reconnect with exponential backoff
+- **Optimistic UI** — writable entities show immediate feedback; snap back if the spa reports a different state
 - All commands built dynamically via cracked CRC-32 (no replay tables)
 - Fully local, no cloud, no internet
 - English, French, and German UI translations
@@ -139,16 +141,16 @@ After setup, go to **Settings → Devices & Services → Joyonway P25B85 → Con
 
 | Entity                  | Description                                  |
 |-------------------------|----------------------------------------------|
-| RS485 bridge connection | TCP connectivity to bridge (disabled by default) |
+| RS485 bridge connection | Strict TCP connectivity to bridge (disabled by default) |
 
 ### Switches
 
 | Entity             | Description                                   |
 |--------------------|-----------------------------------------------|
 | Heater             | Heater manual on/off                          |
-| Ozone              | Ozone on/off (only when mode = Manual)        |
+| Ozone              | Ozone on/off (shown only when mode = Manual; hidden in Auto) |
 | Light              | Light on/off (toggle with state guard)        |
-| Blower             | Air blower on/off                             |
+| Blower             | Air blower / air bubbler on/off (optional hardware, disabled by default) |
 | Heat slot 1 / 2   | Enable/disable heating schedule slots         |
 | Filter slot 1 / 2 | Enable/disable filtration schedule slots      |
 
@@ -192,34 +194,23 @@ Current high-level status:
 - All commands: dynamic frame generation via cracked CRC-32
 - Schedule enable/disable: flags byte lookup table (cracked and implemented)
 - Ozone control: mode synced via options flow, switch sends manual ON/OFF
+- Resilient UI: persistent TCP connection, optimistic state, graceful reconnect
 - Safety: no automatic writes on startup, schedule overwrite guards
-- Next: live ozone test, then polish and release
+- Next: live ozone test, then version bump and release
 
 ## Testing
 
-### Lightweight tests (no Home Assistant runtime)
-
 ```zsh
 cd /path/to/ha-joyonway
-python3 -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install -U pip
 python -m pip install -e ".[test]"
 pytest -q
 ```
 
-### Home Assistant runtime tests
-
-```zsh
-cd /path/to/ha-joyonway
-/opt/homebrew/bin/python3.12 -m venv .venv-ha
-source .venv-ha/bin/activate
-python -m pip install -U pip
-python -m pip install -e ".[ha-test]"
-pytest -q
-```
-
-Runtime entity tests auto-skip when `homeassistant` is not installed.
+Requires Python 3.12 (Home Assistant compatibility). The `[test]` extra installs
+`pytest-homeassistant-custom-component` and all HA runtime dependencies.
 
 ## Related Projects
 

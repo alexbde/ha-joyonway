@@ -188,7 +188,7 @@ These use the pattern: `pump_b9=0x00, btn=0x00, modifier=0x80` with byte[12]
 distinguishing the mode. The mode setting is reflected in the broadcast frame
 at byte 13 bit 7 (`0x80` = Manual, clear = Auto).
 
-**Pump commands** use bytes 7–8 (pump state transition):
+**Pump commands** use bytes 7–8 (panel usually emits transition patterns):
 
 | Transition | byte[7] | byte[8] | byte[9] | byte[10] |
 |------------|---------|---------|---------|----------|
@@ -199,6 +199,17 @@ at byte 13 bit 7 (`0x80` = Manual, clear = Auto).
 > **Note on legacy pump commands:** Earlier sessions captured byte[10]=`0x08`
 > for pump transitions. Phase 6 captures show `0x00`. Both appear to work.
 > The controller likely ignores byte[10] for pump commands.
+
+**Controller-accepted jets target bytes (integration canonical behavior):**
+
+| Target | byte[7] | byte[8] | Notes |
+|--------|---------|---------|-------|
+| Off | `0x04` | `0x00` | Accepted regardless of prior state |
+| Low | `0x02` | `0x02` | Accepted regardless of prior state |
+| High | `0x06` | `0x04` | Accepted regardless of prior state |
+
+Live tests in this repo confirm direct target writes are accepted (not only
+panel-style cycle transitions). The panel UI still behaves as a cycle button.
 
 ### 4.2. DateTime Set (type 0xA2)
 
@@ -411,9 +422,9 @@ flag. The actual hour is in the lower 6 bits (mask 0x3F).
 
 - **Light is a toggle** — same frame for ON and OFF. Software must track
   state and refuse to send when state is unknown.
-- **Pump is a cycle** — OFF → Low → High → OFF. Panel always sends the
-  specific transition frame based on current state; there is no "set to X"
-  command.
+- **Pump panel UI is a cycle** — OFF → Low → High → OFF on the touch panel.
+  On RS485, the controller accepts direct target bytes for OFF/Low/High.
+  The integration uses these direct target bytes and confirms via broadcast.
 - **Heater and blower** have distinct ON/OFF frames — safe to send
   regardless of current state.
 - **Ozone / disinfection** can be toggled via RS485 when mode is set to

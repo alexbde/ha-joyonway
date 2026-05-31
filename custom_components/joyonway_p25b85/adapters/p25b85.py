@@ -145,8 +145,6 @@ HEATER_STATE_MAP: dict[int, str] = {
 # Payload layout (16 bytes): see docs/protocol.md §4.1
 # ──────────────────────────────────────────────────────────────
 
-# Common command header (bytes 0-6, shared across all type-0xA1 commands)
-_CMD_HEADER = bytes([0x01, 0x20, 0x10, 0x3C, 0xA1, 0x10, 0xA1])
 
 # Pump transition encodings — (pump_b7, pump_b8)
 # Captured transitions: off→low, low→high, high→off (panel button cycle).

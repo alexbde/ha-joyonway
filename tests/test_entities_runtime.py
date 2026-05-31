@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 import sys
+import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -25,13 +26,7 @@ from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.joyonway_p25b85.adapters.base import SpaEntityDescription
-from custom_components.joyonway_p25b85.adapters.p25b85 import (
-    CMD_BLOWER_OFF,
-    CMD_BLOWER_ON,
-    CMD_HEATER_OFF,
-    CMD_HEATER_ON,
-    CMD_LIGHT_TOGGLE,
-)
+from custom_components.joyonway_p25b85.adapters.p25b85 import P25B85Adapter
 from custom_components.joyonway_p25b85.binary_sensor import (
     JoyonwayBinarySensor,
     JoyonwayBridgeConnectivity,
@@ -46,6 +41,16 @@ from custom_components.joyonway_p25b85.switch import (
     SpaLightSwitch,
 )
 
+# Build real command frames for assertion
+_adapter = P25B85Adapter()
+CMD_LIGHT_TOGGLE = _adapter.build_light_toggle_command()
+CMD_HEATER_ON = _adapter.build_heater_command(on=True)
+CMD_HEATER_OFF = _adapter.build_heater_command(on=False)
+CMD_BLOWER_ON = _adapter.build_blower_command(on=True)
+CMD_BLOWER_OFF = _adapter.build_blower_command(on=False)
+CMD_PUMP_OFF_TO_LOW = _adapter.build_pump_command("low")
+CMD_PUMP_HIGH_TO_OFF = _adapter.build_pump_command("off")
+
 
 class DummyAdapter:
     """Small adapter stub used by several entities."""
@@ -58,16 +63,39 @@ class DummyAdapter:
     def build_temp_command(target_celsius: int) -> bytes | None:
         return b"\xAA" if 10 <= target_celsius <= 40 else None
 
+    @staticmethod
+    def build_light_toggle_command() -> bytes:
+        return CMD_LIGHT_TOGGLE
+
+    @staticmethod
+    def build_heater_command(on: bool) -> bytes:
+        return CMD_HEATER_ON if on else CMD_HEATER_OFF
+
+    @staticmethod
+    def build_blower_command(on: bool) -> bytes:
+        return CMD_BLOWER_ON if on else CMD_BLOWER_OFF
+
+    @staticmethod
+    def build_pump_command(target: str) -> bytes | None:
+        if target == "low":
+            return CMD_PUMP_OFF_TO_LOW
+        if target == "off":
+            return CMD_PUMP_HIGH_TO_OFF
+        return None
+
 
 class DummyCoordinator:
-    """Coordinator stub with async command and refresh APIs."""
+    """Coordinator stub with persistent connection APIs."""
 
     def __init__(self, data: dict, available: bool = True) -> None:
         self.data = data
-        self.available = available
+        self._available = available
         self.adapter = DummyAdapter()
         self.async_send_command = AsyncMock(return_value=True)
-        self.async_request_refresh = AsyncMock()
+
+    @property
+    def available(self) -> bool:
+        return self._available
 
 
 class DummyHass:
@@ -123,18 +151,19 @@ async def test_light_switch_unknown_state_raises(entry: SimpleNamespace) -> None
     with pytest.raises(HomeAssistantError):
         await entity.async_turn_on()
 
-    coordinator.async_request_refresh.assert_awaited_once()
-
 
 @pytest.mark.asyncio
 async def test_light_switch_sends_toggle(entry: SimpleNamespace) -> None:
     coordinator = DummyCoordinator(data={"light": False})
     entity = SpaLightSwitch(coordinator, entry)
+    entity.hass = DummyHass()
+    entity.async_write_ha_state = lambda: None
 
     await entity.async_turn_on()
 
     coordinator.async_send_command.assert_awaited_once_with(CMD_LIGHT_TOGGLE)
-    coordinator.async_request_refresh.assert_awaited()
+    assert entity._pending_state is True
+    entity._cancel_pending_timeout()
 
 
 @pytest.mark.asyncio
@@ -142,11 +171,18 @@ async def test_heater_and_blower_switch_commands(entry: SimpleNamespace) -> None
     coordinator = DummyCoordinator(data={"status": "off", "blower": False})
     heater = SpaHeaterSwitch(coordinator, entry)
     blower = SpaBlowerSwitch(coordinator, entry)
+    heater.hass = DummyHass()
+    blower.hass = DummyHass()
+    heater.async_write_ha_state = lambda: None
+    blower.async_write_ha_state = lambda: None
 
     await heater.async_turn_on()
     await blower.async_turn_on()
+    # Simulate coordinator update clearing pending state
+    blower._handle_coordinator_update()
     coordinator.data["blower"] = True
     await blower.async_turn_off()
+    heater._handle_coordinator_update()
     coordinator.data["status"] = "heating"
     await heater.async_turn_off()
 
@@ -155,6 +191,8 @@ async def test_heater_and_blower_switch_commands(entry: SimpleNamespace) -> None
     assert CMD_BLOWER_ON in sent
     assert CMD_BLOWER_OFF in sent
     assert CMD_HEATER_OFF in sent
+    heater._cancel_pending_timeout()
+    blower._cancel_pending_timeout()
 
 
 def test_fan_reports_power_features(entry: SimpleNamespace) -> None:
@@ -205,8 +243,52 @@ async def test_climate_debounced_set_temperature_sends_command(
     await climate._debounced_send(32)
 
     coordinator.async_send_command.assert_awaited_once_with(b"\xAA")
-    coordinator.async_request_refresh.assert_awaited()
 
 
+@pytest.mark.asyncio
+async def test_light_double_click_blocked(entry: SimpleNamespace) -> None:
+    """Light toggle-lock guard: second click is ignored while in-flight."""
+    coordinator = DummyCoordinator(data={"light": False})
+    entity = SpaLightSwitch(coordinator, entry)
+    entity.hass = DummyHass()
+    entity.async_write_ha_state = lambda: None
+
+    # Acquire the lock to simulate an in-flight toggle
+    await entity._cmd_lock.acquire()
+    # This should silently return (not block or raise)
+    await entity.async_turn_on()
+    entity._cmd_lock.release()
+
+    # No command sent while locked
+    coordinator.async_send_command.assert_not_awaited()
 
 
+@pytest.mark.asyncio
+async def test_heater_optimistic_state(entry: SimpleNamespace) -> None:
+    """Heater shows optimistic state immediately after command send."""
+    coordinator = DummyCoordinator(data={"status": "off"})
+    heater = SpaHeaterSwitch(coordinator, entry)
+    heater.hass = DummyHass()
+    heater.async_write_ha_state = lambda: None
+
+    await heater.async_turn_on()
+
+    assert heater._pending_state is True
+    assert heater.is_on is True
+    heater._cancel_pending_timeout()
+
+
+@pytest.mark.asyncio
+async def test_fan_optimistic_preset_mode(entry: SimpleNamespace) -> None:
+    """Fan shows optimistic preset_mode immediately after command send."""
+    coordinator = DummyCoordinator(data={"jets": "off"})
+    fan = SpaPumpFan(coordinator, entry)
+    fan.hass = DummyHass()
+    fan.async_write_ha_state = lambda: None
+
+    await fan.async_turn_on()
+
+    assert fan._pending_state == "low"
+    assert fan.is_on is True
+    assert fan.preset_mode == "low"
+    fan._cancel_pending_timeout()

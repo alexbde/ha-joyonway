@@ -24,9 +24,15 @@ DEFAULT_NAME: str = "Joyonway P25B85"
 
 # RS485 behaviour
 TCP_TIMEOUT: float = 5.0
+COMMAND_COOLDOWN: float = 1.0  # minimum seconds between commands
 
-# Coordinator polling interval (seconds between broadcast reads)
-SCAN_INTERVAL: int = 30
+# Coordinator fallback poll interval (health-check only; reader loop is primary)
+SCAN_INTERVAL: int = 60
+
+# Resilient UI timing
+AVAILABILITY_GRACE_SECONDS: float = 10.0
+RX_STALE_SECONDS: float = 15.0
+OPTIMISTIC_TIMEOUT_SECONDS: float = 10.0
 
 # Auto clock sync
 CLOCK_SYNC_DRIFT_THRESHOLD: int = 30  # seconds
