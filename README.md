@@ -237,6 +237,12 @@ python tests/live/livetest_schedule_ui_matrix.py
 | **[Gaet78](https://community.home-assistant.io/u/gaet78)**   | P69B133 integration, 30s timing discovery                                                        |
 | **[c0mpleX](https://community.home-assistant.io/u/c0mplex)** | Frame samples and community discussion                                                           |
 
+## Disclaimer
+
+This project is **not affiliated with, endorsed by, or connected to Joyonway, Home Deluxe, or any of their subsidiaries or affiliates**. "Joyonway", "Home Deluxe", "White Marble", model numbers (P25B85, PB554, etc.), and any associated logos or product names are trademarks or registered trademarks of their respective owners. All product names, brand names, and images are used solely for identification and compatibility purposes.
+
+This software is provided as-is, without warranty. **Use at your own risk.** The authors accept no liability for any damage to hardware, property, or persons resulting from the use of this integration.
+
 ## License
 
 This project is released under the [MIT License](LICENSE).
