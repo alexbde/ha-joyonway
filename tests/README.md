@@ -12,7 +12,7 @@ This repository now uses `pytest` as the default test runner.
 ## Quick start
 
 ```zsh
-cd /Users/alex/IdeaProjects/alexbde/ha-joyonway-p25b85
+cd /path/to/ha-joyonway
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -U pip

@@ -73,7 +73,7 @@ def main():
     manifest = {
         "session": {
             "started_at": first_ts, "ended_at": last_ts,
-            "host": "192.168.188.58", "port": 8899,
+            "host": "192.168.1.100", "port": 8899,
             "tool_version": "1.0.0-phase5",
             "phase": "phase5_extended_commands",
             "dry_run": False, "resumed": False, "completed": True,

@@ -165,7 +165,7 @@ Current high-level status:
 ### Lightweight tests (no Home Assistant runtime)
 
 ```zsh
-cd /Users/alex/IdeaProjects/alexbde/ha-joyonway-p25b85
+cd /path/to/ha-joyonway
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -U pip
@@ -176,7 +176,7 @@ pytest -q
 ### Home Assistant runtime tests
 
 ```zsh
-cd /Users/alex/IdeaProjects/alexbde/ha-joyonway-p25b85
+cd /path/to/ha-joyonway
 /opt/homebrew/bin/python3.12 -m venv .venv-ha
 source .venv-ha/bin/activate
 python -m pip install -U pip
