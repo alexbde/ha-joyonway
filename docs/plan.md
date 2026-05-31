@@ -100,7 +100,7 @@ custom_components/joyonway_p25b85/
 |--------|----------|-----|--------------|
 | **Water temperature** | sensor | `water_temperature` | Integer °C for history/graphs |
 | **Setpoint** | sensor | `setpoint` | Current target temperature °C |
-| **Status** | sensor | `status` | Enum: off / circulation / heating / ozone / unknown; dynamic icon per state |
+| **Status** | sensor | `status` | Enum: off / standby / circulation / heating / ozone / unknown; dynamic icon per state |
 | **Jets** (Düsen) | sensor | `jets` | Enum: off / low / high |
 | **Thermostat** | climate | `thermostat` | Water temp + setpoint + status; slider with 1.5s debounce |
 | **Heater** | switch | `heater` | On/off; optimistic state + target-state command |
@@ -132,9 +132,15 @@ custom_components/joyonway_p25b85/
 - **Strict connectivity diagnostic** — `bridge_connectivity` uses raw TCP state
   (`coordinator.is_connected`), not grace-mode availability.
 - **Optimistic state** — all writable entities set pending state immediately on
-  command send. Cleared when the next broadcast confirms (or after 10s timeout).
-  If broadcast shows a different state, entity "snaps back" — clear visual
-  feedback that the command didn't take effect.
+  command send. Cleared only when the next broadcast **confirms** the new value
+  (or after 10s timeout). Confirmation logic is entity-specific via
+  `_broadcast_confirms_pending()` template method in switches, direct comparison
+  in fan/time. If broadcast still shows old state, pending persists — snap-back
+  only occurs on timeout expiry, giving clear visual feedback.
+- **Schedule freshness gating** — before any schedule write (time or enable),
+  `coordinator.async_ensure_fresh_data()` verifies last broadcast ≤5s old.
+  If stale, waits up to 3s for a fresh one, then refuses with error. Prevents
+  writing schedule commands based on outdated data.
 - **Light toggle-lock** — second click ignored while toggle is in-flight
   (prevents double-toggle reverting the state).
 - **Target-state switches** — heater, blower, ozone, schedule all use
@@ -153,6 +159,12 @@ custom_components/joyonway_p25b85/
   only (off/low/high from the jets byte). Circulation/heating pump activity must
   NOT be surfaced as jets-on. This matches PB554 panel semantics and avoids
   confusing control behavior (manual jets should remain independently controllable).
+- **Status cross-reference** — byte 14 value `0x50` = "standby" (heater armed,
+  0W). Byte 14 value `0x51` = "circulation" (pre-heat pump running, circle icon).
+  Post-heat circulation detected via byte 17 bit 7 (`0x80`): when byte 14 =
+  `0x40` (off) but heating cycle flag is set, status = "circulation". Both
+  pre-heat and post-heat circulation map to the same "circulation" status and
+  `HVACAction.PREHEATING` in the climate entity.
 - **Ozone control** — mode set via options flow, synced from broadcast byte 13.
 - **Ozone visibility** — ozone switch is only created in Manual mode; hidden in
   Auto mode to keep UI cleaner and avoid disabled-but-visible controls.
@@ -187,27 +199,68 @@ custom_components/joyonway_p25b85/
 
 ## 5. Next Steps
 
-### Priority 1: Remaining live verification
+### Priority 1: Schedule slot 2 write bug — panel capture needed
+**Bug:** Changing time on disabled slot 2 (heat or filter) via HA snaps back
+after 10s. Slot 1 works fine even when disabled.
+
+**Evidence from write test capture log** (`write_test_20260528_212402.jsonl`):
+- Test command sent slot 2 times with flags=0xAA (both enabled) → ✅ accepted.
+- Restore command sent slot 2 times with flags=0x52 (both disabled) → ❌ slot 2
+  times were NOT restored (broadcast still showed the test values). Slot 1 times
+  WERE restored correctly with the same flags=0x52.
+- The test script only verified slot 1 on restore, so it reported "pass"
+  despite slot 2 restore silently failing.
+
+**Hypothesis:** Controller ignores slot 2 time values when slot 2 is disabled
+in the flags byte (asymmetric behavior — slot 1 always applies).
+
+**Next step:** Run `tools/capture_schedule_slot2.py` at the spa to capture what
+command the PB554 panel sends when changing disabled slot 2 times. This will
+reveal whether the panel uses a different flags byte (e.g. temporarily enables
+slot 2) or a different command structure.
+
+**After capture:** Based on findings, either:
+- Force-enable slot 2 in the flags byte when writing times (then restore
+  disabled state with follow-up command), OR
+- Replicate whatever the panel does differently.
+
+### Priority 2: Remaining live verification
 1. **Test ozone** — still untested live (mode byte 13 detection already confirmed)
 2. **Verify auto clock sync** — check logs for drift-triggered sync path
 3. **Live test resilient UI** — verify persistent connection, reconnect, optimistic snap-back
 
-### Priority 2: Polish & release
-- Version bump, final release checklist review, HACS release
-
-### Priority 3: Safety hardening (next implementation)
-- Add schedule freshness gating before any schedule write (`switch` and `time`):
-  require a recent schedule snapshot (timestamp-based), optionally wait briefly
-  for next broadcast if stale, then refuse write with a clear error if still stale.
-
-### Priority 4: Diagnostics enrichment (next implementation)
+### Priority 3: Diagnostics enrichment (next implementation)
 - Capture and expose controller diagnostic metadata from frames, starting with
   firmware/version fields (visible on PB554 panel, expected in RS485 payload).
 
-### Priority 5: Hardware capability options (next implementation)
+### Priority 4: Hardware capability options (next implementation)
 - Add a "Hardware" section in options/config where users can declare whether a
   blower is physically present. If blower is not present, do not create/show the
   blower switch entity at all.
+
+### Priority 5: Repository rename + fresh repo
+- ✅ **Decision: fresh repo.** Divergence analysis (session 15) confirmed zero
+  shared code with upstream (9 vs 113 commits, different domain/architecture).
+  Merge/rebase is meaningless. Instead of detaching the fork, create a clean
+  new repo with a better name and squashed history.
+- **Target naming:**
+  - Repo: `alexbde/ha-joyonway`
+  - Integration domain: `joyonway`
+  - Directory: `custom_components/joyonway/`
+- **Execution checklist:**
+  1. Create fresh GitHub repo `alexbde/ha-joyonway` (no fork relationship).
+  2. Rename `custom_components/joyonway_p25b85/` → `custom_components/joyonway/`.
+  3. Update all internal references: domain in `const.py`, `manifest.json`,
+     `hacs.json`, `config_flow.py`, `__init__.py`, translations, tests.
+  4. Squash history into clean meaningful commits (or single initial commit).
+  5. Push to new repo.
+  6. Update README attribution: "Originally developed in `ha-joyonway-p25b85`,
+     inspired by christopheknap's `ha-joyonway-p23b32`."
+  7. Archive old `alexbde/ha-joyonway-p25b85` repo (or delete after transition).
+  8. Update HACS repository URL if already registered.
+
+### Priority 6: Polish & release
+- Version bump, final release checklist review, HACS release
 
 ### Nice to have (post-release UX)
 - Lovelace dashboard package/example for spa controls using community cards
@@ -217,7 +270,7 @@ custom_components/joyonway_p25b85/
 
 - **`.env` file** holds bridge IP (gitignored). Tools auto-load it.
 - **Restart required** after any code change to the integration.
-- **Tests**: `source .venv/bin/activate && pytest -q` → `109 passed`.
+- **Tests**: `source .venv/bin/activate && pytest -q` → `111 passed`.
   Single venv (Python 3.12 + HA test deps via `pip install -e ".[test]"`).
 - **EW11 connection limit**: 4 concurrent TCP clients. HA uses 1, tools can use up to 3 more.
 - **Community feedback source**: https://community.home-assistant.io/t/joyonway-spa-control/582344/
@@ -225,21 +278,21 @@ custom_components/joyonway_p25b85/
   corruption/factory-reset recovery on some setups; current mitigations are
   no auto-writes on startup, strict schedule-data guards, and resilient connection
   behavior. Keep these protections in place.
-- **Session 10 (2026-05-29):** Merged `.venv-ha` into `.venv` (Python 3.12
-  with full HA test stack). Removed old `ha-test` extra from `pyproject.toml`;
-  `[test]` now includes `pytest-homeassistant-custom-component`. Updated
-  README testing section to single-venv instructions.
-- **Session 11 (2026-05-29):** Completed code-quality/best-practice follow-up.
-  Fixed ozone switch unique ID (`_ozone_switch`), added strict TCP connectivity
-  property for diagnostic sensor, rate-limited auto clock sync on failed sends,
-  cleaned fan docs/type hints, removed stale TODO in `__init__.py`, and applied
-  small cleanups (unused fields/imports/constants, helper dedup). Tests: `109 passed`.
-- **Session 12 (2026-05-29):** Follow-up UX/scope decisions. Blower switch set
-  disabled-by-default for cleaner default layout; ozone switch hidden entirely in
-  Auto mode (still available in Manual) while preserving switch row order when
-  shown. Community feedback TODO trimmed to currently relevant items. Added next
-  TODOs for schedule freshness gating and firmware/version diagnostics capture.
-- **Session 13 (2026-05-29):** Terminology/doc polish. German blower label set to
-  `Luftsprudler`; French blower label set to `Souffleur d'air`. Manual review in
-  `.local/home-deluxe-white-marble.md` suggests blower may be absent on this spa
-  build, so docs now describe blower as optional hardware.
+- **Session 14 (2026-05-30):** Fixed optimistic state snap-back bug — pending
+  state only cleared when broadcast confirms new value. Implemented schedule
+  freshness gating.
+- **Session 15 (2026-05-31):** Remapped byte 14 `0x50` from "circulation" →
+  "standby" (heater armed, 0W idle). Byte 12 confirmed as manual jets only.
+- **Session 16 (2026-05-31):** Investigated schedule slot 2 write bug. Controller
+  ignores slot 2 time values when slot 2 is disabled in the flags byte. Created
+  `tools/capture_schedule_slot2.py` to capture panel behavior.
+- **Session 17 (2026-05-31):** Heating cycle fully captured and analyzed.
+  Confirmed `0x51` = pre-heat circulation (circle icon). Discovered byte 17
+  bit 7 (`0x80`) = "heating cycle active" flag — set during entire cycle
+  (pre-heat → heating → post-heat). Post-heat circulation = byte 14 `0x40` +
+  byte 17 `0x80` (circle icon, ~2 min after heating stops). Byte 28 bit 5
+  (`0x20`) mirrors same state. Updated `parse_status()` to detect post-heat
+  circulation. Added `MASK_HEATING_CYCLE = 0x80`. Rewrote capture script to
+  save all frames as JSONL with byte-change tracking. Created
+  `analyze_heating_frames.py` for post-hoc analysis. Tools in
+  `tools/captures_heating/`. Tests: `111 passed`.

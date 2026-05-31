@@ -66,9 +66,17 @@ class SpaPumpFan(JoyonwayCoordinatorEntity, FanEntity):
 
     @callback
     def _handle_coordinator_update(self) -> None:
-        """Clear optimistic state when real broadcast arrives."""
-        self._cancel_pending_timeout()
-        self._pending_state = None
+        """Clear optimistic state only when broadcast confirms the new value."""
+        if self._pending_state is not None and self.coordinator.data is not None:
+            current = self.coordinator.adapter.get_jets_state(self.coordinator.data)
+            if current == self._pending_state:
+                # Broadcast confirms the new value — clear optimistic state
+                self._cancel_pending_timeout()
+                self._pending_state = None
+            # Otherwise keep pending state until timeout (snap-back on timeout)
+        else:
+            self._cancel_pending_timeout()
+            self._pending_state = None
         super()._handle_coordinator_update()
 
     def _set_pending_state(self, value: str) -> None:

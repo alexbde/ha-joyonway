@@ -29,6 +29,8 @@ from .const import (
     OZONE_MODE_AUTO,
     RX_STALE_SECONDS,
     SCAN_INTERVAL,
+    SCHEDULE_FRESHNESS_MAX_AGE,
+    SCHEDULE_FRESHNESS_WAIT,
     TCP_TIMEOUT,
 )
 from .protocol import find_frames, unescape_frame, is_broadcast, validate_frame
@@ -274,6 +276,41 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
                 await self._close_connection()
                 self._schedule_reconnect()
                 return False
+
+    # ── Schedule freshness gating ─────────────────────────────────────
+
+    async def async_ensure_fresh_data(self) -> bool:
+        """Ensure coordinator data is fresh enough for a schedule write.
+
+        Returns True if data is fresh (received within SCHEDULE_FRESHNESS_MAX_AGE).
+        If stale, waits up to SCHEDULE_FRESHNESS_WAIT for a new broadcast.
+        Returns False if data remains stale after waiting.
+        """
+        if self.data is None or self._last_rx_ts == 0.0:
+            return False
+
+        now = time.monotonic()
+        if now - self._last_rx_ts <= SCHEDULE_FRESHNESS_MAX_AGE:
+            return True
+
+        # Data is stale — wait for a fresh broadcast
+        _LOGGER.debug(
+            "Schedule data is %.1fs old, waiting up to %.1fs for fresh broadcast",
+            now - self._last_rx_ts,
+            SCHEDULE_FRESHNESS_WAIT,
+        )
+        deadline = now + SCHEDULE_FRESHNESS_WAIT
+        while time.monotonic() < deadline:
+            await asyncio.sleep(0.2)
+            if time.monotonic() - self._last_rx_ts <= SCHEDULE_FRESHNESS_MAX_AGE:
+                return True
+
+        _LOGGER.warning(
+            "Schedule data still stale after %.1fs wait (last RX %.1fs ago)",
+            SCHEDULE_FRESHNESS_WAIT,
+            time.monotonic() - self._last_rx_ts,
+        )
+        return False
 
     # ── Fallback poll (health check) ─────────────────────────────────
 

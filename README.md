@@ -51,7 +51,7 @@ The P25B85 controls spas like the **Home Deluxe White Marble** outdoor whirlpool
 - **Filter schedule** — 2 time slots with start/end times and enable/disable
 - **Clock sync** — manual button (auto-sync available via options, disabled by default)
 - **Options flow** — ozone mode (Auto/Manual, synced with spa) and auto clock sync toggle
-- **Status sensor** — off / circulation / heating / ozone (with dynamic icons)
+- **Status sensor** — off / standby / circulation / heating / ozone (with dynamic icons)
 - **Jets sensor** — off / low / high
 - **Persistent TCP connection** — real-time state updates (~1–2 s), automatic reconnect with exponential backoff
 - **Optimistic UI** — writable entities show immediate feedback; snap back if the spa reports a different state
@@ -72,6 +72,7 @@ The P25B85 uses a 4-byte CRC-32 on all command frames. The CRC algorithm has bee
 - ✅ Every command uses computed CRC (no replay-only frames)
 - ✅ All commands validated against observed state changes from physical captures
 - ✅ Write pacing enforces a 1-second cooldown between commands
+- ✅ Schedule writes gated on data freshness (refuses if no recent broadcast)
 
 > **Note:** KDy documented that sending a frame with an invalid CRC can activate the heater unexpectedly. This integration uses the verified CRC algorithm for all commands.
 
@@ -133,7 +134,7 @@ After setup, go to **Settings → Devices & Services → Joyonway P25B85 → Con
 |-------------------|----------------------------------------------------------------------------|
 | Water temperature | Current water temp in °C                                                   |
 | Setpoint          | Current target temperature in °C                                           |
-| Status            | off / circulation / heating / ozone (icon changes per state)           |
+| Status            | off / standby / circulation / heating / ozone (icon changes per state) |
 | Jets (Düsen)      | off / low / high                                                           |
 | Spa clock         | Controller date/time as timestamp sensor (diagnostic, disabled by default) |
 

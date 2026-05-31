@@ -359,7 +359,13 @@ async def test_optimistic_timeout_canceled_on_coordinator_update():
         assert heater._pending_state is True
         assert heater._pending_task is not None
 
-        # Simulate broadcast update
+        # Simulate broadcast that still shows old state — pending should persist
+        heater._handle_coordinator_update()
+        assert heater._pending_state is True
+        assert heater._pending_task is not None
+
+        # Simulate broadcast confirming the new state
+        coordinator.data = {"status": "heating"}
         heater._handle_coordinator_update()
         assert heater._pending_state is None
         assert heater._pending_task is None

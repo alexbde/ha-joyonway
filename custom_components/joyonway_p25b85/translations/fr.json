@@ -41,6 +41,7 @@
         "name": "Statut",
         "state": {
           "off": "Arrêt",
+          "standby": "Veille",
           "circulation": "Circulation",
           "heating": "Chauffage",
           "ozone": "Ozone",

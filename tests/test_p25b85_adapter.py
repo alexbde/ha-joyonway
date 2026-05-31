@@ -40,10 +40,11 @@ FRAME_END = protocol.FRAME_END
 P25B85Adapter = adapters_p25b85.P25B85Adapter
 P25B85_SIGNATURE = adapters_p25b85.P25B85_SIGNATURE
 IDX_HEATER_STATE = adapters_p25b85.IDX_HEATER_STATE
+IDX_PUMP_BYTE = adapters_p25b85.IDX_PUMP_BYTE
 IDX_DATETIME_START = adapters_p25b85.IDX_DATETIME_START
 HEATER_OFF = adapters_p25b85.HEATER_OFF
 HEATER_HEATING = adapters_p25b85.HEATER_HEATING
-HEATER_CIRCULATION = adapters_p25b85.HEATER_CIRCULATION
+HEATER_STANDBY = adapters_p25b85.HEATER_STANDBY
 HEATER_OZONE = adapters_p25b85.HEATER_OZONE
 fahrenheit_to_celsius = adapters_p25b85._fahrenheit_to_celsius
 celsius_to_fahrenheit = adapters_p25b85._celsius_to_fahrenheit
@@ -134,7 +135,7 @@ def test_parse_rejects_wrong_signature(adapter: P25B85Adapter, logical_frame: by
     ("heater_byte", "state", "active", "ozone"),
     [
         (HEATER_OFF, "off", False, False),
-        (HEATER_CIRCULATION, "circulation", False, False),
+        (HEATER_STANDBY, "standby", False, False),
         (HEATER_HEATING, "heating", True, False),
         (0x54, "heating", True, False),
         (HEATER_OZONE, "ozone", False, True),
@@ -156,6 +157,30 @@ def test_heater_state_mapping(
     assert result["status"] == state
     assert result["heater_active"] is active
     assert result["ozone_active"] is ozone
+
+
+def test_standby_status_when_pump_off(
+    adapter: P25B85Adapter,
+    logical_frame: bytes,
+) -> None:
+    """Status is 'standby' when heater byte is 0x50 (heater armed)."""
+    modified = bytearray(logical_frame)
+    modified[IDX_HEATER_STATE] = HEATER_STANDBY
+    modified[IDX_PUMP_BYTE] = 0x00
+    result = adapter.parse_status(bytes(modified))
+    assert result["status"] == "standby"
+
+
+def test_standby_status_even_when_jets_running(
+    adapter: P25B85Adapter,
+    logical_frame: bytes,
+) -> None:
+    """Status is 'standby' when heater byte is 0x50 even with manual jets active."""
+    modified = bytearray(logical_frame)
+    modified[IDX_HEATER_STATE] = HEATER_STANDBY
+    modified[IDX_PUMP_BYTE] = 0x02  # manual jets low — independent of heater state
+    result = adapter.parse_status(bytes(modified))
+    assert result["status"] == "standby"
 
 
 def test_entity_descriptions(adapter: P25B85Adapter) -> None:
