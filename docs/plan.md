@@ -159,13 +159,12 @@ custom_components/joyonway_p25b85/
   only (off/low/high from the jets byte). Circulation/heating pump activity must
   NOT be surfaced as jets-on. This matches PB554 panel semantics and avoids
   confusing control behavior (manual jets should remain independently controllable).
-- **Status cross-reference** — byte 14 value `0x50` was originally mapped as
-  "circulation" (from KDy). Capture analysis confirms `0x50` appears with
-  pump=0x00 for entire idle periods (0W energy), so it actually means "heater
-  enabled/armed" (standby). Currently mapped to "standby". The actual
-  circulation phase (pre/post-heat pump running at ~300W) may use a different
-  byte 14 value not yet captured. "circulation" is kept as a valid enum state
-  pending a full heating cycle capture to identify the correct byte value.
+- **Status cross-reference** — byte 14 value `0x50` = "standby" (heater armed,
+  0W). Byte 14 value `0x51` = "circulation" (pre-heat pump running, circle icon).
+  Post-heat circulation detected via byte 17 bit 7 (`0x80`): when byte 14 =
+  `0x40` (off) but heating cycle flag is set, status = "circulation". Both
+  pre-heat and post-heat circulation map to the same "circulation" status and
+  `HVACAction.PREHEATING` in the climate entity.
 - **Ozone control** — mode set via options flow, synced from broadcast byte 13.
 - **Ozone visibility** — ozone switch is only created in Manual mode; hidden in
   Auto mode to keep UI cleaner and avoid disabled-but-visible controls.
@@ -225,31 +224,21 @@ slot 2) or a different command structure.
   disabled state with follow-up command), OR
 - Replicate whatever the panel does differently.
 
-### Priority 2: Heating cycle capture & status verification
-1. **Capture full heating cycle** — run `tools/capture_heating_cycle.py` while
-   enabling/disabling the heater to see all byte 14 transitions through the
-   natural cycle: standby → circulation? → heating → circulation? → standby.
-2. **Identify circulation byte** — determine which byte 14 value (if any)
-   corresponds to the actual circulation phase (~300W pump pre/post-heat).
-   Possibly `0x51`, or a new value not yet seen.
-3. **Adjust status mapping** — based on results, either assign "circulation" to
-   the correct byte value or remove it if circulation has no distinct state.
-
-### Priority 3: Remaining live verification
+### Priority 2: Remaining live verification
 1. **Test ozone** — still untested live (mode byte 13 detection already confirmed)
 2. **Verify auto clock sync** — check logs for drift-triggered sync path
 3. **Live test resilient UI** — verify persistent connection, reconnect, optimistic snap-back
 
-### Priority 4: Diagnostics enrichment (next implementation)
+### Priority 3: Diagnostics enrichment (next implementation)
 - Capture and expose controller diagnostic metadata from frames, starting with
   firmware/version fields (visible on PB554 panel, expected in RS485 payload).
 
-### Priority 5: Hardware capability options (next implementation)
+### Priority 4: Hardware capability options (next implementation)
 - Add a "Hardware" section in options/config where users can declare whether a
   blower is physically present. If blower is not present, do not create/show the
   blower switch entity at all.
 
-### Priority 6: Repository rename + fresh repo
+### Priority 5: Repository rename + fresh repo
 - ✅ **Decision: fresh repo.** Divergence analysis (session 15) confirmed zero
   shared code with upstream (9 vs 113 commits, different domain/architecture).
   Merge/rebase is meaningless. Instead of detaching the fork, create a clean
@@ -270,7 +259,7 @@ slot 2) or a different command structure.
   7. Archive old `alexbde/ha-joyonway-p25b85` repo (or delete after transition).
   8. Update HACS repository URL if already registered.
 
-### Priority 7: Polish & release
+### Priority 6: Polish & release
 - Version bump, final release checklist review, HACS release
 
 ### Nice to have (post-release UX)
@@ -281,7 +270,7 @@ slot 2) or a different command structure.
 
 - **`.env` file** holds bridge IP (gitignored). Tools auto-load it.
 - **Restart required** after any code change to the integration.
-- **Tests**: `source .venv/bin/activate && pytest -q` → `109 passed`.
+- **Tests**: `source .venv/bin/activate && pytest -q` → `111 passed`.
   Single venv (Python 3.12 + HA test deps via `pip install -e ".[test]"`).
 - **EW11 connection limit**: 4 concurrent TCP clients. HA uses 1, tools can use up to 3 more.
 - **Community feedback source**: https://community.home-assistant.io/t/joyonway-spa-control/582344/
@@ -289,34 +278,21 @@ slot 2) or a different command structure.
   corruption/factory-reset recovery on some setups; current mitigations are
   no auto-writes on startup, strict schedule-data guards, and resilient connection
   behavior. Keep these protections in place.
-- **Session 10 (2026-05-29):** Merged `.venv-ha` into `.venv`; single Python 3.12
-  venv with full HA test stack.
-- **Session 11 (2026-05-29):** Code-quality follow-up (ozone unique ID, TCP
-  connectivity property, clock sync rate limit, cleanups).
-- **Session 12 (2026-05-29):** UX decisions (blower disabled-by-default, ozone
-  hidden in Auto mode).
-- **Session 13 (2026-05-29):** Terminology/doc polish (German/French blower labels,
-  blower documented as optional hardware).
-- **Session 14 (2026-05-30):** Fixed optimistic state snap-back bug for all
-  writable entities — pending state now only cleared when broadcast confirms
-  the new value (via `_broadcast_confirms_pending()` template method). Applied
-  to all switches, fan, and time entities. Implemented schedule freshness gating
-  (`coordinator.async_ensure_fresh_data()`): verifies last broadcast ≤5s old
-  before any schedule write, waits up to 3s for fresh data, refuses if still
-  stale. Tests: `109 passed`.
-- **Session 15 (2026-05-31):** Status sensor fix. Byte 14 = `0x50` was mapped
-  as "circulation" (from KDy) but capture analysis + energy monitoring proves
-  it means "heater armed/standby" (shows for hours at 0W). Remapped `0x50` →
-  "standby". Byte 12 confirmed to be manual jets only (independent of heater
-  cycle). "circulation" kept as valid enum state pending full heating cycle
-  capture — the actual circulation phase (~300W) may use a different byte 14
-  value not yet observed. Added `capture_heating_cycle.py` tool to capture
-  the full cycle. Tests: `111 passed`.
-- **Session 16 (2026-05-31):** Investigated schedule slot 2 write bug. UI
-  testing showed slot 2 time changes snap back while slot 1 works fine (both
-  disabled). Analysis of write test capture log proved the restore command
-  (flags=0x52, both disabled) applied slot 1 times but left slot 2 unchanged.
-  Hypothesis: controller ignores slot 2 time values when slot 2 is disabled in
-  the flags byte. Created `tools/capture_schedule_slot2.py` to capture panel
-  behavior when changing disabled slot 2 times — needed to confirm hypothesis
-  and determine the correct fix.
+- **Session 14 (2026-05-30):** Fixed optimistic state snap-back bug — pending
+  state only cleared when broadcast confirms new value. Implemented schedule
+  freshness gating.
+- **Session 15 (2026-05-31):** Remapped byte 14 `0x50` from "circulation" →
+  "standby" (heater armed, 0W idle). Byte 12 confirmed as manual jets only.
+- **Session 16 (2026-05-31):** Investigated schedule slot 2 write bug. Controller
+  ignores slot 2 time values when slot 2 is disabled in the flags byte. Created
+  `tools/capture_schedule_slot2.py` to capture panel behavior.
+- **Session 17 (2026-05-31):** Heating cycle fully captured and analyzed.
+  Confirmed `0x51` = pre-heat circulation (circle icon). Discovered byte 17
+  bit 7 (`0x80`) = "heating cycle active" flag — set during entire cycle
+  (pre-heat → heating → post-heat). Post-heat circulation = byte 14 `0x40` +
+  byte 17 `0x80` (circle icon, ~2 min after heating stops). Byte 28 bit 5
+  (`0x20`) mirrors same state. Updated `parse_status()` to detect post-heat
+  circulation. Added `MASK_HEATING_CYCLE = 0x80`. Rewrote capture script to
+  save all frames as JSONL with byte-change tracking. Created
+  `analyze_heating_frames.py` for post-hoc analysis. Tools in
+  `tools/captures_heating/`. Tests: `111 passed`.
