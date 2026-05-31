@@ -94,7 +94,7 @@ These are long frames (60+ bytes) prefixed with destination `0xFF`.
 | 13 | Ozone mode flag: bit 7 (`0x80`) = Manual, clear = Auto |
 | 14 | Heater/blower flags (see below) |
 | 16 | Setpoint temperature (°F) |
-| 17 | Light flags (bit 0 = light ON) |
+| 17 | Light/cycle flags: bit 0 = light ON, bit 7 = heating cycle active |
 | 19 | Heat slot 1 start hour + enable flag (hour \| 0x40 if enabled) |
 | 21 | Heat slot 1 end hour |
 | 23 | Heat slot 2 start hour + enable flag (hour \| 0x40 if enabled) |
@@ -113,8 +113,8 @@ These are long frames (60+ bytes) prefixed with destination `0xFF`.
 | `0x40` | Idle (heater off, blower off) |
 | `0x48` | Blower active (base `0x40` + bit 3) |
 | `0x50` | Heater enabled/armed — standby (waiting for temp drop) |
-| `0x51` | Heating cycle starting (heater about to engage) |
-| `0x54` / `0x55` | Heater actively heating |
+| `0x51` | Circulation — pump running pre/post heat (circle icon on panel) |
+| `0x54` / `0x55` | Heater actively heating (flame icon on panel) |
 | `0x41` / `0xC1` | Disinfection cycle (ozone) |
 | `0x58` | Blower + heater standby (base `0x50` + bit 3) |
 
@@ -127,11 +127,13 @@ These are long frames (60+ bytes) prefixed with destination `0xFF`.
 > for the entire idle period; Phase 5 heater ON/OFF directly toggles between
 > `0x40` ↔ `0x50`.
 >
-> **TODO:** The full heating cycle (standby → circulation → heating →
-> circulation → standby) has not been captured over its full duration. The
-> byte 14 value for the actual circulation phase (~300W pump pre/post-heat)
-> is unknown — it may be `0x51` or a value not yet observed. Use
-> `tools/capture_heating_cycle.py` to capture and identify.
+> **Heating cycle confirmed (session 17 capture):** Full cycle with byte 17:
+> `0x40`+b17=`0x00` (off) → `0x51`+b17=`0x80` (pre-heat circ, ~2 min) →
+> `0x55`+b17=`0x80` (heating, ~2 min) → `0x40`+b17=`0x80` (post-heat circ,
+> ~2 min, circle icon) → `0x40`+b17=`0x00` (off). Byte 17 bit 7 (`0x80`)
+> is the **heating cycle active** flag — set for the entire cycle including
+> post-heat circulation. Byte 28 bit 5 (`0x20`) also tracks cycle state
+> with identical transitions.
 
 **Byte 14 bit fields:**
 - Bit 0: disinfection active (`0x01`)

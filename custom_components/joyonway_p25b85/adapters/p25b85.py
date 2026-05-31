@@ -102,6 +102,12 @@ MASK_PUMP_HIGH = 0x04  # massage jets ✅
 # Light
 MASK_LIGHT = 0x01  # ✅ bit 0 at byte 17
 
+# Heating cycle active flag at byte 17 (bit 7).
+# Set during the entire heating cycle (pre-heat circ → heating → post-heat circ).
+# Cleared when cycle completes. Used to detect post-heat circulation:
+# byte 14 = 0x40 (off) + byte 17 bit 7 = post-heat circulation (circle icon).
+MASK_HEATING_CYCLE = 0x80
+
 # Activity flag at byte 28 (not UV-specific; use heater byte for UV detection)
 MASK_ACTIVITY = 0x20
 # Legacy alias kept for callers that imported the old name.
@@ -123,8 +129,8 @@ MASK_HEATER_BLOWER = 0x08  # bit 3 on heater byte = blower running
 HEATER_OFF = 0x40    # Idle/off (KDy called this "cooldown") ✅ confirmed
 HEATER_BLOWER = 0x48       # Blower active (0x40 + bit 3) ✅ Phase 6 confirmed
 HEATER_STANDBY = 0x50      # Heater enabled/armed — waiting for temp drop ✅ confirmed
-HEATER_HEATING_STANDBY = 0x51  # Heating standby (heater about to engage) ✅ Phase 6
-HEATER_HEATING = 0x55     # Actively heating (our capture) ✅ confirmed
+HEATER_CIRCULATION = 0x51  # Pre/post-heat circulation (circle icon on panel) — needs full capture confirmation
+HEATER_HEATING = 0x55     # Actively heating (flame icon) ✅ confirmed
 HEATER_HEATING_ALT = 0x54  # Actively heating (KDy's value, differs by bit 0)
 HEATER_OZONE = 0x41          # Ozone cycle — scheduled (our capture) ✅ confirmed
 HEATER_OZONE_ALT = 0xC1     # Ozone cycle — manual / KDy variant ✅ Phase 6
@@ -132,7 +138,7 @@ HEATER_OZONE_ALT = 0xC1     # Ozone cycle — manual / KDy variant ✅ Phase 6
 HEATER_STATE_MAP: dict[int, str] = {
     HEATER_OFF: "off",
     HEATER_STANDBY: "standby",             # heater armed, waiting for temp drop
-    HEATER_HEATING_STANDBY: "heating",  # about to heat → report as heating
+    HEATER_CIRCULATION: "circulation",  # pump running pre/post heat (circle icon)
     HEATER_HEATING: "heating",
     HEATER_HEATING_ALT: "heating",      # KDy variant
     HEATER_OZONE: "ozone",
@@ -215,6 +221,13 @@ class P25B85Adapter:
         # status lookup works regardless of whether the blower is running.
         heater_base = heater_byte & ~MASK_HEATER_BLOWER
         status = HEATER_STATE_MAP.get(heater_base, "unknown")
+
+        # Post-heat circulation detection: when byte 14 = off (0x40) but the
+        # heating cycle flag (byte 17 bit 7) is still set, the pump is running
+        # post-heat circulation (circle icon on panel).
+        heating_cycle_active = bool(light_byte & MASK_HEATING_CYCLE)
+        if status == "off" and heating_cycle_active:
+            status = "circulation"
 
 
         # Derive jets state string
