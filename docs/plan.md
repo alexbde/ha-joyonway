@@ -9,8 +9,9 @@
 >
 > **Integration domain:** `joyonway_p25b85`
 > **Hardware:** P25B85 + PB554 + Elfin EW11
-> **Status:** Resilient UI refactor implemented and post-refactor code review/polish completed.
-> Persistent TCP connection, optimistic state, grace-mode availability for entities.
+> **Status:** Resilient UI refactor implemented with intent-queue follow-up fixes merged.
+> Persistent TCP connection, optimistic state, grace-mode availability, explicit
+> schedule-write failure path (no silent no-op on missing schedule data).
 
 > **Documentation policy:** `docs/protocol.md` is the canonical protocol spec.
 > This `docs/plan.md` is progress/handoff only.
@@ -137,10 +138,11 @@ custom_components/joyonway_p25b85/
   `_broadcast_confirms_pending()` template method in switches, direct comparison
   in fan/time. If broadcast still shows old state, pending persists — snap-back
   only occurs on timeout expiry, giving clear visual feedback.
-- **Schedule freshness gating** — before any schedule write (time or enable),
-  `coordinator.async_ensure_fresh_data()` verifies last broadcast ≤5s old.
-  If stale, waits up to 3s for a fresh one, then refuses with error. Prevents
-  writing schedule commands based on outdated data.
+- **Schedule freshness gating** — removed (previously `async_ensure_fresh_data()`).
+  Now handled naturally by the intent queue: build_fn reads current coordinator
+  data at drain time (after coalesce window), which is always as fresh as the
+  latest broadcast. If required schedule data is missing, writes fail explicitly
+  (`HomeAssistantError` on submit path, `IntentBuildError` on queue drain).
 - **Light toggle-lock** — second click ignored while toggle is in-flight
   (prevents double-toggle reverting the state).
 - **Target-state switches** — heater, blower, ozone, schedule all use
@@ -174,14 +176,38 @@ custom_components/joyonway_p25b85/
   via a Hardware options section (user declares blower present/absent).
 - **Climate debounce**: 1.5s coalescing for slider drags.
 - **Coordinator write pacing**: global 1.0s command cooldown.
+- **Intent queue** — all entity write commands go through `IntentQueue` on the
+  coordinator. Same-group intents coalesce within a 300ms window. Key behaviors:
+  - **Coalescing**: rapid clicks on related entities (e.g., heat slot 1 + 2)
+    merge into a single command.
+  - **Auto-cancel**: accidental toggle (ON→OFF within 300ms) produces a no-op
+    at drain time — no command sent, pending state clears on next broadcast.
+  - **Sequential drain**: all command types queue up and execute one at a time,
+    preventing bus contention regardless of command type.
+  - **Retry**: one retry on TCP send failure.
+  - **Groups**: `heat_schedule_state`, `filter_schedule_state`,
+    `heat_schedule_time`, `filter_schedule_time`, `heater`, `blower`,
+    `ozone`, `light`, `jets`, `setpoint`, `clock_sync`.
+  - Entity sets optimistic state immediately on submit (instant UI).
+  - On failure after retry, entity's `on_failure` callback clears pending state.
 - **Temperatures as integers** — spa only shows whole °C.
 - **Schedule** — `time` entities for pickers, `switch` entities for enables.
   Schedule sends REFUSE if any data key is missing (prevents overwrite with zeros).
+- **Schedule command intent split (confirmed)** — schedule writes use two flag
+  modes: `write_mode="state"` for enable toggles (`0xAA/0x62/0x9A/0x52`) and
+  `write_mode="time"` for time edits (`0xAA/0x6A/0x9A/0x5A`). This matches
+  PB554 panel captures and fixes slot 2 time writes when slot 2 is disabled.
 - **Clock write** — uses `set_date=True` (prefix=0x05) by default.
 - **Auto clock sync** — disabled by default. When enabled, syncs if drift > 30s
   with 1-hour cooldown. Cooldown now applies to both successful syncs and failed
   attempts (prevents repeated retries/log spam during failures).
 - **No auto commands on startup** — all writes are user-initiated only.
+- **All commands routed through intent queue** — no entity or internal function
+  calls `async_send_command` directly. Clock sync, ozone mode, and all entity
+  writes go through the queue for consistent serialization.
+- **Non-silent snap-back** — if a pending optimistic state times out (controller
+  didn't confirm within 10s), a WARNING-level log is emitted identifying the
+  entity and the failed action. This ensures no state reversion is ever silent.
 - **Consistent logging** — all write entities log at debug before send and
   error on failure, using `"Entity: action"` format.
 
@@ -199,35 +225,37 @@ custom_components/joyonway_p25b85/
 
 ## 5. Next Steps
 
-### Priority 1: Schedule slot 2 write bug — panel capture needed
-**Bug:** Changing time on disabled slot 2 (heat or filter) via HA snaps back
-after 10s. Slot 1 works fine even when disabled.
+### Priority 1: Schedule slot 2 write bug — ✅ FIXED
+**Bug (resolved):** Changing time on disabled slot 2 via HA snapped back after
+10s because the controller ignores slot 2 time values when the normal
+"disabled" flags byte is used (`0x52` / `0x62`).
 
-**Evidence from write test capture log** (`write_test_20260528_212402.jsonl`):
-- Test command sent slot 2 times with flags=0xAA (both enabled) → ✅ accepted.
-- Restore command sent slot 2 times with flags=0x52 (both disabled) → ❌ slot 2
-  times were NOT restored (broadcast still showed the test values). Slot 1 times
-  WERE restored correctly with the same flags=0x52.
-- The test script only verified slot 1 on restore, so it reported "pass"
-  despite slot 2 restore silently failing.
+**Root cause:** Asymmetric controller behavior — slot 1 times always apply,
+but slot 2 times are only accepted when slot 2 is enabled in the flags byte.
 
-**Hypothesis:** Controller ignores slot 2 time values when slot 2 is disabled
-in the flags byte (asymmetric behavior — slot 1 always applies).
+**Final fix (confirmed):** schedule commands now use two intent modes:
+- **State mode** (slot enable/disable): `0xAA`, `0x62`, `0x9A`, `0x52`
+- **Time mode** (time edits): `0xAA`, `0x6A`, `0x9A`, `0x5A`
 
-**Next step:** Run `tools/capture_schedule_slot2.py` at the spa to capture what
-command the PB554 panel sends when changing disabled slot 2 times. This will
-reveal whether the panel uses a different flags byte (e.g. temporarily enables
-slot 2) or a different command structure.
+`0x6A` for s1-on/s2-off slot 2 time edits was captured live from PB554 for
+both heat and filter schedules.
 
-**After capture:** Based on findings, either:
-- Force-enable slot 2 in the flags byte when writing times (then restore
-  disabled state with follow-up command), OR
-- Replicate whatever the panel does differently.
+**Capture evidence:**
+- `tools/captures_schedule_slot2/capture_slot2_20260531_091843.jsonl` (slot2 disabled case, `0x58`)
+- `tools/captures_schedule_s1_on_s2_off/session_20260531_161502.jsonl` (s1-on/s2-off slot2 edit, `0x6A`)
+- `tools/captures_schedule_test/slot_test_20260531_164513.jsonl` (first reliable HA-UI matrix, 50/0 pass)
 
 ### Priority 2: Remaining live verification
 1. **Test ozone** — still untested live (mode byte 13 detection already confirmed)
 2. **Verify auto clock sync** — check logs for drift-triggered sync path
 3. **Live test resilient UI** — verify persistent connection, reconnect, optimistic snap-back
+   - ✅ **Intent queue implemented** (session 22): all entity commands go through
+     `IntentQueue` which coalesces same-group intents, serializes bus writes, and
+     auto-cancels reverted clicks. The "rapid button clicks revert each other"
+     problem is solved. Remaining: live verification of reconnect + snap-back.
+4. **Test schedule writes** — ✅ completed. Reliable HA-UI live matrix now
+   covers all UI-reachable schedule combinations (state toggles + single-field
+   time edits across all enable combos), with retries and convergence waits.
 
 ### Priority 3: Diagnostics enrichment (next implementation)
 - Capture and expose controller diagnostic metadata from frames, starting with
@@ -270,7 +298,7 @@ slot 2) or a different command structure.
 
 - **`.env` file** holds bridge IP (gitignored). Tools auto-load it.
 - **Restart required** after any code change to the integration.
-- **Tests**: `source .venv/bin/activate && pytest -q` → `111 passed`.
+- **Tests**: `source .venv/bin/activate && pytest -q` → `120 passed`.
   Single venv (Python 3.12 + HA test deps via `pip install -e ".[test]"`).
 - **EW11 connection limit**: 4 concurrent TCP clients. HA uses 1, tools can use up to 3 more.
 - **Community feedback source**: https://community.home-assistant.io/t/joyonway-spa-control/582344/
@@ -296,3 +324,70 @@ slot 2) or a different command structure.
   save all frames as JSONL with byte-change tracking. Created
   `analyze_heating_frames.py` for post-hoc analysis. Tools in
   `tools/captures_heating/`. Tests: `111 passed`.
+- **Session 18 (2026-05-31):** Fixed schedule slot 2 write bug. Panel capture
+  revealed the PB554 uses flags byte `0x58` when writing disabled slot 2
+  times (panel flow: enable → edit → disable → save). Implemented
+  `force_slot2_write` parameter in `build_schedule_command` and automatic
+  detection in `time.py`. Added `SCHED_FLAGS_FORCE_SLOT2_TABLE` with `0x58`
+  (confirmed) and `0x68` (derived). Capture data in
+  `tools/captures_schedule_slot2/`.
+- **Session 19 (2026-05-31):** Comprehensive schedule slot write verification.
+  Created `tools/test_schedule_slots.py` (automated write tests with full raw
+  binary capture) and `tools/capture_schedule_changes.py` (guided 4-step panel
+  capture for slot 1/2 × heat/filter while disabled). Also created
+  `tools/capture_schedule_both_slots.py` for both-slots-at-once captures.
+  Live captures confirmed three distinct flags bytes:
+  - `0x52` = slot 1 edited while disabled (slot 1 always accepted)
+  - `0x58` = slot 2 edited while disabled (force-writes slot 2)
+  - `0x5A` = both slots edited while disabled (force-writes both)
+  Simplified implementation: always use `0x5A` for both-disabled case so
+  slot 1 and slot 2 behave identically. Removed asymmetric `force_slot2_write`
+  logic — replaced `SCHED_FLAGS_FORCE_SLOT2_TABLE` with
+  `SCHED_FLAGS_FORCE_WRITE_TABLE`. Updated `protocol.md` with full findings.
+  **Verified live:** 8/8 tests passed — `0x5A` works correctly when changing
+  only slot 1, only slot 2, or both slots simultaneously (heat + filter).
+  All user panel confirmations positive. Capture data in
+  `tools/captures_schedule_changes/`, `tools/captures_schedule_both/`, and
+  `tools/captures_schedule_test/`. Tests: `113 passed`.
+- **Session 20 (2026-05-31):** Resolved s1-on/s2-off slot2 time-edit flags.
+  Created focused capture script `tools/capture_schedule_s1_on_s2_off.py` and
+  verified panel sends `0x6A` (not `0x68`) for both heat and filter when slot
+  1 is enabled, slot 2 disabled, and slot 2 time is edited. Updated
+  `docs/protocol.md` and implementation to split schedule intent:
+  - state mode flags: `0xAA/0x62/0x9A/0x52`
+  - time mode flags: `0xAA/0x6A/0x9A/0x5A`
+- **Session 21 (2026-05-31):** Reworked the schedule live runner into a
+  reliable HA-UI-realistic test (no manual confirmation). Added retries,
+  convergence waiting, and robust restore. Coverage: all state combos + all
+  single-field time edits across all enable combos for heat and filter.
+  Live result: **50 passed, 0 failed**.
+  Runner path: `tests/live/livetest_schedule_ui_matrix.py`.
+  New artifact directory: `tests/live/artifacts_schedule_matrix/`.
+- **Session 22 (2026-05-31):** Implemented `IntentQueue` in coordinator to solve
+  rapid-action reversion. All entity write commands (switches, fan, climate,
+  time, button) now submit intents to the queue instead of calling
+  `async_send_command` directly. Key features: 300ms coalesce window,
+  same-group merging (schedule slot 1+2 → one command), auto-cancel on
+  revert (ON→OFF = no-op), sequential drain (no bus contention across any
+  command types), retry on TCP failure. Removed per-entity `_cmd_lock` for
+  target-state switches (serialization now handled by queue). Light retains
+  its toggle-lock (toggle semantics require it). Follow-up polish: removed
+  dead `async_ensure_fresh_data()` + constants (superseded by intent queue),
+  fixed climate optimistic state (pending temp stays until broadcast confirms,
+  with 10s timeout), routed ALL command paths through the queue (clock sync
+  in coordinator, ozone mode in `__init__.py`), added WARNING-level logs on
+  all pending-state timeouts (non-silent snap-back). Tests: `114 passed`.
+- **Session 23 (2026-05-31):** Intent-queue follow-up bugfix/polish pass.
+  Fixed options-flow race where ozone mode command could be dropped on reload:
+  `_async_options_updated()` now submits then `await intent_queue.flush()`
+  before config-entry reload. Added explicit intent-build failure path via
+  `IntentBuildError` handling in `IntentQueue` (build failures now trigger
+  `on_failure` callbacks instead of silent no-op behavior). Schedule writes now
+  fail explicitly on missing required data (`HomeAssistantError` in service
+  path; `IntentBuildError` at queue-drain path). Added/updated regression tests:
+  - `tests/test_coordinator_resilient.py` (flush + build failure callbacks)
+  - `tests/test_entities_runtime.py` (schedule missing-data errors)
+  - `tests/test_init_runtime.py` (options update order: submit → flush → reload)
+  Also cleaned code style in `IntentQueue` by deduplicating failure-callback
+  dispatch into a helper and corrected ozone log wording to avoid implying
+  guaranteed send success. Tests: `120 passed`.

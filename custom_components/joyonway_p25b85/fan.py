@@ -3,6 +3,7 @@
 The spa has a single dual-speed pump (off / low / high).
 Exposed as a fan entity with preset modes for natural HA integration.
 Uses optimistic state with snap-back on the next broadcast mismatch.
+Commands are submitted to the coordinator's intent queue.
 """
 from __future__ import annotations
 
@@ -13,7 +14,6 @@ from typing import Any
 from homeassistant.components.fan import FanEntity, FanEntityFeature
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, OPTIMISTIC_TIMEOUT_SECONDS
@@ -61,7 +61,6 @@ class SpaPumpFan(JoyonwayCoordinatorEntity, FanEntity):
         self._attr_unique_id = f"{entry.entry_id}_jets"
         self._attr_device_info = device_info(entry)
         self._pending_state: str | None = None  # "off", "low", "high", or None
-        self._cmd_lock = asyncio.Lock()
         self._pending_task: asyncio.Task | None = None
 
     @callback
@@ -95,6 +94,10 @@ class SpaPumpFan(JoyonwayCoordinatorEntity, FanEntity):
 
     async def _pending_timeout(self) -> None:
         await asyncio.sleep(OPTIMISTIC_TIMEOUT_SECONDS)
+        _LOGGER.warning(
+            "Jets: command not confirmed by spa within %ds, reverting state",
+            int(OPTIMISTIC_TIMEOUT_SECONDS),
+        )
         self._pending_state = None
         self._pending_task = None
         self.async_write_ha_state()
@@ -137,19 +140,19 @@ class SpaPumpFan(JoyonwayCoordinatorEntity, FanEntity):
         """Turn pump on. Default to low if no preset specified."""
         del percentage, kwargs
         target = preset_mode or PRESET_LOW
-        await self._send_pump_command(target)
+        self._submit_pump_intent(target)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn pump off."""
         del kwargs
-        await self._send_pump_command("off")
+        self._submit_pump_intent("off")
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         """Set pump to a specific preset mode."""
-        await self._send_pump_command(preset_mode)
+        self._submit_pump_intent(preset_mode)
 
-    async def _send_pump_command(self, target: str) -> None:
-        """Send a pump command with optimistic state."""
+    def _submit_pump_intent(self, target: str) -> None:
+        """Submit a pump command intent to the queue."""
         if target not in ("off", PRESET_LOW, PRESET_HIGH):
             _LOGGER.warning("Unsupported pump target '%s'", target)
             return
@@ -158,21 +161,27 @@ class SpaPumpFan(JoyonwayCoordinatorEntity, FanEntity):
         if current == target:
             return
 
-        coordinator: JoyonwayP25B85Coordinator = self.coordinator
-        adapter = coordinator.adapter
-        cmd = adapter.build_pump_command(target)
-        if cmd is None:
-            raise HomeAssistantError(f"No pump command for target '{target}'")
+        self._set_pending_state(target)
+        coordinator = self.coordinator
 
-        async with self._cmd_lock:
-            self._set_pending_state(target)
-            _LOGGER.debug("Jets %s→%s: sending command", current, target)
-            success = await coordinator.async_send_command(cmd)
-            if not success:
-                self._pending_state = None
-                self._cancel_pending_timeout()
-                self.async_write_ha_state()
-                raise HomeAssistantError(
-                    f"Failed to send pump command (target={target})"
-                )
+        def _build_pump(overrides: dict, data: dict | None) -> bytes | None:
+            desired = overrides["jets"]
+            if data is not None and data.get("jets") == desired:
+                return None  # no-op
+            cmd = coordinator.adapter.build_pump_command(desired)
+            if cmd is None:
+                _LOGGER.error("No pump command for target '%s'", desired)
+            return cmd
 
+        def _on_failure() -> None:
+            self._pending_state = None
+            self._cancel_pending_timeout()
+            self.async_write_ha_state()
+
+        _LOGGER.debug("Jets: submitting intent (%s→%s)", current, target)
+        coordinator.intent_queue.submit(
+            group="jets",
+            overrides={"jets": target},
+            build_fn=_build_pump,
+            on_failure=_on_failure,
+        )

@@ -26,6 +26,10 @@ DEFAULT_NAME: str = "Joyonway P25B85"
 TCP_TIMEOUT: float = 5.0
 COMMAND_COOLDOWN: float = 1.0  # minimum seconds between commands
 
+# Intent queue
+INTENT_COALESCE_SECONDS: float = 0.3  # coalesce window for rapid intents
+INTENT_RETRY_COUNT: int = 1  # retry once on send failure
+
 # Coordinator fallback poll interval (health-check only; reader loop is primary)
 SCAN_INTERVAL: int = 60
 
@@ -34,14 +38,9 @@ AVAILABILITY_GRACE_SECONDS: float = 10.0
 RX_STALE_SECONDS: float = 15.0
 OPTIMISTIC_TIMEOUT_SECONDS: float = 10.0
 
-# Schedule freshness gating
-SCHEDULE_FRESHNESS_MAX_AGE: float = 5.0  # max age (seconds) for schedule data before write
-SCHEDULE_FRESHNESS_WAIT: float = 3.0  # seconds to wait for a fresh broadcast if stale
-
 # Auto clock sync
 CLOCK_SYNC_DRIFT_THRESHOLD: int = 30  # seconds
 CLOCK_SYNC_COOLDOWN: int = 3600  # seconds between auto syncs
 
 # Loaded platforms
 PLATFORMS: list[str] = ["sensor", "binary_sensor", "switch", "fan", "climate", "time", "button"]
-

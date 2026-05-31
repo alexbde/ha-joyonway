@@ -2,11 +2,12 @@
 
 All command frames are built dynamically via CRC computation.
 Writable switches use optimistic state for instant UI feedback.
+Commands are submitted to the coordinator's intent queue for coalescing
+and sequential execution.
 """
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
 import logging
 from typing import Any
 
@@ -17,7 +18,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, OZONE_MODE_MANUAL, OPTIMISTIC_TIMEOUT_SECONDS
-from .coordinator import JoyonwayP25B85Coordinator
+from .coordinator import IntentBuildError, JoyonwayP25B85Coordinator
 from .entity import JoyonwayCoordinatorEntity, device_info
 
 _LOGGER = logging.getLogger(__name__)
@@ -95,6 +96,10 @@ class SpaLightSwitch(JoyonwayCoordinatorEntity, SwitchEntity):
 
     async def _pending_timeout(self) -> None:
         await asyncio.sleep(OPTIMISTIC_TIMEOUT_SECONDS)
+        _LOGGER.warning(
+            "Light: command not confirmed by spa within %ds, reverting state",
+            int(OPTIMISTIC_TIMEOUT_SECONDS),
+        )
         self._pending_state = None
         self._pending_task = None
         self.async_write_ha_state()
@@ -137,23 +142,34 @@ class SpaLightSwitch(JoyonwayCoordinatorEntity, SwitchEntity):
             await self._send_toggle(target=False)
 
     async def _send_toggle(self, target: bool) -> None:
-        """Send the light toggle command with optimistic state."""
+        """Send the light toggle command via intent queue."""
         async with self._cmd_lock:
             coordinator: JoyonwayP25B85Coordinator = self.coordinator
             self._set_pending_state(target)
-            cmd = coordinator.adapter.build_light_toggle_command()
-            _LOGGER.debug("Light: sending toggle command")
-            success = await coordinator.async_send_command(cmd)
-            if not success:
+
+            def _build_light(overrides: dict, data: dict | None) -> bytes | None:
+                # Light is a toggle — if current state already matches target,
+                # the intent is a no-op (user toggled ON→OFF or vice versa)
+                if data is not None and data.get("light") == overrides.get("light"):
+                    return None
+                return coordinator.adapter.build_light_toggle_command()
+
+            def _on_failure() -> None:
                 self._pending_state = None
                 self._cancel_pending_timeout()
                 self.async_write_ha_state()
-                _LOGGER.error("Light: toggle command failed")
-                raise HomeAssistantError("Failed to send light command")
+
+            _LOGGER.debug("Light: submitting toggle intent (target=%s)", target)
+            coordinator.intent_queue.submit(
+                group="light",
+                overrides={"light": target},
+                build_fn=_build_light,
+                on_failure=_on_failure,
+            )
 
 
 class _SpaTargetStateSwitch(JoyonwayCoordinatorEntity, SwitchEntity):
-    """Base class for target-state switches with optimistic UI."""
+    """Base class for target-state switches with optimistic UI via intent queue."""
 
     def __init__(
         self,
@@ -161,7 +177,6 @@ class _SpaTargetStateSwitch(JoyonwayCoordinatorEntity, SwitchEntity):
     ) -> None:
         super().__init__(coordinator)
         self._pending_state: bool | None = None
-        self._cmd_lock = asyncio.Lock()
         self._pending_task: asyncio.Task | None = None
 
     @callback
@@ -200,6 +215,11 @@ class _SpaTargetStateSwitch(JoyonwayCoordinatorEntity, SwitchEntity):
 
     async def _pending_timeout(self) -> None:
         await asyncio.sleep(OPTIMISTIC_TIMEOUT_SECONDS)
+        _LOGGER.warning(
+            "%s: command not confirmed by spa within %ds, reverting state",
+            self._attr_translation_key,
+            int(OPTIMISTIC_TIMEOUT_SECONDS),
+        )
         self._pending_state = None
         self._pending_task = None
         self.async_write_ha_state()
@@ -213,26 +233,6 @@ class _SpaTargetStateSwitch(JoyonwayCoordinatorEntity, SwitchEntity):
         self._pending_state = None
         self._cancel_pending_timeout()
         self.async_write_ha_state()
-
-    async def _send_target_command(
-        self,
-        on: bool,
-        build_cmd: Callable[..., bytes],
-        label: str,
-    ) -> None:
-        """Send a target-state command with optimistic state."""
-        async with self._cmd_lock:
-            self._set_pending_state(on)
-            coordinator: JoyonwayP25B85Coordinator = self.coordinator
-            cmd = build_cmd(on=on)
-            _LOGGER.debug("%s: sending %s command", label, "ON" if on else "OFF")
-            success = await coordinator.async_send_command(cmd)
-            if not success:
-                self._clear_pending_on_failure()
-                _LOGGER.error("%s: %s command failed", label, "ON" if on else "OFF")
-                raise HomeAssistantError(
-                    f"Failed to send {label} {'ON' if on else 'OFF'} command"
-                )
 
 
 class SpaHeaterSwitch(_SpaTargetStateSwitch):
@@ -272,15 +272,33 @@ class SpaHeaterSwitch(_SpaTargetStateSwitch):
     async def async_turn_on(self, **kwargs: Any) -> None:
         if self.is_on:
             return
-        await self._send_target_command(
-            True, self.coordinator.adapter.build_heater_command, "Heater"
-        )
+        self._submit_heater_intent(on=True)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         if self.is_on is False:
             return
-        await self._send_target_command(
-            False, self.coordinator.adapter.build_heater_command, "Heater"
+        self._submit_heater_intent(on=False)
+
+    def _submit_heater_intent(self, on: bool) -> None:
+        """Submit heater intent to the queue."""
+        self._set_pending_state(on)
+        coordinator = self.coordinator
+
+        def _build_heater(overrides: dict, data: dict | None) -> bytes | None:
+            target = overrides["heater_on"]
+            if data is not None:
+                status = data.get("status")
+                current_on = status in ("standby", "circulation", "heating") if status else False
+                if current_on == target:
+                    return None  # no-op
+            return coordinator.adapter.build_heater_command(on=target)
+
+        _LOGGER.debug("Heater: submitting intent (on=%s)", on)
+        coordinator.intent_queue.submit(
+            group="heater",
+            overrides={"heater_on": on},
+            build_fn=_build_heater,
+            on_failure=self._clear_pending_on_failure,
         )
 
 
@@ -315,15 +333,30 @@ class SpaBlowerSwitch(_SpaTargetStateSwitch):
     async def async_turn_on(self, **kwargs: Any) -> None:
         if self.is_on:
             return
-        await self._send_target_command(
-            True, self.coordinator.adapter.build_blower_command, "Blower"
-        )
+        self._submit_blower_intent(on=True)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         if self.is_on is False:
             return
-        await self._send_target_command(
-            False, self.coordinator.adapter.build_blower_command, "Blower"
+        self._submit_blower_intent(on=False)
+
+    def _submit_blower_intent(self, on: bool) -> None:
+        """Submit blower intent to the queue."""
+        self._set_pending_state(on)
+        coordinator = self.coordinator
+
+        def _build_blower(overrides: dict, data: dict | None) -> bytes | None:
+            target = overrides["blower_on"]
+            if data is not None and data.get("blower") == target:
+                return None  # no-op
+            return coordinator.adapter.build_blower_command(on=target)
+
+        _LOGGER.debug("Blower: submitting intent (on=%s)", on)
+        coordinator.intent_queue.submit(
+            group="blower",
+            overrides={"blower_on": on},
+            build_fn=_build_blower,
+            on_failure=self._clear_pending_on_failure,
         )
 
 
@@ -367,15 +400,30 @@ class SpaOzoneSwitch(_SpaTargetStateSwitch):
     async def async_turn_on(self, **kwargs: Any) -> None:
         if self.is_on:
             return
-        await self._send_target_command(
-            True, self.coordinator.adapter.build_ozone_manual_command, "Ozone"
-        )
+        self._submit_ozone_intent(on=True)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         if self.is_on is False:
             return
-        await self._send_target_command(
-            False, self.coordinator.adapter.build_ozone_manual_command, "Ozone"
+        self._submit_ozone_intent(on=False)
+
+    def _submit_ozone_intent(self, on: bool) -> None:
+        """Submit ozone intent to the queue."""
+        self._set_pending_state(on)
+        coordinator = self.coordinator
+
+        def _build_ozone(overrides: dict, data: dict | None) -> bytes | None:
+            target = overrides["ozone_on"]
+            if data is not None and data.get("ozone_active") == target:
+                return None  # no-op
+            return coordinator.adapter.build_ozone_manual_command(on=target)
+
+        _LOGGER.debug("Ozone: submitting intent (on=%s)", on)
+        coordinator.intent_queue.submit(
+            group="ozone",
+            overrides={"ozone_on": on},
+            build_fn=_build_ozone,
+            on_failure=self._clear_pending_on_failure,
         )
 
 
@@ -414,77 +462,90 @@ class SpaScheduleSlotSwitch(_SpaTargetStateSwitch):
     async def async_turn_on(self, **kwargs: Any) -> None:
         if self.is_on:
             return
-        await self._send_schedule(enabled=True)
+        self._validate_schedule_data_available()
+        self._submit_schedule_intent(enabled=True)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         if self.is_on is False:
             return
-        await self._send_schedule(enabled=False)
+        self._validate_schedule_data_available()
+        self._submit_schedule_intent(enabled=False)
 
-    async def _send_schedule(self, enabled: bool) -> None:
-        """Send the full schedule command with the slot's enable flag toggled."""
+    def _validate_schedule_data_available(self) -> None:
+        """Raise explicit error when schedule payload prerequisites are missing."""
         data = self.coordinator.data
         if data is None:
             raise HomeAssistantError("No data available from spa")
 
-        # Ensure schedule data is fresh before writing
-        if not await self.coordinator.async_ensure_fresh_data():
-            raise HomeAssistantError(
-                "Schedule data is stale — no recent broadcast received. "
-                "Check the RS485 bridge connection and try again."
-            )
-        # Re-read data after freshness check (may have been updated)
-        data = self.coordinator.data
-
         prefix = self._schedule_type
-
         required_keys = [
-            f"{prefix}_slot1_start",
-            f"{prefix}_slot1_end",
-            f"{prefix}_slot2_start",
-            f"{prefix}_slot2_end",
-            f"{prefix}_slot1_enabled",
-            f"{prefix}_slot2_enabled",
+            f"{prefix}_slot1_start", f"{prefix}_slot1_end",
+            f"{prefix}_slot2_start", f"{prefix}_slot2_end",
+            f"{prefix}_slot1_enabled", f"{prefix}_slot2_enabled",
         ]
         missing = [k for k in required_keys if k not in data]
         if missing:
             raise HomeAssistantError(
                 f"Cannot send schedule: missing data keys {missing}. "
-                f"Wait for the spa to report a full broadcast before toggling."
+                "Wait for the spa to report a full broadcast before toggling."
             )
 
-        s1_start = data[f"{prefix}_slot1_start"]
-        s1_end = data[f"{prefix}_slot1_end"]
-        s2_start = data[f"{prefix}_slot2_start"]
-        s2_end = data[f"{prefix}_slot2_end"]
-        s1_enabled = data[f"{prefix}_slot1_enabled"]
-        s2_enabled = data[f"{prefix}_slot2_enabled"]
+    def _submit_schedule_intent(self, enabled: bool) -> None:
+        """Submit schedule enable/disable intent to the queue (coalesces with siblings)."""
+        self._set_pending_state(enabled)
+        coordinator = self.coordinator
+        schedule_type = self._schedule_type
 
-        if self._slot == 1:
-            s1_enabled = enabled
-        else:
-            s2_enabled = enabled
+        def _build_schedule_state(overrides: dict, data: dict | None) -> bytes | None:
+            if data is None:
+                raise IntentBuildError(f"Schedule {schedule_type}: no data available")
+            prefix = schedule_type
+            required_keys = [
+                f"{prefix}_slot1_start", f"{prefix}_slot1_end",
+                f"{prefix}_slot2_start", f"{prefix}_slot2_end",
+                f"{prefix}_slot1_enabled", f"{prefix}_slot2_enabled",
+            ]
+            if any(k not in data for k in required_keys):
+                missing = [k for k in required_keys if k not in data]
+                raise IntentBuildError(
+                    f"Schedule {schedule_type}: missing data keys {missing}"
+                )
 
-        adapter = self.coordinator.adapter
-        frame = adapter.build_schedule_command(
-            self._schedule_type, s1_start, s1_end, s2_start, s2_end,
-            slot1_enabled=s1_enabled, slot2_enabled=s2_enabled,
+            # Start from current data, apply overrides
+            s1_start = data[f"{prefix}_slot1_start"]
+            s1_end = data[f"{prefix}_slot1_end"]
+            s2_start = data[f"{prefix}_slot2_start"]
+            s2_end = data[f"{prefix}_slot2_end"]
+            s1_enabled = overrides.get(
+                f"{prefix}_slot1_enabled", data[f"{prefix}_slot1_enabled"]
+            )
+            s2_enabled = overrides.get(
+                f"{prefix}_slot2_enabled", data[f"{prefix}_slot2_enabled"]
+            )
+
+            # No-op check: do overrides match current state?
+            is_noop = True
+            for key, value in overrides.items():
+                if data.get(key) != value:
+                    is_noop = False
+                    break
+            if is_noop:
+                return None
+
+            return coordinator.adapter.build_schedule_command(
+                schedule_type, s1_start, s1_end, s2_start, s2_end,
+                slot1_enabled=s1_enabled, slot2_enabled=s2_enabled,
+                write_mode="state",
+            )
+
+        _LOGGER.debug(
+            "Schedule %s slot %d: submitting intent (enabled=%s)",
+            self._schedule_type, self._slot, enabled,
         )
-
-        async with self._cmd_lock:
-            self._set_pending_state(enabled)
-            _LOGGER.debug(
-                "Schedule %s slot %d: sending enable=%s",
-                self._schedule_type, self._slot, enabled,
-            )
-            coordinator: JoyonwayP25B85Coordinator = self.coordinator
-            success = await coordinator.async_send_command(frame)
-            if not success:
-                self._clear_pending_on_failure()
-                _LOGGER.error(
-                    "Schedule %s slot %d: command failed",
-                    self._schedule_type, self._slot,
-                )
-                raise HomeAssistantError(
-                    f"Failed to send {self._schedule_type} schedule command"
-                )
+        # Group by schedule type so heat slot 1 + 2 coalesce into one command
+        coordinator.intent_queue.submit(
+            group=f"{self._schedule_type}_schedule_state",
+            overrides={self._key: enabled},
+            build_fn=_build_schedule_state,
+            on_failure=self._clear_pending_on_failure,
+        )

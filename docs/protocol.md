@@ -282,7 +282,7 @@ Programs heating time windows.
 | 14 | Slot 2 end hour |
 | 15 | Slot 2 end minute |
 
-**Flags byte (byte 7) — slot enable encoding:**
+**Flags byte (byte 7) — state encoding (enable/disable intent):**
 
 | Value | Slot 1 | Slot 2 | Binary |
 |-------|--------|--------|--------|
@@ -291,14 +291,55 @@ Programs heating time windows.
 | `0x9A` | ❌ Disabled | ✅ Enabled | `10011010` |
 | `0x52` | ❌ Disabled | ❌ Disabled | `01010010` |
 
-The encoding uses 2-bit pairs per slot (not single-bit flags). The same four
-values apply to both heat and filter schedules — the command type byte
-(`0xA3` vs `0xA4`) distinguishes them.
+The encoding uses 2-bit pairs per slot (not single-bit flags). The same values
+apply to both heat and filter schedules — the command type byte (`0xA3` vs
+`0xA4`) distinguishes them.
 
 > **Verified (Phase 6):** Three of the four values captured live (`0xAA`,
 > `0x62`, `0x9A`). The fourth (`0x52`) is derived by XOR consistency and
 > verified by CRC match. `test_build_schedule_command_phase6_match` confirms
 > byte-for-byte frame identity against captured wire data.
+
+**Slot 2 write quirk — time-write flags:**
+
+For schedule **time edits**, the controller may ignore slot 2 time values when
+slot 2 is disabled unless a force-write variant is used. PB554 panel captures
+show distinct flags for time-write intent versus pure enable-state intent.
+
+The PB554 panel works around this by sending a different flags byte when the
+user edits times on disabled slots. Captures from 2026-05-31 confirm:
+
+| Scenario on panel | Flags byte | Meaning |
+|-------------------|-----------|---------|
+| Only slot 1 time edited (both disabled) | `0x52` | Normal both-off |
+| Only slot 2 time edited (both disabled) | `0x58` | Force-write slot 2 times |
+| Both slot 1 AND slot 2 times edited (both disabled) | `0x5A` | Force-write both slots |
+| Slot 1 enabled, slot 2 disabled, edit slot 2 time | `0x6A` | Force-write slot 2 while s1 remains enabled |
+
+Binary analysis:
+- `0x52` = `01010010` — base "both disabled" state flags
+- `0x58` = `01011000` — slot2-write variant (both disabled)
+- `0x5A` = `01011010` — force-write both (both disabled)
+- `0x6A` = `01101010` — slot2-write variant when s1=on/s2=off
+
+**Implementation (confirmed):** treat schedule commands with two intent modes:
+
+1. **State mode** (slot enable/disable commands):
+   - `(on, on)=0xAA`, `(on, off)=0x62`, `(off, on)=0x9A`, `(off, off)=0x52`
+2. **Time-write mode** (schedule time edits):
+   - `(on, on)=0xAA`, `(on, off)=0x6A`, `(off, on)=0x9A`, `(off, off)=0x5A`
+
+This mirrors panel behavior and keeps slot2 time writes reliable while disabled.
+
+> **Verified (2026-05-31 captures):** Flags bytes `0x52`, `0x58`, `0x5A`, and
+> `0x6A` captured live from PB554 panel across heat/filter scenarios.
+> Each capture contains exactly 1 schedule command per change, confirming the
+> panel sends a single frame regardless of how many slots are edited.
+>
+> **Verified (2026-05-31 write tests):** `0x5A` confirmed working for all
+> cases: changing only slot 1 (slot 2 unchanged), changing only slot 2
+> (slot 1 unchanged), and changing both slots simultaneously. 8/8 automated
+> tests passed with user panel confirmation. Safe to use universally.
 
 ### 4.4. Filter Schedule (type 0xA4)
 

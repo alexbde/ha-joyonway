@@ -79,20 +79,24 @@ IDX_FILTER_SLOT2_START_M = 34  # Filter slot 2 start minute
 IDX_FILTER_SLOT2_END_H = 35   # Filter slot 2 end hour
 IDX_FILTER_SLOT2_END_M = 36   # Filter slot 2 end minute
 
-# Schedule command flags byte (byte 7 of command payload)
-# Phase 6 finding: flags byte encodes slot enable state, NOT schedule type.
-# The same encoding is used for both heat (0xA3) and filter (0xA4) commands.
-# Encoding uses 2-bit pairs per slot (not single-bit flags).
-# Verified against Phase 6 captures:
-#   0xAA = both enabled         (heat_schedule_enable, filter_schedule_enable)
-#   0x62 = s1 on, s2 off        (heat_schedule_disable, filter_schedule_disable)
-#   0x9A = s1 off, s2 on        (heat_schedule_change)
-#   0x52 = both off             (computed: 0xAA ^ 0xC8 ^ 0x30)
-SCHED_FLAGS_TABLE: dict[tuple[bool, bool], int] = {
+# Schedule flags for pure enable-state commands.
+SCHED_FLAGS_STATE_TABLE: dict[tuple[bool, bool], int] = {
     (True, True): 0xAA,
     (True, False): 0x62,
     (False, True): 0x9A,
     (False, False): 0x52,
+}
+
+# Schedule flags for TIME writes.
+# PB554 captures confirm slot2 time writes need force-write variants when
+# slot2 is disabled:
+# - both off            -> 0x5A
+# - s1 on, s2 off       -> 0x6A
+SCHED_FLAGS_TIME_WRITE_TABLE: dict[tuple[bool, bool], int] = {
+    (True, True): 0xAA,
+    (True, False): 0x6A,
+    (False, True): 0x9A,
+    (False, False): 0x5A,
 }
 
 # Pump masks
@@ -439,6 +443,8 @@ class P25B85Adapter:
         slot2_end: tuple[int, int],
         slot1_enabled: bool = True,
         slot2_enabled: bool = True,
+        *,
+        write_mode: str = "state",
     ) -> bytes:
         """Build a schedule command frame with CRC.
 
@@ -450,21 +456,26 @@ class P25B85Adapter:
             slot2_end: (hour, minute) for slot 2 end
             slot1_enabled: whether slot 1 is enabled
             slot2_enabled: whether slot 2 is enabled
+            write_mode: "state" for enable-state commands, "time" for
+                schedule time writes (uses confirmed force-write flags).
 
         Returns:
             Wire-ready frame bytes.
         """
         from ..protocol import build_frame
 
-        if schedule_type == "heat":
-            cmd_type = 0xA3
-        elif schedule_type == "filter":
-            cmd_type = 0xA4
-        else:
+        cmd_type = {"heat": 0xA3, "filter": 0xA4}.get(schedule_type)
+        if cmd_type is None:
             raise ValueError(f"Unsupported schedule type: {schedule_type}")
 
-        # Compute flags byte from enable state
-        flags = SCHED_FLAGS_TABLE[(slot1_enabled, slot2_enabled)]
+        if write_mode == "state":
+            table = SCHED_FLAGS_STATE_TABLE
+        elif write_mode == "time":
+            table = SCHED_FLAGS_TIME_WRITE_TABLE
+        else:
+            raise ValueError(f"Unsupported schedule write mode: {write_mode}")
+
+        flags = table[(slot1_enabled, slot2_enabled)]
 
         # Command payload (16 bytes):
         # [0-6] header, [7] flags, [8-15] slot times

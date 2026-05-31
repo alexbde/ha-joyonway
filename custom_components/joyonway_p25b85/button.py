@@ -10,7 +10,6 @@ import logging
 from homeassistant.components.button import ButtonEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
@@ -51,26 +50,38 @@ class SpaSyncClockButton(JoyonwayCoordinatorEntity, ButtonEntity):
         self._cmd_lock = asyncio.Lock()
 
     async def async_press(self) -> None:
-        """Send the current time to the spa controller."""
+        """Send the current time to the spa controller via intent queue."""
         if self._cmd_lock.locked():
             return  # already in-flight
 
         async with self._cmd_lock:
             now = dt_util.now()
-            adapter = self.coordinator.adapter
-            frame = adapter.build_datetime_command(
-                year=now.year,
-                month=now.month,
-                day=now.day,
-                hour=now.hour,
-                minute=now.minute,
-                second=now.second,
-            )
+            coordinator = self.coordinator
 
-            _LOGGER.debug("Clock sync: sending %s", now.strftime("%Y-%m-%d %H:%M:%S"))
-            success = await self.coordinator.async_send_command(frame)
-            if not success:
+            def _build_clock(overrides: dict, data: dict | None) -> bytes | None:
+                return coordinator.adapter.build_datetime_command(
+                    year=overrides["year"],
+                    month=overrides["month"],
+                    day=overrides["day"],
+                    hour=overrides["hour"],
+                    minute=overrides["minute"],
+                    second=overrides["second"],
+                )
+
+            def _on_failure() -> None:
                 _LOGGER.error("Clock sync: command failed")
-                raise HomeAssistantError("Failed to send clock sync command")
 
-            _LOGGER.info("Clock sync: spa clock synced to %s", now.strftime("%Y-%m-%d %H:%M:%S"))
+            _LOGGER.debug("Clock sync: submitting intent %s", now.strftime("%Y-%m-%d %H:%M:%S"))
+            coordinator.intent_queue.submit(
+                group="clock_sync",
+                overrides={
+                    "year": now.year,
+                    "month": now.month,
+                    "day": now.day,
+                    "hour": now.hour,
+                    "minute": now.minute,
+                    "second": now.second,
+                },
+                build_fn=_build_clock,
+                on_failure=_on_failure,
+            )

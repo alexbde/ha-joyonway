@@ -72,7 +72,9 @@ The P25B85 uses a 4-byte CRC-32 on all command frames. The CRC algorithm has bee
 - ✅ Every command uses computed CRC (no replay-only frames)
 - ✅ All commands validated against observed state changes from physical captures
 - ✅ Write pacing enforces a 1-second cooldown between commands
-- ✅ Schedule writes gated on data freshness (refuses if no recent broadcast)
+- ✅ Intent queue serializes and coalesces rapid user actions (no bus contention)
+- ✅ Schedule writes require complete broadcast data and fail explicitly if prerequisites are missing
+- ✅ State reversions are never silent — warnings logged if spa doesn't confirm
 
 > **Note:** KDy documented that sending a frame with an invalid CRC can activate the heater unexpectedly. This integration uses the verified CRC algorithm for all commands.
 
@@ -155,9 +157,6 @@ After setup, go to **Settings → Devices & Services → Joyonway P25B85 → Con
 | Heat slot 1 / 2   | Enable/disable heating schedule slots         |
 | Filter slot 1 / 2 | Enable/disable filtration schedule slots      |
 
-> **Schedule enable/disable** uses a dedicated flags byte in the command payload
-> (cracked from Phase 6 RS485 captures). Slot times are preserved when toggling.
-
 ### Fan
 
 | Entity | Description                                                  |
@@ -213,6 +212,17 @@ pytest -q
 Requires Python 3.12 (Home Assistant compatibility). The `[test]` extra installs
 `pytest-homeassistant-custom-component` and all HA runtime dependencies.
 
+### Live schedule matrix test (optional)
+
+The repository includes a reliable live runner that validates HA-UI schedule
+actions (state toggles + single-field time edits) across all enable combos,
+with retries and convergence waits:
+
+```zsh
+source .venv/bin/activate
+python tests/live/livetest_schedule_ui_matrix.py
+```
+
 ## Related Projects
 
 - **[ha-joyonway-p23b32](https://github.com/KnapTheBuilder/ha-joyonway-p23b32)** — HA integration for the P23B32 controller (by christopheknap)
@@ -226,6 +236,12 @@ Requires Python 3.12 (Home Assistant compatibility). The `[test]` extra installs
 | **[christopheknap](https://github.com/KnapTheBuilder)**      | P23B32 HACS integration, command frame captures, frame analyzer tool                             |
 | **[Gaet78](https://community.home-assistant.io/u/gaet78)**   | P69B133 integration, 30s timing discovery                                                        |
 | **[c0mpleX](https://community.home-assistant.io/u/c0mplex)** | Frame samples and community discussion                                                           |
+
+## Disclaimer
+
+This project is **not affiliated with, endorsed by, or connected to Joyonway, Home Deluxe, or any of their subsidiaries or affiliates**. "Joyonway", "Home Deluxe", "White Marble", model numbers (P25B85, PB554, etc.), and any associated logos or product names are trademarks or registered trademarks of their respective owners. All product names, brand names, and images are used solely for identification and compatibility purposes.
+
+This software is provided as-is, without warranty. **Use at your own risk.** The authors accept no liability for any damage to hardware, property, or persons resulting from the use of this integration.
 
 ## License
 

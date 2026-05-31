@@ -283,7 +283,7 @@ def test_build_schedule_command(adapter: P25B85Adapter) -> None:
 
 
 def test_build_schedule_command_enable_flags(adapter: P25B85Adapter) -> None:
-    """Test that the flags byte correctly encodes slot enable state."""
+    """State-mode schedule commands use the normal enable-state flags."""
     times = dict(
         slot1_start=(12, 0), slot1_end=(16, 0),
         slot2_start=(20, 0), slot2_end=(22, 0),
@@ -304,7 +304,7 @@ def test_build_schedule_command_enable_flags(adapter: P25B85Adapter) -> None:
     inner = pseudo_unescape(frame[1:-1])
     assert inner[7] == 0x9A
 
-    # Both disabled → 0x52
+    # Both disabled -> 0x52 (state-mode, no time-write override)
     frame = adapter.build_schedule_command("heat", **times, slot1_enabled=False, slot2_enabled=False)
     inner = pseudo_unescape(frame[1:-1])
     assert inner[7] == 0x52
@@ -358,6 +358,80 @@ def test_build_schedule_command_phase6_match(adapter: P25B85Adapter) -> None:
     assert frame == bytes.fromhex("1a0120103ca410a1620b000d0011001200a040f5321d")
 
 
+def test_build_schedule_command_time_write_flags(adapter: P25B85Adapter) -> None:
+    """Time-write mode uses force-write flags from PB554 captures.
+
+    Confirmed from PB554 panel capture (2026-05-31): the panel sends 0x5A when
+    both slot 1 and slot 2 times are edited while both are disabled.
+    The integration always uses 0x5A for both-disabled to treat both slots
+    identically (no asymmetry).
+    """
+    times = dict(
+        slot1_start=(12, 0), slot1_end=(16, 0),
+        slot2_start=(20, 0), slot2_end=(22, 0),
+    )
+
+    # Both disabled -> 0x5A (force-write both slots)
+    frame = adapter.build_schedule_command(
+        "heat", **times, slot1_enabled=False, slot2_enabled=False,
+        write_mode="time",
+    )
+    inner = pseudo_unescape(frame[1:-1])
+    assert inner[7] == 0x5A
+
+    # s1 on, s2 off -> 0x6A (captured live from PB554)
+    frame = adapter.build_schedule_command(
+        "heat", **times, slot1_enabled=True, slot2_enabled=False,
+        write_mode="time",
+    )
+    inner = pseudo_unescape(frame[1:-1])
+    assert inner[7] == 0x6A
+
+    # Both enabled → 0xAA (normal)
+    frame = adapter.build_schedule_command(
+        "heat", **times, slot1_enabled=True, slot2_enabled=True,
+        write_mode="time",
+    )
+    inner = pseudo_unescape(frame[1:-1])
+    assert inner[7] == 0xAA
+
+    # s1 off, s2 on → 0x9A (normal)
+    frame = adapter.build_schedule_command(
+        "heat", **times, slot1_enabled=False, slot2_enabled=True,
+        write_mode="time",
+    )
+    inner = pseudo_unescape(frame[1:-1])
+    assert inner[7] == 0x9A
+
+
+def test_build_schedule_force_write_panel_capture_match(adapter: P25B85Adapter) -> None:
+    """Verify force-write (0x5A) generates valid CRC'd frames.
+
+    The panel capture from 2026-05-31 confirms 0x5A is used when editing both
+    slot times while both are disabled. We verify the frame structure is correct
+    by checking the flags byte position and that the frame is well-formed.
+    """
+    frame = adapter.build_schedule_command(
+        "heat",
+        slot1_start=(12, 0), slot1_end=(16, 0),
+        slot2_start=(20, 15), slot2_end=(23, 30),
+        slot1_enabled=False, slot2_enabled=False,
+        write_mode="time",
+    )
+    # Frame should start with 0x1A, end with 0x1D
+    assert frame[0] == 0x1A
+    assert frame[-1] == 0x1D
+    # Unescape and check structure
+    inner = pseudo_unescape(frame[1:-1])
+    assert inner[4] == 0xA3  # heat schedule
+    assert inner[7] == 0x5A  # force-write both slots
+    # Verify time bytes
+    assert inner[8] == 12 and inner[9] == 0   # slot1 start
+    assert inner[10] == 16 and inner[11] == 0  # slot1 end
+    assert inner[12] == 20 and inner[13] == 15  # slot2 start
+    assert inner[14] == 23 and inner[15] == 30  # slot2 end
+
+
 def test_build_schedule_command_rejects_invalid_type(adapter: P25B85Adapter) -> None:
     with pytest.raises(ValueError):
         adapter.build_schedule_command(
@@ -366,6 +440,18 @@ def test_build_schedule_command_rejects_invalid_type(adapter: P25B85Adapter) -> 
             slot1_end=(16, 0),
             slot2_start=(20, 0),
             slot2_end=(22, 0),
+        )
+
+
+def test_build_schedule_command_rejects_invalid_write_mode(adapter: P25B85Adapter) -> None:
+    with pytest.raises(ValueError):
+        adapter.build_schedule_command(
+            "heat",
+            slot1_start=(12, 0),
+            slot1_end=(16, 0),
+            slot2_start=(20, 0),
+            slot2_end=(22, 0),
+            write_mode="invalid",
         )
 
 

@@ -3,6 +3,9 @@
 Maintains a persistent TCP connection to the RS485 bridge, continuously
 parsing broadcast frames. Commands are sent on the same socket.
 Reconnects automatically with exponential backoff on any error.
+
+Includes an IntentQueue that coalesces rapid user actions, prevents bus
+contention, and automatically cancels reverted intents.
 """
 from __future__ import annotations
 
@@ -10,7 +13,10 @@ import asyncio
 import contextlib
 import logging
 import time
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -24,18 +30,175 @@ from .const import (
     CLOCK_SYNC_DRIFT_THRESHOLD,
     COMMAND_COOLDOWN,
     DOMAIN,
+    INTENT_COALESCE_SECONDS,
+    INTENT_RETRY_COUNT,
     OPT_AUTO_SYNC_CLOCK,
     OPT_OZONE_MODE,
     OZONE_MODE_AUTO,
     RX_STALE_SECONDS,
     SCAN_INTERVAL,
-    SCHEDULE_FRESHNESS_MAX_AGE,
-    SCHEDULE_FRESHNESS_WAIT,
     TCP_TIMEOUT,
 )
 from .protocol import find_frames, unescape_frame, is_broadcast, validate_frame
 
 _LOGGER = logging.getLogger(__name__)
+
+
+class IntentBuildError(Exception):
+    """Raised when an intent cannot be built due to invalid/missing prerequisites."""
+
+
+@dataclass
+class _PendingGroup:
+    """A batch of coalesced intents for one group."""
+
+    overrides: dict[str, Any]
+    build_fn: Callable[[dict[str, Any], dict[str, Any] | None], bytes | None]
+    on_failure_callbacks: list[Callable[[], None]] = field(default_factory=list)
+
+
+class IntentQueue:
+    """Queue that coalesces rapid user intents and drains them sequentially.
+
+    Key behaviors:
+    - Same-group intents merge within a coalesce window (300ms from first intent)
+    - If merged overrides equal current state at drain time → no-op, skip entirely
+    - Sequential drain ensures only one command is on the bus at a time
+    - Retry once on TCP send failure
+    - Accidental toggles (ON→OFF) cancel out automatically via no-op detection
+    """
+
+    def __init__(
+        self,
+        coordinator: "JoyonwayP25B85Coordinator",
+        coalesce_seconds: float = INTENT_COALESCE_SECONDS,
+    ) -> None:
+        self._coordinator = coordinator
+        self._coalesce_seconds = coalesce_seconds
+        self._pending: dict[str, _PendingGroup] = {}
+        self._flush_task: asyncio.Task | None = None
+        self._drain_lock = asyncio.Lock()
+
+    def submit(
+        self,
+        group: str,
+        overrides: dict[str, Any],
+        build_fn: Callable[[dict[str, Any], dict[str, Any] | None], bytes | None],
+        on_failure: Callable[[], None] | None = None,
+    ) -> None:
+        """Submit an intent for coalescing and eventual execution.
+
+        Args:
+            group: Coalescing key. Same-group intents merge their overrides.
+            overrides: Key-value pairs representing desired state changes.
+            build_fn(merged_overrides, coordinator_data) -> frame or None:
+                Called at drain time. Returns wire-ready bytes, or None to
+                signal a no-op (skip sending).
+            on_failure: Called if the command ultimately fails (after retries).
+        """
+        if group in self._pending:
+            pg = self._pending[group]
+            pg.overrides.update(overrides)
+            pg.build_fn = build_fn
+            if on_failure:
+                pg.on_failure_callbacks.append(on_failure)
+        else:
+            self._pending[group] = _PendingGroup(
+                overrides=dict(overrides),
+                build_fn=build_fn,
+                on_failure_callbacks=[on_failure] if on_failure else [],
+            )
+
+        # Start the coalesce timer if not already running
+        if self._flush_task is None or self._flush_task.done():
+            self._flush_task = asyncio.ensure_future(self._flush_after_window())
+
+    async def _flush_after_window(self) -> None:
+        """Wait for the coalesce window then drain all pending groups."""
+        await asyncio.sleep(self._coalesce_seconds)
+        await self._drain_all()
+
+    async def _drain_all(self) -> None:
+        """Drain all pending groups sequentially under lock."""
+        async with self._drain_lock:
+            # Snapshot and clear pending — new intents during drain go into next batch
+            groups = self._pending
+            self._pending = {}
+            self._flush_task = None
+
+            for group_key, group_data in groups.items():
+                await self._process_group(group_key, group_data)
+
+        # If new intents accumulated during drain, flush them immediately
+        if self._pending and (self._flush_task is None or self._flush_task.done()):
+            self._flush_task = asyncio.ensure_future(self._flush_after_window())
+
+    async def _process_group(self, group_key: str, group: _PendingGroup) -> None:
+        """Build and send the coalesced command for one group."""
+        data = self._coordinator.data
+        try:
+            frame = group.build_fn(group.overrides, data)
+        except IntentBuildError as err:
+            _LOGGER.error("Intent queue [%s]: %s", group_key, err)
+            self._run_failure_callbacks(group_key, group)
+            return
+        except Exception:
+            _LOGGER.exception("Intent queue [%s]: unexpected build error", group_key)
+            self._run_failure_callbacks(group_key, group)
+            return
+
+        if frame is None:
+            # No-op: merged intent matches current state (e.g., toggled ON then OFF)
+            _LOGGER.debug(
+                "Intent queue [%s]: no-op detected, skipping", group_key
+            )
+            return
+
+        # Send with retry
+        for attempt in range(1 + INTENT_RETRY_COUNT):
+            success = await self._coordinator.async_send_command(frame)
+            if success:
+                _LOGGER.debug(
+                    "Intent queue [%s]: command sent (attempt %d)",
+                    group_key, attempt + 1,
+                )
+                return
+            if attempt < INTENT_RETRY_COUNT:
+                _LOGGER.warning(
+                    "Intent queue [%s]: send failed, retrying", group_key
+                )
+                await asyncio.sleep(0.5)
+
+        # All attempts failed
+        _LOGGER.error("Intent queue [%s]: command failed after retries", group_key)
+        self._run_failure_callbacks(group_key, group)
+
+    @staticmethod
+    def _run_failure_callbacks(group_key: str, group: _PendingGroup) -> None:
+        """Run registered failure callbacks safely."""
+        for cb in group.on_failure_callbacks:
+            try:
+                cb()
+            except Exception:
+                _LOGGER.exception("Intent queue [%s]: on_failure callback error", group_key)
+
+    async def shutdown(self) -> None:
+        """Cancel pending flush task on shutdown."""
+        if self._flush_task is not None:
+            self._flush_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._flush_task
+            self._flush_task = None
+
+    async def flush(self) -> None:
+        """Immediately drain pending intents (used before config-entry reload)."""
+        if self._flush_task is not None and not self._flush_task.done():
+            self._flush_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._flush_task
+            self._flush_task = None
+        if self._pending:
+            await self._drain_all()
 
 
 class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
@@ -74,6 +237,9 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
 
         # Command pacing
         self._last_command_ts: float = 0.0
+
+        # Intent queue for coalescing and serializing user actions
+        self.intent_queue = IntentQueue(self)
 
         # Clock sync
         self._last_clock_sync_ts: float = 0.0
@@ -120,6 +286,7 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
     async def async_shutdown(self) -> None:
         """Close connection on shutdown."""
         self._stopped = True
+        await self.intent_queue.shutdown()
         if self._reconnect_task is not None:
             self._reconnect_task.cancel()
             self._reconnect_task = None
@@ -203,7 +370,7 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
 
                     # Ozone mode sync + clock sync (moved from _async_update_data)
                     self._sync_ozone_mode(result)
-                    await self._check_clock_drift(result)
+                    self._check_clock_drift(result)
 
                     self.async_set_updated_data(result)
                 if consumed:
@@ -277,41 +444,6 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
                 self._schedule_reconnect()
                 return False
 
-    # ── Schedule freshness gating ─────────────────────────────────────
-
-    async def async_ensure_fresh_data(self) -> bool:
-        """Ensure coordinator data is fresh enough for a schedule write.
-
-        Returns True if data is fresh (received within SCHEDULE_FRESHNESS_MAX_AGE).
-        If stale, waits up to SCHEDULE_FRESHNESS_WAIT for a new broadcast.
-        Returns False if data remains stale after waiting.
-        """
-        if self.data is None or self._last_rx_ts == 0.0:
-            return False
-
-        now = time.monotonic()
-        if now - self._last_rx_ts <= SCHEDULE_FRESHNESS_MAX_AGE:
-            return True
-
-        # Data is stale — wait for a fresh broadcast
-        _LOGGER.debug(
-            "Schedule data is %.1fs old, waiting up to %.1fs for fresh broadcast",
-            now - self._last_rx_ts,
-            SCHEDULE_FRESHNESS_WAIT,
-        )
-        deadline = now + SCHEDULE_FRESHNESS_WAIT
-        while time.monotonic() < deadline:
-            await asyncio.sleep(0.2)
-            if time.monotonic() - self._last_rx_ts <= SCHEDULE_FRESHNESS_MAX_AGE:
-                return True
-
-        _LOGGER.warning(
-            "Schedule data still stale after %.1fs wait (last RX %.1fs ago)",
-            SCHEDULE_FRESHNESS_WAIT,
-            time.monotonic() - self._last_rx_ts,
-        )
-        return False
-
     # ── Fallback poll (health check) ─────────────────────────────────
 
     async def _async_update_data(self) -> dict:
@@ -354,7 +486,7 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
 
     # ── Clock drift check ────────────────────────────────────────────
 
-    async def _check_clock_drift(self, data: dict) -> None:
+    def _check_clock_drift(self, data: dict) -> None:
         """Sync spa clock if drift exceeds threshold (with cooldown)."""
         if not self.auto_sync_clock:
             return
@@ -379,19 +511,33 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
 
         if drift > CLOCK_SYNC_DRIFT_THRESHOLD:
             self._last_clock_sync_attempt_ts = now_ts
+            self._last_clock_sync_ts = now_ts  # optimistic; failure logged via callback
             _LOGGER.info("Spa clock drift is %.0fs, syncing to HA time", drift)
-            frame = self._adapter.build_datetime_command(
-                year=now.year,
-                month=now.month,
-                day=now.day,
-                hour=now.hour,
-                minute=now.minute,
-                second=now.second,
-            )
-            success = await self.async_send_command(frame)
-            if success:
-                self._last_clock_sync_ts = now_ts
-                _LOGGER.debug("Auto clock sync completed")
-            else:
+
+            def _build_clock_sync(overrides: dict[str, Any], _data: dict | None) -> bytes:
+                return self._adapter.build_datetime_command(
+                    year=overrides["year"],
+                    month=overrides["month"],
+                    day=overrides["day"],
+                    hour=overrides["hour"],
+                    minute=overrides["minute"],
+                    second=overrides["second"],
+                )
+
+            def _on_clock_failure() -> None:
                 _LOGGER.warning("Auto clock sync failed")
+
+            self.intent_queue.submit(
+                group="clock_sync",
+                overrides={
+                    "year": now.year,
+                    "month": now.month,
+                    "day": now.day,
+                    "hour": now.hour,
+                    "minute": now.minute,
+                    "second": now.second,
+                },
+                build_fn=_build_clock_sync,
+                on_failure=_on_clock_failure,
+            )
 
