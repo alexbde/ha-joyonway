@@ -142,6 +142,8 @@ class SpaScheduleTime(JoyonwayCoordinatorEntity, TimeEntity):
             )
         # Re-read data after freshness check (may have been updated)
         data = self.coordinator.data
+        if data is None:
+            raise HomeAssistantError("No data available from spa")
 
         prefix = self._schedule_type
 
@@ -181,6 +183,7 @@ class SpaScheduleTime(JoyonwayCoordinatorEntity, TimeEntity):
         frame = adapter.build_schedule_command(
             self._schedule_type, s1_start, s1_end, s2_start, s2_end,
             slot1_enabled=s1_enabled, slot2_enabled=s2_enabled,
+            write_mode="time",
         )
 
         async with self._cmd_lock:
