@@ -5,7 +5,7 @@
 **Local Home Assistant integration for the Joyonway P25B85 spa controller via RS485 over an Elfin EW11 WiFi bridge.**
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=for-the-badge)](https://github.com/hacs/integration)
-[![License](https://img.shields.io/github/license/alexbde/ha-joyonway-p25b85?style=for-the-badge&color=blue)](LICENSE)
+[![License](https://img.shields.io/github/license/alexbde/ha-joyonway?style=for-the-badge&color=blue)](LICENSE)
 [![HA Version](https://img.shields.io/badge/Home%20Assistant-2024.1.0%2B-41BDF5.svg?style=for-the-badge&logo=home-assistant&logoColor=white)](https://www.home-assistant.io)
 
 </div>
@@ -94,7 +94,7 @@ The P25B85 uses a 4-byte CRC-32 on all command frames. The CRC algorithm has bee
 
 1. Open **HACS** in Home Assistant
 2. Click ⋮ (top right) → **Custom repositories**
-3. Repository URL: `https://github.com/alexbde/ha-joyonway-p25b85`
+3. Repository URL: `https://github.com/alexbde/ha-joyonway`
 4. Category: **Integration**
 5. Click **Add**, then find **Joyonway P25B85 Spa** and install
 6. **Restart Home Assistant**
@@ -102,7 +102,7 @@ The P25B85 uses a 4-byte CRC-32 on all command frames. The CRC algorithm has bee
 
 ### Manual
 
-1. Copy `custom_components/joyonway_p25b85/` into your HA `config/custom_components/` folder
+1. Copy `custom_components/joyonway/` into your HA `config/custom_components/` folder
 2. Restart Home Assistant
 3. Add the integration via the UI
 

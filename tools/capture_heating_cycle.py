@@ -19,7 +19,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "custom_components" / "joyonway_p25b85"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "custom_components" / "joyonway"))
 
 from protocol import find_frames, unescape_frame
 from adapters.p25b85 import (

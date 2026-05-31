@@ -3,7 +3,7 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "ha-joyonway-p25b85"
+name = "ha-joyonway"
 version = "0.1.0"
 description = "Joyonway P25B85 Home Assistant integration"
 requires-python = ">=3.11"

@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 
 # Add protocol module directly (avoid HA dependency in __init__)
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "custom_components" / "joyonway_p25b85"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "custom_components" / "joyonway"))
 
 from protocol import (
     find_frames, unescape_frame, is_broadcast, pseudo_unescape,

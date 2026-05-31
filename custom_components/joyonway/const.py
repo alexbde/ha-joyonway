@@ -1,7 +1,7 @@
 """Constants for the Joyonway P25B85 integration."""
 from __future__ import annotations
 
-DOMAIN: str = "joyonway_p25b85"
+DOMAIN: str = "joyonway"
 
 # Configuration keys
 CONF_HOST: str = "host"

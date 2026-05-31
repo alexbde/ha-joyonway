@@ -2,7 +2,7 @@
 import sys
 sys.path.insert(0, ".")
 
-from custom_components.joyonway_p25b85.adapters.p25b85 import P25B85Adapter
+from custom_components.joyonway.adapters.p25b85 import P25B85Adapter
 
 adapter = P25B85Adapter()
 descs = adapter.entity_descriptions()

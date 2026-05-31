@@ -20,9 +20,9 @@ if str(ROOT) not in sys.path:
 
 from homeassistant.components.fan import FanEntityFeature
 
-from custom_components.joyonway_p25b85.adapters.p25b85 import P25B85Adapter
-from custom_components.joyonway_p25b85.const import CONF_HOST
-from custom_components.joyonway_p25b85.fan import SpaPumpFan
+from custom_components.joyonway.adapters.p25b85 import P25B85Adapter
+from custom_components.joyonway.const import CONF_HOST
+from custom_components.joyonway.fan import SpaPumpFan
 
 # Build real command frames
 _adapter = P25B85Adapter()

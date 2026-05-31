@@ -4,7 +4,7 @@
 
 ## Prerequisites
 
-- [ ] HA running with `joyonway_p25b85` integration loaded
+- [ ] HA running with `joyonway` integration loaded
 - [ ] EW11 bridge connected (RS485 bridge entity = ON)
 - [ ] Spa powered on, panel accessible
 

@@ -1,7 +1,7 @@
 """Small test helper for loading modules from file paths.
 
 Used to test integration submodules without importing Home Assistant package
-glue from ``custom_components.joyonway_p25b85.__init__``.
+glue from ``custom_components.joyonway.__init__``.
 """
 from __future__ import annotations
 

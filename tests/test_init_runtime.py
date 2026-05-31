@@ -14,8 +14,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from custom_components.joyonway_p25b85.__init__ import _async_options_updated
-from custom_components.joyonway_p25b85.const import (
+from custom_components.joyonway.__init__ import _async_options_updated
+from custom_components.joyonway.const import (
     OPT_OZONE_MODE,
     OZONE_MODE_AUTO,
     OZONE_MODE_MANUAL,
