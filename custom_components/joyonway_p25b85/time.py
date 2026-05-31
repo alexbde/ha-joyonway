@@ -3,6 +3,8 @@
 Exposes heat and filter schedule start/end times as TimeEntity with write support.
 When a time is changed, the full schedule command is sent to the spa controller.
 Uses optimistic state for instant UI feedback.
+Commands are submitted to the coordinator's intent queue for coalescing
+with sibling schedule entities.
 """
 from __future__ import annotations
 
@@ -17,7 +19,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, OPTIMISTIC_TIMEOUT_SECONDS
-from .coordinator import JoyonwayP25B85Coordinator
+from .coordinator import IntentBuildError, JoyonwayP25B85Coordinator
 from .entity import JoyonwayCoordinatorEntity, device_info
 
 _LOGGER = logging.getLogger(__name__)
@@ -75,7 +77,6 @@ class SpaScheduleTime(JoyonwayCoordinatorEntity, TimeEntity):
         self._attr_translation_key = key
         self._attr_icon = icon
         self._pending_state: tuple[int, int] | None = None
-        self._cmd_lock = asyncio.Lock()
         self._pending_task: asyncio.Task | None = None
 
     @callback
@@ -108,6 +109,11 @@ class SpaScheduleTime(JoyonwayCoordinatorEntity, TimeEntity):
 
     async def _pending_timeout(self) -> None:
         await asyncio.sleep(OPTIMISTIC_TIMEOUT_SECONDS)
+        _LOGGER.warning(
+            "Schedule %s slot %d %s: time not confirmed by spa within %ds, reverting",
+            self._schedule_type, self._slot, self._field,
+            int(OPTIMISTIC_TIMEOUT_SECONDS),
+        )
         self._pending_state = None
         self._pending_task = None
         self.async_write_ha_state()
@@ -129,79 +135,102 @@ class SpaScheduleTime(JoyonwayCoordinatorEntity, TimeEntity):
         return time(hour=value[0], minute=value[1])
 
     async def async_set_value(self, value: time) -> None:
-        """Set a new time value and send the schedule command."""
-        data = self.coordinator.data
-        if data is None:
-            raise HomeAssistantError("No data available from spa")
+        """Set a new time value via intent queue."""
+        self._validate_schedule_data_available()
 
-        # Ensure schedule data is fresh before writing
-        if not await self.coordinator.async_ensure_fresh_data():
-            raise HomeAssistantError(
-                "Schedule data is stale — no recent broadcast received. "
-                "Check the RS485 bridge connection and try again."
+        new_val = (value.hour, value.minute)
+        self._set_pending_state(new_val)
+        coordinator = self.coordinator
+        schedule_type = self._schedule_type
+        key = self._key
+
+        def _build_schedule_time(overrides: dict, data: dict | None) -> bytes | None:
+            if data is None:
+                raise IntentBuildError(f"Schedule {schedule_type}: no data available")
+            prefix = schedule_type
+            required_keys = [
+                f"{prefix}_slot1_start", f"{prefix}_slot1_end",
+                f"{prefix}_slot2_start", f"{prefix}_slot2_end",
+                f"{prefix}_slot1_enabled", f"{prefix}_slot2_enabled",
+            ]
+            if any(k not in data for k in required_keys):
+                missing = [k for k in required_keys if k not in data]
+                raise IntentBuildError(
+                    f"Schedule {schedule_type}: missing data keys {missing}"
+                )
+
+            # Start from current data
+            s1_start = data[f"{prefix}_slot1_start"]
+            s1_end = data[f"{prefix}_slot1_end"]
+            s2_start = data[f"{prefix}_slot2_start"]
+            s2_end = data[f"{prefix}_slot2_end"]
+            s1_enabled = data[f"{prefix}_slot1_enabled"]
+            s2_enabled = data[f"{prefix}_slot2_enabled"]
+
+            # Apply time overrides from merged intents
+            if f"{prefix}_slot1_start" in overrides:
+                s1_start = overrides[f"{prefix}_slot1_start"]
+            if f"{prefix}_slot1_end" in overrides:
+                s1_end = overrides[f"{prefix}_slot1_end"]
+            if f"{prefix}_slot2_start" in overrides:
+                s2_start = overrides[f"{prefix}_slot2_start"]
+            if f"{prefix}_slot2_end" in overrides:
+                s2_end = overrides[f"{prefix}_slot2_end"]
+
+            # No-op check: do all overrides match current data?
+            is_noop = True
+            for k, v in overrides.items():
+                current = data.get(k)
+                if isinstance(v, tuple) and isinstance(current, tuple):
+                    if (v[0], v[1]) != (current[0], current[1]):
+                        is_noop = False
+                        break
+                elif current != v:
+                    is_noop = False
+                    break
+            if is_noop:
+                return None
+
+            return coordinator.adapter.build_schedule_command(
+                schedule_type, s1_start, s1_end, s2_start, s2_end,
+                slot1_enabled=s1_enabled, slot2_enabled=s2_enabled,
+                write_mode="time",
             )
-        # Re-read data after freshness check (may have been updated)
+
+        def _on_failure() -> None:
+            self._pending_state = None
+            self._cancel_pending_timeout()
+            self.async_write_ha_state()
+
+        _LOGGER.debug(
+            "Schedule %s slot %d %s: submitting time intent %02d:%02d",
+            self._schedule_type, self._slot, self._field,
+            value.hour, value.minute,
+        )
+        # Group by schedule_type + "time" so multiple time changes coalesce
+        coordinator.intent_queue.submit(
+            group=f"{self._schedule_type}_schedule_time",
+            overrides={key: new_val},
+            build_fn=_build_schedule_time,
+            on_failure=_on_failure,
+        )
+
+    def _validate_schedule_data_available(self) -> None:
+        """Raise explicit error when schedule payload prerequisites are missing."""
         data = self.coordinator.data
         if data is None:
             raise HomeAssistantError("No data available from spa")
 
         prefix = self._schedule_type
-
         required_keys = [
-            f"{prefix}_slot1_start",
-            f"{prefix}_slot1_end",
-            f"{prefix}_slot2_start",
-            f"{prefix}_slot2_end",
-            f"{prefix}_slot1_enabled",
-            f"{prefix}_slot2_enabled",
+            f"{prefix}_slot1_start", f"{prefix}_slot1_end",
+            f"{prefix}_slot2_start", f"{prefix}_slot2_end",
+            f"{prefix}_slot1_enabled", f"{prefix}_slot2_enabled",
         ]
         missing = [k for k in required_keys if k not in data]
         if missing:
             raise HomeAssistantError(
                 f"Cannot send schedule: missing data keys {missing}. "
-                f"Wait for the spa to report a full broadcast before changing times."
+                "Wait for the spa to report a full broadcast before changing times."
             )
 
-        s1_start = data[f"{prefix}_slot1_start"]
-        s1_end = data[f"{prefix}_slot1_end"]
-        s2_start = data[f"{prefix}_slot2_start"]
-        s2_end = data[f"{prefix}_slot2_end"]
-        s1_enabled = data[f"{prefix}_slot1_enabled"]
-        s2_enabled = data[f"{prefix}_slot2_enabled"]
-
-        new_val = (value.hour, value.minute)
-        if self._slot == 1 and self._field == "start":
-            s1_start = new_val
-        elif self._slot == 1 and self._field == "end":
-            s1_end = new_val
-        elif self._slot == 2 and self._field == "start":
-            s2_start = new_val
-        elif self._slot == 2 and self._field == "end":
-            s2_end = new_val
-
-        adapter = self.coordinator.adapter
-        frame = adapter.build_schedule_command(
-            self._schedule_type, s1_start, s1_end, s2_start, s2_end,
-            slot1_enabled=s1_enabled, slot2_enabled=s2_enabled,
-            write_mode="time",
-        )
-
-        async with self._cmd_lock:
-            self._set_pending_state(new_val)
-            _LOGGER.debug(
-                "Schedule %s slot %d %s: sending time %02d:%02d",
-                self._schedule_type, self._slot, self._field,
-                value.hour, value.minute,
-            )
-            success = await self.coordinator.async_send_command(frame)
-            if not success:
-                self._pending_state = None
-                self._cancel_pending_timeout()
-                self.async_write_ha_state()
-                _LOGGER.error(
-                    "Schedule %s slot %d %s: command failed",
-                    self._schedule_type, self._slot, self._field,
-                )
-                raise HomeAssistantError(
-                    f"Failed to send {self._schedule_type} schedule command"
-                )

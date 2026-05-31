@@ -52,6 +52,18 @@ class DummyAdapter:
         return None
 
 
+class DummyIntentQueue:
+    """Intent queue stub that fires immediately for testing."""
+
+    def __init__(self, coordinator):
+        self._coordinator = coordinator
+
+    def submit(self, group, overrides, build_fn, on_failure=None):
+        frame = build_fn(overrides, self._coordinator.data)
+        if frame is not None:
+            asyncio.ensure_future(self._coordinator.async_send_command(frame))
+
+
 class DummyCoordinator:
     """Minimal coordinator stub."""
 
@@ -59,6 +71,7 @@ class DummyCoordinator:
         self.data = data
         self.adapter = DummyAdapter()
         self.async_send_command = AsyncMock(return_value=True)
+        self.intent_queue = DummyIntentQueue(self)
 
     @property
     def available(self) -> bool:
@@ -87,6 +100,7 @@ async def test_fan_turn_on_and_turn_off_paths() -> None:
 
     # off -> low via turn_on default path
     await entity.async_turn_on()
+    await asyncio.sleep(0)  # let intent queue task execute
     coordinator.async_send_command.assert_awaited_once_with(CMD_PUMP_OFF_TO_LOW)
     assert entity._pending_state == "low"
 
@@ -98,6 +112,7 @@ async def test_fan_turn_on_and_turn_off_paths() -> None:
 
     # high -> off via turn_off direct path
     await entity.async_turn_off()
+    await asyncio.sleep(0)  # let intent queue task execute
     coordinator.async_send_command.assert_awaited_once_with(CMD_PUMP_HIGH_TO_OFF)
     assert entity._pending_state == "off"
     entity._cancel_pending_timeout()

@@ -29,7 +29,10 @@ from custom_components.joyonway_p25b85.const import (
     OPTIMISTIC_TIMEOUT_SECONDS,
     RX_STALE_SECONDS,
 )
-from custom_components.joyonway_p25b85.coordinator import JoyonwayP25B85Coordinator
+from custom_components.joyonway_p25b85.coordinator import (
+    IntentBuildError,
+    JoyonwayP25B85Coordinator,
+)
 
 
 class FakeHass:
@@ -285,7 +288,58 @@ async def test_shutdown_closes_writer(coordinator):
     assert coordinator._writer is None
 
 
+@pytest.mark.asyncio
+async def test_intent_queue_flush_drains_pending_immediately(coordinator):
+    """flush() sends queued intents immediately (without waiting coalesce timer)."""
+    coordinator.async_send_command = AsyncMock(return_value=True)
+
+    coordinator.intent_queue.submit(
+        group="test_group",
+        overrides={"x": 1},
+        build_fn=lambda overrides, data: b"\xAA",
+    )
+    await coordinator.intent_queue.flush()
+
+    coordinator.async_send_command.assert_awaited_once_with(b"\xAA")
+
+
+@pytest.mark.asyncio
+async def test_intent_queue_build_error_triggers_on_failure(coordinator):
+    """IntentBuildError is explicit failure (not silent no-op)."""
+    coordinator.async_send_command = AsyncMock(return_value=True)
+    failed = {"value": False}
+
+    def _on_failure() -> None:
+        failed["value"] = True
+
+    def _build(_overrides, _data):
+        raise IntentBuildError("missing schedule keys")
+
+    coordinator.intent_queue.submit(
+        group="test_group",
+        overrides={"x": 1},
+        build_fn=_build,
+        on_failure=_on_failure,
+    )
+    await coordinator.intent_queue.flush()
+
+    assert failed["value"] is True
+    coordinator.async_send_command.assert_not_awaited()
+
+
 # ── Optimistic timeout integration tests ─────────────────────────────
+
+
+class _DummyIntentQueue:
+    """Intent queue stub for testing — executes immediately."""
+
+    def __init__(self, coordinator):
+        self._coordinator = coordinator
+
+    def submit(self, group, overrides, build_fn, on_failure=None):
+        frame = build_fn(overrides, self._coordinator.data)
+        if frame is not None:
+            asyncio.ensure_future(self._coordinator.async_send_command(frame))
 
 
 @pytest.mark.asyncio
@@ -306,6 +360,7 @@ async def test_optimistic_timeout_clears_pending_state():
         async_send_command = AsyncMock(return_value=True)
 
     coordinator = QuickCoordinator()
+    coordinator.intent_queue = _DummyIntentQueue(coordinator)
     entry = SimpleNamespace(entry_id="e1", data={CONF_HOST: "127.0.0.1"})
     heater = SpaHeaterSwitch(coordinator, entry)
     heater.hass = FakeHass()
@@ -345,6 +400,7 @@ async def test_optimistic_timeout_canceled_on_coordinator_update():
         async_send_command = AsyncMock(return_value=True)
 
     coordinator = QuickCoordinator()
+    coordinator.intent_queue = _DummyIntentQueue(coordinator)
     entry = SimpleNamespace(entry_id="e1", data={CONF_HOST: "127.0.0.1"})
     heater = SpaHeaterSwitch(coordinator, entry)
     heater.hass = FakeHass()
@@ -391,6 +447,7 @@ async def test_pending_timeout_canceled_on_entity_removal():
         async_send_command = AsyncMock(return_value=True)
 
     coordinator = QuickCoordinator()
+    coordinator.intent_queue = _DummyIntentQueue(coordinator)
     entry = SimpleNamespace(entry_id="e1", data={CONF_HOST: "127.0.0.1"})
     heater = SpaHeaterSwitch(coordinator, entry)
     heater.hass = FakeHass()

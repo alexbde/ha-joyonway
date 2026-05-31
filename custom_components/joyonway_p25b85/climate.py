@@ -21,11 +21,11 @@ from homeassistant.components.climate import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .adapters.p25b85 import TEMP_MAX_C, TEMP_MIN_C
-from .const import DOMAIN
+from .const import DOMAIN, OPTIMISTIC_TIMEOUT_SECONDS
 from .coordinator import JoyonwayP25B85Coordinator
 from .entity import JoyonwayCoordinatorEntity, device_info
 
@@ -71,6 +71,39 @@ class SpaClimate(JoyonwayCoordinatorEntity, ClimateEntity):
         self._attr_device_info = device_info(entry)
         self._debounce_task: asyncio.Task | None = None
         self._pending_temp: int | None = None
+        self._pending_timeout_task: asyncio.Task | None = None
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Clear pending temp when broadcast confirms the new setpoint."""
+        if self._pending_temp is not None and self.coordinator.data is not None:
+            if self.coordinator.data.get("setpoint") == self._pending_temp:
+                self._pending_temp = None
+                self._cancel_pending_timeout()
+        super()._handle_coordinator_update()
+
+    def _arm_pending_timeout(self) -> None:
+        """Start a timeout to clear pending temp if broadcast never confirms."""
+        self._cancel_pending_timeout()
+        self._pending_timeout_task = self.hass.async_create_task(
+            self._pending_timeout()
+        )
+
+    def _cancel_pending_timeout(self) -> None:
+        if self._pending_timeout_task is not None:
+            self._pending_timeout_task.cancel()
+            self._pending_timeout_task = None
+
+    async def _pending_timeout(self) -> None:
+        await asyncio.sleep(OPTIMISTIC_TIMEOUT_SECONDS)
+        _LOGGER.warning(
+            "Thermostat: setpoint %d°C not confirmed by spa within %ds, reverting",
+            self._pending_temp,
+            int(OPTIMISTIC_TIMEOUT_SECONDS),
+        )
+        self._pending_temp = None
+        self._pending_timeout_task = None
+        self.async_write_ha_state()
 
     @property
     def current_temperature(self) -> float | None:
@@ -150,7 +183,7 @@ class SpaClimate(JoyonwayCoordinatorEntity, ClimateEntity):
         )
 
     async def _debounced_send(self, scheduled_target: int) -> None:
-        """Wait for debounce period, then send the temperature command."""
+        """Wait for debounce period, then submit the temperature intent."""
         try:
             await asyncio.sleep(TEMP_DEBOUNCE_SECONDS)
             # If a newer target has been queued, skip this stale send.
@@ -158,25 +191,35 @@ class SpaClimate(JoyonwayCoordinatorEntity, ClimateEntity):
                 return
 
             coordinator: JoyonwayP25B85Coordinator = self.coordinator
-            adapter = coordinator.adapter
-            command = adapter.build_temp_command(scheduled_target)
 
-            if command is None:
-                _LOGGER.warning(
-                    "Thermostat: cannot build command for %d°C",
-                    scheduled_target,
-                )
-                return
+            def _build_temp(overrides: dict, data: dict | None) -> bytes | None:
+                target_c = overrides["setpoint_c"]
+                if data is not None and data.get("setpoint") == target_c:
+                    return None  # no-op
+                cmd = coordinator.adapter.build_temp_command(target_c)
+                if cmd is None:
+                    _LOGGER.warning(
+                        "Thermostat: cannot build command for %d°C", target_c
+                    )
+                return cmd
 
-            _LOGGER.debug("Thermostat: sending setpoint %d°C", scheduled_target)
-            success = await coordinator.async_send_command(command)
-            if success:
+            def _on_failure() -> None:
                 self._pending_temp = None
-            else:
+                self._cancel_pending_timeout()
+                self.async_write_ha_state()
                 _LOGGER.error(
                     "Thermostat: setpoint command failed for %d°C",
                     scheduled_target,
                 )
+
+            _LOGGER.debug("Thermostat: submitting setpoint intent %d°C", scheduled_target)
+            self._arm_pending_timeout()
+            coordinator.intent_queue.submit(
+                group="setpoint",
+                overrides={"setpoint_c": scheduled_target},
+                build_fn=_build_temp,
+                on_failure=_on_failure,
+            )
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -184,7 +227,6 @@ class SpaClimate(JoyonwayCoordinatorEntity, ClimateEntity):
         finally:
             if self._debounce_task is asyncio.current_task():
                 self._debounce_task = None
-                self.async_write_ha_state()
 
     async def _async_cancel_debounce_task(self) -> None:
         """Cancel and await the debounce task to avoid leaked exceptions."""
@@ -197,9 +239,10 @@ class SpaClimate(JoyonwayCoordinatorEntity, ClimateEntity):
         self._debounce_task = None
 
     async def async_will_remove_from_hass(self) -> None:
-        """Cancel any pending debounce task before entity removal."""
+        """Cancel any pending tasks before entity removal."""
         await super().async_will_remove_from_hass()
         await self._async_cancel_debounce_task()
+        self._cancel_pending_timeout()
 
 
 

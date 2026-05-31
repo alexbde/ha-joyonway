@@ -44,15 +44,20 @@ async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> Non
     # Keep the controller mode aligned immediately when the option changes,
     # then reload so entities/options reflect the new configuration.
     if new_mode != coordinator.last_detected_ozone_mode:
-        try:
-            cmd = coordinator.adapter.build_ozone_mode_command(new_mode)
-            success = await coordinator.async_send_command(cmd)
-            if success:
-                _LOGGER.info("Ozone mode: sent '%s' to spa", new_mode)
-            else:
-                _LOGGER.error("Ozone mode: failed to send '%s' command", new_mode)
-        except Exception:
-            _LOGGER.exception("Ozone mode: error sending command")
+
+        def _build_ozone_mode(overrides: dict, data: dict | None) -> bytes | None:
+            return coordinator.adapter.build_ozone_mode_command(overrides["mode"])
+
+        coordinator.intent_queue.submit(
+            group="ozone_mode",
+            overrides={"mode": new_mode},
+            build_fn=_build_ozone_mode,
+            on_failure=lambda: _LOGGER.error(
+                "Ozone mode: failed to send '%s' command", new_mode
+            ),
+        )
+        await coordinator.intent_queue.flush()
+        _LOGGER.info("Ozone mode: queue flushed for '%s' before reload", new_mode)
 
     await hass.config_entries.async_reload(entry.entry_id)
 

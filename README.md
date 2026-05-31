@@ -72,7 +72,9 @@ The P25B85 uses a 4-byte CRC-32 on all command frames. The CRC algorithm has bee
 - ✅ Every command uses computed CRC (no replay-only frames)
 - ✅ All commands validated against observed state changes from physical captures
 - ✅ Write pacing enforces a 1-second cooldown between commands
-- ✅ Schedule writes gated on data freshness (refuses if no recent broadcast)
+- ✅ Intent queue serializes and coalesces rapid user actions (no bus contention)
+- ✅ Schedule writes require complete broadcast data and fail explicitly if prerequisites are missing
+- ✅ State reversions are never silent — warnings logged if spa doesn't confirm
 
 > **Note:** KDy documented that sending a frame with an invalid CRC can activate the heater unexpectedly. This integration uses the verified CRC algorithm for all commands.
 

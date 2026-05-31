@@ -9,8 +9,9 @@
 >
 > **Integration domain:** `joyonway_p25b85`
 > **Hardware:** P25B85 + PB554 + Elfin EW11
-> **Status:** Resilient UI refactor implemented and post-refactor code review/polish completed.
-> Persistent TCP connection, optimistic state, grace-mode availability for entities.
+> **Status:** Resilient UI refactor implemented with intent-queue follow-up fixes merged.
+> Persistent TCP connection, optimistic state, grace-mode availability, explicit
+> schedule-write failure path (no silent no-op on missing schedule data).
 
 > **Documentation policy:** `docs/protocol.md` is the canonical protocol spec.
 > This `docs/plan.md` is progress/handoff only.
@@ -137,10 +138,11 @@ custom_components/joyonway_p25b85/
   `_broadcast_confirms_pending()` template method in switches, direct comparison
   in fan/time. If broadcast still shows old state, pending persists — snap-back
   only occurs on timeout expiry, giving clear visual feedback.
-- **Schedule freshness gating** — before any schedule write (time or enable),
-  `coordinator.async_ensure_fresh_data()` verifies last broadcast ≤5s old.
-  If stale, waits up to 3s for a fresh one, then refuses with error. Prevents
-  writing schedule commands based on outdated data.
+- **Schedule freshness gating** — removed (previously `async_ensure_fresh_data()`).
+  Now handled naturally by the intent queue: build_fn reads current coordinator
+  data at drain time (after coalesce window), which is always as fresh as the
+  latest broadcast. If required schedule data is missing, writes fail explicitly
+  (`HomeAssistantError` on submit path, `IntentBuildError` on queue drain).
 - **Light toggle-lock** — second click ignored while toggle is in-flight
   (prevents double-toggle reverting the state).
 - **Target-state switches** — heater, blower, ozone, schedule all use
@@ -174,6 +176,20 @@ custom_components/joyonway_p25b85/
   via a Hardware options section (user declares blower present/absent).
 - **Climate debounce**: 1.5s coalescing for slider drags.
 - **Coordinator write pacing**: global 1.0s command cooldown.
+- **Intent queue** — all entity write commands go through `IntentQueue` on the
+  coordinator. Same-group intents coalesce within a 300ms window. Key behaviors:
+  - **Coalescing**: rapid clicks on related entities (e.g., heat slot 1 + 2)
+    merge into a single command.
+  - **Auto-cancel**: accidental toggle (ON→OFF within 300ms) produces a no-op
+    at drain time — no command sent, pending state clears on next broadcast.
+  - **Sequential drain**: all command types queue up and execute one at a time,
+    preventing bus contention regardless of command type.
+  - **Retry**: one retry on TCP send failure.
+  - **Groups**: `heat_schedule_state`, `filter_schedule_state`,
+    `heat_schedule_time`, `filter_schedule_time`, `heater`, `blower`,
+    `ozone`, `light`, `jets`, `setpoint`, `clock_sync`.
+  - Entity sets optimistic state immediately on submit (instant UI).
+  - On failure after retry, entity's `on_failure` callback clears pending state.
 - **Temperatures as integers** — spa only shows whole °C.
 - **Schedule** — `time` entities for pickers, `switch` entities for enables.
   Schedule sends REFUSE if any data key is missing (prevents overwrite with zeros).
@@ -186,6 +202,12 @@ custom_components/joyonway_p25b85/
   with 1-hour cooldown. Cooldown now applies to both successful syncs and failed
   attempts (prevents repeated retries/log spam during failures).
 - **No auto commands on startup** — all writes are user-initiated only.
+- **All commands routed through intent queue** — no entity or internal function
+  calls `async_send_command` directly. Clock sync, ozone mode, and all entity
+  writes go through the queue for consistent serialization.
+- **Non-silent snap-back** — if a pending optimistic state times out (controller
+  didn't confirm within 10s), a WARNING-level log is emitted identifying the
+  entity and the failed action. This ensures no state reversion is ever silent.
 - **Consistent logging** — all write entities log at debug before send and
   error on failure, using `"Entity: action"` format.
 
@@ -227,7 +249,10 @@ both heat and filter schedules.
 1. **Test ozone** — still untested live (mode byte 13 detection already confirmed)
 2. **Verify auto clock sync** — check logs for drift-triggered sync path
 3. **Live test resilient UI** — verify persistent connection, reconnect, optimistic snap-back
-   - What we can tell already: the HA UI is way faster than the panel. This means, if I activate heat slot 1 and 2 more or less at the same time (because hitting buttons is fast), one of the 2 actions is reverted. Does it make sense to work with some kind of action queue and execute the actions one after another? This would give the controller enough time to process the first action and then execute the second action without reverting it. Alternative: Declarative approach like Terraform. HA holds the state, operator ensures the spa looks like configured. This might be a bit more tricky with changes made on the display. We could always assume that the user is either using the display or the HA UI, not both at the same time.
+   - ✅ **Intent queue implemented** (session 22): all entity commands go through
+     `IntentQueue` which coalesces same-group intents, serializes bus writes, and
+     auto-cancels reverted clicks. The "rapid button clicks revert each other"
+     problem is solved. Remaining: live verification of reconnect + snap-back.
 4. **Test schedule writes** — ✅ completed. Reliable HA-UI live matrix now
    covers all UI-reachable schedule combinations (state toggles + single-field
    time edits across all enable combos), with retries and convergence waits.
@@ -273,7 +298,7 @@ both heat and filter schedules.
 
 - **`.env` file** holds bridge IP (gitignored). Tools auto-load it.
 - **Restart required** after any code change to the integration.
-- **Tests**: `source .venv/bin/activate && pytest -q` → `114 passed`.
+- **Tests**: `source .venv/bin/activate && pytest -q` → `120 passed`.
   Single venv (Python 3.12 + HA test deps via `pip install -e ".[test]"`).
 - **EW11 connection limit**: 4 concurrent TCP clients. HA uses 1, tools can use up to 3 more.
 - **Community feedback source**: https://community.home-assistant.io/t/joyonway-spa-control/582344/
@@ -338,3 +363,31 @@ both heat and filter schedules.
   Live result: **50 passed, 0 failed**.
   Runner path: `tests/live/livetest_schedule_ui_matrix.py`.
   New artifact directory: `tests/live/artifacts_schedule_matrix/`.
+- **Session 22 (2026-05-31):** Implemented `IntentQueue` in coordinator to solve
+  rapid-action reversion. All entity write commands (switches, fan, climate,
+  time, button) now submit intents to the queue instead of calling
+  `async_send_command` directly. Key features: 300ms coalesce window,
+  same-group merging (schedule slot 1+2 → one command), auto-cancel on
+  revert (ON→OFF = no-op), sequential drain (no bus contention across any
+  command types), retry on TCP failure. Removed per-entity `_cmd_lock` for
+  target-state switches (serialization now handled by queue). Light retains
+  its toggle-lock (toggle semantics require it). Follow-up polish: removed
+  dead `async_ensure_fresh_data()` + constants (superseded by intent queue),
+  fixed climate optimistic state (pending temp stays until broadcast confirms,
+  with 10s timeout), routed ALL command paths through the queue (clock sync
+  in coordinator, ozone mode in `__init__.py`), added WARNING-level logs on
+  all pending-state timeouts (non-silent snap-back). Tests: `114 passed`.
+- **Session 23 (2026-05-31):** Intent-queue follow-up bugfix/polish pass.
+  Fixed options-flow race where ozone mode command could be dropped on reload:
+  `_async_options_updated()` now submits then `await intent_queue.flush()`
+  before config-entry reload. Added explicit intent-build failure path via
+  `IntentBuildError` handling in `IntentQueue` (build failures now trigger
+  `on_failure` callbacks instead of silent no-op behavior). Schedule writes now
+  fail explicitly on missing required data (`HomeAssistantError` in service
+  path; `IntentBuildError` at queue-drain path). Added/updated regression tests:
+  - `tests/test_coordinator_resilient.py` (flush + build failure callbacks)
+  - `tests/test_entities_runtime.py` (schedule missing-data errors)
+  - `tests/test_init_runtime.py` (options update order: submit → flush → reload)
+  Also cleaned code style in `IntentQueue` by deduplicating failure-callback
+  dispatch into a helper and corrected ozone log wording to avoid implying
+  guaranteed send success. Tests: `120 passed`.
