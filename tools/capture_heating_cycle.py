@@ -1,14 +1,17 @@
-"""Monitor byte 14 (heater state) transitions during a heating cycle.
+"""Capture ALL frames during a heating cycle for full byte-by-byte analysis.
 
 Usage:
     python3 tools/capture_heating_cycle.py
 
-Connects to the EW11 bridge and logs every change in byte 14 (heater state)
-and byte 12 (pump) with timestamps. Run this while triggering a heating cycle
-to capture all intermediate states.
+Connects to the EW11 bridge and saves EVERY broadcast frame (full hex payload)
+with timestamps to a JSONL file. Also prints byte 14/12 transitions to console.
+
+This allows post-hoc analysis of ANY byte that changes during the heating cycle,
+not just the ones we already know about.
 
 Press Ctrl+C to stop and save results.
 """
+import json
 import os
 import socket
 import sys
@@ -46,14 +49,17 @@ if not HOST:
 
 PUMP_MAP = {0x00: "off", 0x02: "low", 0x04: "high"}
 
+
 def heater_label(byte_val):
     base = byte_val & ~MASK_HEATER_BLOWER
     blower = " +blower" if byte_val & MASK_HEATER_BLOWER else ""
     name = HEATER_STATE_MAP.get(base, "unknown")
     return f"0x{byte_val:02X} ({name}{blower})"
 
+
 def pump_label(byte_val):
     return f"0x{byte_val:02X} ({PUMP_MAP.get(byte_val, '???')})"
+
 
 def main():
     print(f"Connecting to {HOST}:{PORT}...")
@@ -61,14 +67,23 @@ def main():
     sock.settimeout(5)
     sock.connect((HOST, PORT))
     sock.settimeout(30)
-    print("Connected. Monitoring byte 14 (heater) and byte 12 (pump) transitions.")
+    print("Connected. Capturing ALL frames + monitoring transitions.")
     print("Trigger the heating cycle now. Press Ctrl+C to stop.\n")
-    print(f"{'Time':<12} {'Elapsed':>8}  {'Byte14 (heater)':<28} {'Byte12 (pump)':<18} {'Water':>5} {'Set':>3}")
+    print(f"{'Time':<14} {'Elapsed':>8}  {'Byte14 (heater)':<28} {'Byte12 (pump)':<18} {'Water':>5} {'Set':>3}")
     print("-" * 90)
+
+    # Output file — JSONL with every frame
+    timestamp_str = datetime.now().strftime('%Y%m%d_%H%M%S')
+    out_dir = Path(__file__).resolve().parent / "captures_heating"
+    out_dir.mkdir(exist_ok=True)
+    out_path = out_dir / f"heating_cycle_{timestamp_str}.jsonl"
+    out_file = open(out_path, "w")
+    print(f"Recording all frames to: {out_path}\n")
 
     buffer = b""
     last_heater = None
     last_pump = None
+    last_frame_bytes = None
     start_time = time.time()
     transitions = []
     frame_count = 0
@@ -100,16 +115,47 @@ def main():
                     continue
 
                 frame_count += 1
+                now_ts = time.time()
+                now_str = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                elapsed = now_ts - start_time
+
                 heater = logical[IDX_HEATER_STATE]
                 pump = logical[IDX_PUMP_BYTE]
                 water_f = logical[IDX_WATER_TEMP]
                 setpoint_f = logical[IDX_SETPOINT]
-                water_c = round((water_f - 32) * 5 / 9) if water_f > 0 else "?"
-                setpoint_c = round((setpoint_f - 32) * 5 / 9) if setpoint_f > 0 else "?"
+                water_c = round((water_f - 32) * 5 / 9) if water_f > 0 else None
+                setpoint_c = round((setpoint_f - 32) * 5 / 9) if setpoint_f > 0 else None
 
+                # Find bytes that changed from previous frame
+                changed_bytes = {}
+                if last_frame_bytes is not None:
+                    for i in range(min(len(logical), len(last_frame_bytes))):
+                        if logical[i] != last_frame_bytes[i]:
+                            changed_bytes[i] = {"old": last_frame_bytes[i], "new": logical[i]}
+
+                # Save EVERY frame as JSONL
+                record = {
+                    "frame": frame_count,
+                    "time": now_str,
+                    "elapsed_s": round(elapsed, 2),
+                    "hex": logical.hex(),
+                    "len": len(logical),
+                    "byte12_pump": f"0x{pump:02X}",
+                    "byte14_heater": f"0x{heater:02X}",
+                    "water_c": water_c,
+                    "setpoint_c": setpoint_c,
+                }
+                if changed_bytes:
+                    # Record which byte indices changed (compact format)
+                    record["changed"] = {
+                        str(k): f"0x{v['old']:02X}->0x{v['new']:02X}"
+                        for k, v in changed_bytes.items()
+                    }
+                out_file.write(json.dumps(record) + "\n")
+
+                # Print transitions to console
                 if heater != last_heater or pump != last_pump:
-                    now = datetime.now().strftime("%H:%M:%S")
-                    elapsed = f"{time.time() - start_time:.1f}s"
+                    elapsed_str = f"{elapsed:.1f}s"
                     h_label = heater_label(heater)
                     p_label = pump_label(pump)
 
@@ -117,28 +163,33 @@ def main():
                     if last_heater is not None:
                         marker = " ◀ CHANGE"
 
-                    print(f"{now:<12} {elapsed:>8}  {h_label:<28} {p_label:<18} {water_c:>5} {setpoint_c:>3}{marker}")
+                    print(f"{now_str:<14} {elapsed_str:>8}  {h_label:<28} {p_label:<18} {water_c:>5} {setpoint_c:>3}{marker}")
 
                     transitions.append({
-                        "time": now,
-                        "elapsed": elapsed,
+                        "time": now_str,
+                        "elapsed": elapsed_str,
                         "heater": heater,
                         "pump": pump,
                         "water_c": water_c,
                         "setpoint_c": setpoint_c,
+                        "frame_num": frame_count,
                     })
 
                     last_heater = heater
                     last_pump = pump
 
+                last_frame_bytes = logical
+
     except KeyboardInterrupt:
         pass
     finally:
         sock.close()
+        out_file.close()
         elapsed_total = time.time() - start_time
         print(f"\n{'=' * 90}")
         print(f"Capture complete. Duration: {elapsed_total:.0f}s, Frames: {frame_count}")
         print(f"Transitions recorded: {len(transitions)}")
+        print(f"\nAll frames saved to: {out_path}")
         print("\nSummary of all byte 14 values seen:")
         seen = set()
         for t in transitions:
@@ -146,17 +197,24 @@ def main():
         for v in sorted(seen):
             print(f"  {heater_label(v)}")
 
-        # Save to file
-        out_path = Path(__file__).resolve().parent / "captures" / f"heating_cycle_{datetime.now().strftime('%H%M%S')}.log"
-        out_path.parent.mkdir(exist_ok=True)
-        with open(out_path, "w") as f:
+        # Also save a human-readable summary
+        summary_path = out_path.with_suffix(".summary.txt")
+        with open(summary_path, "w") as f:
             f.write(f"Heating cycle capture - {datetime.now().isoformat()}\n")
-            f.write(f"Duration: {elapsed_total:.0f}s, Frames: {frame_count}\n\n")
-            f.write(f"{'Time':<12} {'Elapsed':>8}  {'Byte14':<8} {'Byte12':<8} {'Water':>5} {'Set':>3}  Label\n")
-            f.write("-" * 70 + "\n")
+            f.write(f"Duration: {elapsed_total:.0f}s, Frames: {frame_count}\n")
+            f.write(f"Full frame data: {out_path.name}\n\n")
+            f.write(f"{'Time':<14} {'Elapsed':>8}  {'Byte14':<8} {'Byte12':<8} {'Water':>5} {'Set':>3}  {'Frame#':>6}  Label\n")
+            f.write("-" * 80 + "\n")
             for t in transitions:
-                f.write(f"{t['time']:<12} {t['elapsed']:>8}  0x{t['heater']:02X}    0x{t['pump']:02X}    {t['water_c']:>5} {t['setpoint_c']:>3}  {heater_label(t['heater'])}\n")
-        print(f"\nLog saved to: {out_path}")
+                f.write(f"{t['time']:<14} {t['elapsed']:>8}  0x{t['heater']:02X}    0x{t['pump']:02X}    "
+                        f"{t['water_c'] or '?':>5} {t['setpoint_c'] or '?':>3}  {t['frame_num']:>6}  "
+                        f"{heater_label(t['heater'])}\n")
+            f.write(f"\nByte 14 values seen: {', '.join(f'0x{v:02X}' for v in sorted(seen))}\n")
+        print(f"Summary saved to: {summary_path}")
+
+        # Print analysis hint
+        print(f"\n💡 To analyze all byte changes between transitions:")
+        print(f"   python3 tools/analyze_heating_frames.py {out_path.name}")
 
 
 if __name__ == "__main__":
