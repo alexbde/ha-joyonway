@@ -95,6 +95,26 @@ SCHED_FLAGS_TABLE: dict[tuple[bool, bool], int] = {
     (False, False): 0x52,
 }
 
+# Force-write flags: used when writing TIME values while slots are disabled.
+# The controller ignores slot 2 time bytes when the normal "disabled" flags
+# are used (asymmetric: slot 1 times always apply with 0x52, but slot 2 times
+# are ignored).
+#
+# The PB554 panel uses different flags depending on what was edited:
+#   0x52 = slot 1 only edited (both off) — slot 1 always accepted
+#   0x58 = slot 2 only edited (both off) — forces slot 2 acceptance
+#   0x5A = both edited (both off) — forces BOTH slot acceptance
+#
+# We always use 0x5A when both slots are disabled, so both slots behave
+# identically. This is the simplest approach — no need to track which slot
+# is being edited. Confirmed from PB554 panel capture 2026-05-31.
+SCHED_FLAGS_FORCE_WRITE_TABLE: dict[tuple[bool, bool], int] = {
+    (True, True): 0xAA,     # both enabled — no override needed
+    (True, False): 0x62,    # s1 on, s2 off — slot 2 is enabled so no quirk
+    (False, True): 0x9A,    # s2 on, s1 off — slot 2 is enabled so no quirk
+    (False, False): 0x5A,   # both off — force-write both slots (captured live)
+}
+
 # Pump masks
 MASK_PUMP_LOW = 0x02   # filtration / circulation ✅
 MASK_PUMP_HIGH = 0x04  # massage jets ✅
@@ -439,6 +459,8 @@ class P25B85Adapter:
         slot2_end: tuple[int, int],
         slot1_enabled: bool = True,
         slot2_enabled: bool = True,
+        *,
+        force_slot2_write: bool = False,
     ) -> bytes:
         """Build a schedule command frame with CRC.
 
@@ -450,6 +472,9 @@ class P25B85Adapter:
             slot2_end: (hour, minute) for slot 2 end
             slot1_enabled: whether slot 1 is enabled
             slot2_enabled: whether slot 2 is enabled
+            force_slot2_write: deprecated, ignored. The integration now
+                always uses force-write flags (0x5A) when both slots are
+                disabled, so both slots are treated identically.
 
         Returns:
             Wire-ready frame bytes.
@@ -463,8 +488,13 @@ class P25B85Adapter:
         else:
             raise ValueError(f"Unsupported schedule type: {schedule_type}")
 
-        # Compute flags byte from enable state
-        flags = SCHED_FLAGS_TABLE[(slot1_enabled, slot2_enabled)]
+        # Always use the force-write table. When both slots are disabled,
+        # this sends 0x5A which forces the controller to accept ALL time
+        # values (both slot 1 and slot 2). This eliminates the asymmetry
+        # where slot 1 times were always accepted but slot 2 was ignored.
+        # When at least one slot is enabled, the force-write table values
+        # are identical to the normal table (no override needed).
+        flags = SCHED_FLAGS_FORCE_WRITE_TABLE[(slot1_enabled, slot2_enabled)]
 
         # Command payload (16 bytes):
         # [0-6] header, [7] flags, [8-15] slot times
