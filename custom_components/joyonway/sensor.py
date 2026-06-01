@@ -74,6 +74,9 @@ class JoyonwaySensor(JoyonwayCoordinatorEntity, SensorEntity):
         elif description.state_class == "measurement":
             self._attr_state_class = SensorStateClass.MEASUREMENT
 
+        if description.native_unit and description.device_class != "temperature":
+            self._attr_native_unit_of_measurement = description.native_unit
+
         if description.entity_category == "diagnostic":
             self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
@@ -90,7 +93,16 @@ class JoyonwaySensor(JoyonwayCoordinatorEntity, SensorEntity):
     def native_value(self):
         """Return the sensor value from coordinator data."""
         if self.coordinator.data:
-            return self.coordinator.data.get(self._key)
+            value = self.coordinator.data.get(self._key)
+            if value is not None and self._key in {
+                "heater_byte_raw",
+                "pump_byte_raw",
+                "ozone_mode_byte_raw",
+                "activity_byte_raw",
+                "light_cycle_byte_raw",
+            }:
+                return f"0x{value:02X}"
+            return value
         return None
 
 

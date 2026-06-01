@@ -620,3 +620,32 @@ def test_celsius_to_fahrenheit() -> None:
     assert celsius_to_fahrenheit(20) == 68
     assert celsius_to_fahrenheit(40) == 104
 
+
+def test_parse_status_diagnostics(adapter: P25B85Adapter, logical_frame: bytes) -> None:
+    """Test raw bytes, logical length, and unmapped bytes hash extraction."""
+    result = adapter.parse_status(logical_frame)
+    assert isinstance(result, dict)
+    assert result["heater_byte_raw"] == logical_frame[14]
+    assert result["pump_byte_raw"] == logical_frame[12]
+    assert result["ozone_mode_byte_raw"] == logical_frame[13]
+    assert result["activity_byte_raw"] == logical_frame[28]
+    assert result["light_cycle_byte_raw"] == logical_frame[17]
+    assert result["frame_length"] == len(logical_frame)
+
+    hash1 = result["unmapped_bytes_hash"]
+    assert len(hash1) == 8
+    # Lowercase hex string check
+    assert int(hash1, 16) >= 0
+
+    # Modifying a mapped index (e.g. index 9, water temp) should keep hash unchanged
+    modified_mapped = bytearray(logical_frame)
+    modified_mapped[9] = (modified_mapped[9] + 1) & 0xFF
+    result_mapped = adapter.parse_status(bytes(modified_mapped))
+    assert result_mapped["unmapped_bytes_hash"] == hash1
+
+    # Modifying an unmapped index (e.g. index 10) should change hash
+    modified_unmapped = bytearray(logical_frame)
+    modified_unmapped[10] = (modified_unmapped[10] + 1) & 0xFF
+    result_unmapped = adapter.parse_status(bytes(modified_unmapped))
+    assert result_unmapped["unmapped_bytes_hash"] != hash1
+

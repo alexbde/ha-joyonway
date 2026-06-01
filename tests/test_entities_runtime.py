@@ -341,3 +341,35 @@ async def test_schedule_time_missing_data_raises(entry: SimpleNamespace) -> None
     with pytest.raises(HomeAssistantError, match="missing data keys"):
         await entity.async_set_value(dt_time(hour=9, minute=30))
 
+
+def test_diagnostic_sensors_runtime(entry: SimpleNamespace) -> None:
+    """Test hex-formatting of raw byte keys, native unit for frame length, and diagnostic properties."""
+    from homeassistant.helpers.entity import EntityCategory
+
+    # 1. Test raw byte hex-formatting
+    coordinator = DummyCoordinator(data={"heater_byte_raw": 85}, available=True)
+    desc_heater = SpaEntityDescription(
+        platform="sensor",
+        key="heater_byte_raw",
+        name="Heater byte (raw)",
+        entity_category="diagnostic",
+    )
+    entity_heater = JoyonwaySensor(coordinator, entry, desc_heater)
+    assert entity_heater.native_value == "0x55"
+    assert entity_heater.entity_category == EntityCategory.DIAGNOSTIC
+    assert entity_heater.available is True
+
+    # 2. Test native unit of measurement mapping (e.g. bytes)
+    desc_length = SpaEntityDescription(
+        platform="sensor",
+        key="frame_length",
+        name="Frame length",
+        native_unit="bytes",
+        entity_category="diagnostic",
+    )
+    coordinator2 = DummyCoordinator(data={"frame_length": 61}, available=True)
+    entity_length = JoyonwaySensor(coordinator2, entry, desc_length)
+    assert entity_length.native_value == 61
+    assert entity_length.native_unit_of_measurement == "bytes"
+    assert entity_length.entity_category == EntityCategory.DIAGNOSTIC
+
