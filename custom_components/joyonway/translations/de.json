@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Joyonway Spa",
-        "description": "Geben Sie die IP-Adresse und den TCP-Port Ihrer RS485-Brücke ein. Siehe Abschnitt [Kompatibilität & Unterstützte Hardware](https://github.com/alexbde/ha-joyonway#compatibility--supported-hardware) für verifizierte Setups.",
+        "description": "Geben Sie die IP-Adresse und den TCP-Port Ihrer RS485-Brücke ein."
         "data": {
           "host": "IP-Adresse",
           "port": "TCP-Port"

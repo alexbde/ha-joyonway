@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Joyonway Spa",
-        "description": "Enter the IP address and TCP port of your RS485 bridge. See the [Compatibility & Supported Hardware](https://github.com/alexbde/ha-joyonway#compatibility--supported-hardware) section for verified setups.",
+        "description": "Enter the IP address and TCP port of your RS485 bridge."
         "data": {
           "host": "IP address",
           "port": "TCP port"
