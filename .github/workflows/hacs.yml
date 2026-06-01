@@ -1,4 +1,4 @@
-# 2026-05-16 | GitHub Actions | Validate integration with HACS action
+# Validate integration with HACS action
 # Runs on: push, pull request, daily schedule, manual dispatch
 # Source: https://hacs.xyz/docs/publish/action
 name: HACS Validation

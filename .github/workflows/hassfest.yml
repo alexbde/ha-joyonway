@@ -1,4 +1,4 @@
-# 2026-05-16 | GitHub Actions | Validate integration with Home Assistant hassfest
+# Validate integration with Home Assistant hassfest
 # Runs on: push, pull request, daily schedule, manual dispatch
 # Source: https://developers.home-assistant.io/blog/2020/04/16/hassfest-as-a-github-action/
 name: Validate with hassfest
