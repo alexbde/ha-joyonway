@@ -2,8 +2,8 @@
   "config": {
     "step": {
       "user": {
-        "title": "Joyonway P25B85",
-        "description": "Geben Sie die IP-Adresse und den TCP-Port Ihrer RS485-Brücke ein (z.B. Elfin EW11, USR-W610).",
+        "title": "Joyonway Spa",
+        "description": "Geben Sie die IP-Adresse und den TCP-Port Ihrer RS485-Brücke ein. Siehe Abschnitt [Kompatibilität & Unterstützte Hardware](https://github.com/alexbde/ha-joyonway#compatibility--supported-hardware) für verifizierte Setups.",
         "data": {
           "host": "IP-Adresse",
           "port": "TCP-Port"
@@ -11,7 +11,7 @@
       }
     },
     "error": {
-      "cannot_connect": "Verbindung zur RS485-Brücke nicht möglich. Überprüfen Sie IP, Port und ob die Brücke eingeschaltet ist. Stellen Sie sicher, dass kein anderer Client (Telefon-App, andere Integration) verbunden ist."
+      "cannot_connect": "Verbindung zur RS485-Brücke nicht möglich. Überprüfen Sie IP, Port und ob die Brücke eingeschaltet ist. Stellen Sie sicher, dass kein anderer Client (Telefon-App, andere Integration) verbunden ist. Wenn Ihre Hardware noch nicht unterstützt wird, lesen Sie die Anleitung zur [Kompatibilität & Unterstützten Hardware](https://github.com/alexbde/ha-joyonway#compatibility--supported-hardware)."
     },
     "abort": {
       "already_configured": "Diese Brücke ist bereits konfiguriert."
@@ -56,7 +56,14 @@
           "high": "Stark"
         }
       },
-      "spa_datetime": { "name": "Datum & Uhrzeit" }
+      "spa_datetime": { "name": "Datum & Uhrzeit" },
+      "heater_byte_raw": { "name": "Heizungs-Byte (roh)" },
+      "pump_byte_raw": { "name": "Pumpen-Byte (roh)" },
+      "ozone_mode_byte_raw": { "name": "Ozon-Modus-Byte (roh)" },
+      "activity_byte_raw": { "name": "Aktivitäts-Byte (roh)" },
+      "light_cycle_byte_raw": { "name": "Licht/Zyklus-Byte (roh)" },
+      "frame_length": { "name": "Framelänge" },
+      "unmapped_bytes_hash": { "name": "Hash der nicht gemappten Bytes" }
     },
     "binary_sensor": {
       "bridge_connectivity": { "name": "RS485-Bridge" }
