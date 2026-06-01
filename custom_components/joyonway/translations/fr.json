@@ -11,7 +11,7 @@
       }
     },
     "error": {
-      "cannot_connect": "Impossible de se connecter au pont RS485. Vérifiez l'IP, le port et que le pont est allumé. Assurez-vous qu'aucun autre client (app téléphone, autre intégration) n'est connecté. Si votre matériel n'est pas encore pris en charge, reportez-vous au guide [Compatibilité & Matériel Supporté](https://github.com/alexbde/ha-joyonway#compatibility--supported-hardware)."
+      "cannot_connect": "Impossible de se connecter au pont RS485. Vérifiez l'IP, le port et que le pont est allumé. Assurez-vous qu'aucun autre client (app téléphone, autre intégration) n'est connecté."
     },
     "abort": {
       "already_configured": "Ce pont est déjà configuré."

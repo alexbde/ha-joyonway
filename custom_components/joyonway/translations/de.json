@@ -11,7 +11,7 @@
       }
     },
     "error": {
-      "cannot_connect": "Verbindung zur RS485-Brücke nicht möglich. Überprüfen Sie IP, Port und ob die Brücke eingeschaltet ist. Stellen Sie sicher, dass kein anderer Client (Telefon-App, andere Integration) verbunden ist. Wenn Ihre Hardware noch nicht unterstützt wird, lesen Sie die Anleitung zur [Kompatibilität & Unterstützten Hardware](https://github.com/alexbde/ha-joyonway#compatibility--supported-hardware)."
+      "cannot_connect": "Verbindung zur RS485-Brücke nicht möglich. Überprüfen Sie IP, Port und ob die Brücke eingeschaltet ist. Stellen Sie sicher, dass kein anderer Client (Telefon-App, andere Integration) verbunden ist."
     },
     "abort": {
       "already_configured": "Diese Brücke ist bereits konfiguriert."

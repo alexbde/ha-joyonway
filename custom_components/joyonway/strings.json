@@ -11,7 +11,7 @@
       }
     },
     "error": {
-      "cannot_connect": "Cannot connect to the RS485 bridge. Check IP, port and that the bridge is powered on. Make sure no other client (phone app, other integration) is connected. If your hardware is not yet supported, refer to the [Compatibility & Supported Hardware](https://github.com/alexbde/ha-joyonway#compatibility--supported-hardware) guide."
+      "cannot_connect": "Cannot connect to the RS485 bridge. Check IP, port and that the bridge is powered on. Make sure no other client (phone app, other integration) is connected."
     },
     "abort": {
       "already_configured": "This bridge is already configured."
