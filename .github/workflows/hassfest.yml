@@ -18,7 +18,7 @@ permissions:
   contents: read
 
 jobs:
-  validate:
+  hassfest:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
