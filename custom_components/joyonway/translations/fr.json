@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Joyonway Spa",
-        "description": "Entrez l'adresse IP et le port TCP de votre pont RS485."
+        "description": "Entrez l'adresse IP et le port TCP de votre pont RS485.",
         "data": {
           "host": "Adresse IP",
           "port": "Port TCP"

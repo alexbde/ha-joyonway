@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Joyonway Spa",
-        "description": "Enter the IP address and TCP port of your RS485 bridge."
+        "description": "Enter the IP address and TCP port of your RS485 bridge.",
         "data": {
           "host": "IP address",
           "port": "TCP port"
