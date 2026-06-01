@@ -301,7 +301,7 @@ both heat and filter schedules.
 - **`.env` file** holds bridge IP (gitignored). Tools auto-load it.
 - **Restart required** after any code change to the integration.
 - **Tests**: `source .venv/bin/activate && pytest -q` → `120 passed`.
-  Single venv (Python 3.12 + HA test deps via `pip install -e ".[test]"`).
+  Single venv (Python 3.13 + HA test deps via `pip install -e ".[test]"`).
 - **EW11 connection limit**: 4 concurrent TCP clients. HA uses 1, tools can use up to 3 more.
 - **Community feedback source**: https://community.home-assistant.io/t/joyonway-spa-control/582344/
 - **Historical safety context**: early field reports indicated possible config

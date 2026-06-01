@@ -6,7 +6,7 @@
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=for-the-badge)](https://github.com/hacs/integration)
 [![License](https://img.shields.io/github/license/alexbde/ha-joyonway?style=for-the-badge&color=blue)](LICENSE)
-[![HA Version](https://img.shields.io/badge/Home%20Assistant-2024.1.0%2B-41BDF5.svg?style=for-the-badge&logo=home-assistant&logoColor=white)](https://www.home-assistant.io)
+[![HA Version](https://img.shields.io/badge/Home%20Assistant-2026.1.0%2B-41BDF5.svg?style=for-the-badge&logo=home-assistant&logoColor=white)](https://www.home-assistant.io)
 
 </div>
 
@@ -45,7 +45,7 @@ Below is one concrete, fully tested hardware configuration that is confirmed to 
 *   **Pumps & Blowers:** 1× dual-speed pump (Massage jets + filtration), optional air blower
 *   **Ozone/UV:** Auto or Manual mode via com1
 *   **RS485-to-IP Bridge:** Any standard RS485-to-IP Ethernet or WiFi bridge (e.g., Elfin EW11, USR-W610, Protoss) configured in **TCP Server mode** on port `8899` (configured as 38400 baud, 8N1, no parity).
-*   **Home Assistant Requirements:** 2024.1.0 or later on a network with local access to the IP bridge.
+*   **Home Assistant Requirements:** 2026.1.0 or later on a network with local access to the IP bridge.
 
 ## Features
 
@@ -240,13 +240,13 @@ Run all commands directly using the environment's python/pytest binaries to avoi
 
 ```zsh
 cd /path/to/ha-joyonway
-python3.12 -m venv .venv
+python3.13 -m venv .venv
 .venv/bin/python -m pip install -U pip
 .venv/bin/python -m pip install -e ".[test]"
 .venv/bin/pytest -q -W ignore
 ```
 
-Requires Python 3.12+. The `[test]` extra installs `pytest-homeassistant-custom-component` and all HA runtime dependencies.
+Requires Python 3.13+. The `[test]` extra installs `pytest-homeassistant-custom-component` and all HA runtime dependencies.
 
 ### Live schedule matrix test (optional)
 
