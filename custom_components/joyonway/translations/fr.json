@@ -2,8 +2,8 @@
   "config": {
     "step": {
       "user": {
-        "title": "Joyonway P25B85",
-        "description": "Entrez l'adresse IP et le port TCP de votre pont RS485 (ex. Elfin EW11, USR-W610).",
+        "title": "Joyonway Spa",
+        "description": "Entrez l'adresse IP et le port TCP de votre pont RS485.",
         "data": {
           "host": "Adresse IP",
           "port": "Port TCP"
@@ -56,7 +56,14 @@
           "high": "Fort"
         }
       },
-      "spa_datetime": { "name": "Date & heure" }
+      "spa_datetime": { "name": "Date & heure" },
+      "heater_byte_raw": { "name": "Octet chauffage (brut)" },
+      "pump_byte_raw": { "name": "Octet pompe (brut)" },
+      "ozone_mode_byte_raw": { "name": "Octet mode ozone (brut)" },
+      "activity_byte_raw": { "name": "Octet activité (brut)" },
+      "light_cycle_byte_raw": { "name": "Octet lumière/cycle (brut)" },
+      "frame_length": { "name": "Longueur de trame" },
+      "unmapped_bytes_hash": { "name": "Hachage des octets non mappés" }
     },
     "binary_sensor": {
       "bridge_connectivity": { "name": "Pont RS485" }

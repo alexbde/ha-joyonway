@@ -258,9 +258,10 @@ both heat and filter schedules.
    covers all UI-reachable schedule combinations (state toggles + single-field
    time edits across all enable combos), with retries and convergence waits.
 
-### Priority 3: Diagnostics enrichment (next implementation)
-- Capture and expose controller diagnostic metadata from frames, starting with
-  firmware/version fields (visible on PB554 panel, expected in RS485 payload).
+### Priority 3: Diagnostics enrichment — ✅ FIXED
+- Captured and exposed raw byte diagnostic sensors (`heater_byte_raw`, `pump_byte_raw`, `ozone_mode_byte_raw`, `activity_byte_raw`, `light_cycle_byte_raw`), unescaped logical frame length, and unmapped payload bytes fingerprinting hash (`unmapped_bytes_hash`). Added comprehensive unit test coverage and built the standalone `capture_unmapped_bytes.py` analysis utility.
+- **About/Diagnostics Screen Sniffing & Reverse Engineering (Completed June 2026):** Developed the interactive developer utility `tools/capture_about_menu.py` and ran a guided click-through capture. The differential live scan conclusively proved that **no version or capability data is ever transmitted on the bus**. The 60-byte broadcast payload was 100% bit-identical to the baseline, outside of the ticking clock seconds fields (which ticked from `0x12` to `0x30` during the 30-second capture), and zero interactive panel commands occurred.
+  - **Verdict:** All diagnostic parameters displayed on the touchpad (Panel ID 1, Panel Version 1.7, Board Version 1.8, and capabilities like Jets 1 Two Speed, Blower Yes, Ozone Yes, Cycle Pump No) are stored and managed entirely locally by the display panel's own flash memory and GUI firmware, remaining completely invisible on the RS485 bus. Canonicalized these findings inside `docs/protocol.md`.
 
 ### Priority 4: Hardware capability options (next implementation)
 - Add a "Hardware" section in options/config where users can declare whether a
@@ -300,7 +301,7 @@ both heat and filter schedules.
 - **`.env` file** holds bridge IP (gitignored). Tools auto-load it.
 - **Restart required** after any code change to the integration.
 - **Tests**: `source .venv/bin/activate && pytest -q` → `120 passed`.
-  Single venv (Python 3.12 + HA test deps via `pip install -e ".[test]"`).
+  Single venv (Python 3.13 + HA test deps via `pip install -e ".[test]"`).
 - **EW11 connection limit**: 4 concurrent TCP clients. HA uses 1, tools can use up to 3 more.
 - **Community feedback source**: https://community.home-assistant.io/t/joyonway-spa-control/582344/
 - **Historical safety context**: early field reports indicated possible config
@@ -407,3 +408,5 @@ both heat and filter schedules.
   - Cleaned up legacy unused/confusing aliases `MASK_UV`, `IDX_UV_FLAG`, and `HEATER_BLOWER` in `p25b85.py`.
   - Typed shared `device_info()` return as `DeviceInfo` in `entity.py`.
   - Added new comprehensive test files `tests/test_config_flow.py` and new tests to `tests/test_coordinator_resilient.py` to verify config flows, multi-frame buffer parses, and exception narrowings. Tests: `129 passed`.
+- **Session 25 (2026-06-01):** Reverse-engineered the touchscreen diagnostic version screens. Exhaustively analyzed all unmapped static broadcast bytes and searched for version combinations (`1.7` / `1.8`) in all captures, showing that they only occurred as real-time ticking clock seconds or schedule slot times. Developed the standalone interactive capture utility `tools/capture_about_menu.py` with an embedded live differential frame analyzer. Successfully ran the guided sniffing test on the physical hot tub panel and mathematically verified the "Ticking Clock" proof (ticking seconds `0x12` to `0x30` matched the 30.0s recording duration perfectly with 100% bit-identical broadcast payloads). Conclusively proved that versions, panel IDs, and capability display flags are stored and managed entirely locally by the display's own internal flash memory and GUI firmware, remaining completely invisible on the RS485 bus. Canonicalized these findings inside `docs/protocol.md` and updated `docs/plan.md`. Tests: `129 passed`.
+

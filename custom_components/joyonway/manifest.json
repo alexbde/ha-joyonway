@@ -1,6 +1,6 @@
 {
   "domain": "joyonway",
-  "name": "Joyonway P25B85 Spa (RS485)",
+  "name": "Joyonway Spa",
   "codeowners": ["@alexbde"],
   "config_flow": true,
   "dependencies": [],

@@ -6,13 +6,13 @@ build-backend = "setuptools.build_meta"
 name = "ha-joyonway"
 version = "0.1.0"
 description = "Joyonway P25B85 Home Assistant integration"
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 
 [project.optional-dependencies]
 test = [
   "pytest>=8.3",
   "pytest-homeassistant-custom-component>=0.13",
-  "homeassistant>=2024.1.0",
+  "homeassistant>=2026.1.0",
 ]
 
 [tool.setuptools]

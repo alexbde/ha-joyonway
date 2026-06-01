@@ -78,7 +78,7 @@ class JoyonwayP25B85ConfigFlow(ConfigFlow, domain=DOMAIN):
 
             if await _test_connection(host, port):
                 return self.async_create_entry(
-                    title=f"Joyonway P25B85 ({host})",
+                    title=f"Joyonway Spa ({host})",
                     data={
                         CONF_HOST: host,
                         CONF_PORT: port,

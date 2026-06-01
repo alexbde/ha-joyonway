@@ -94,7 +94,7 @@ async def test_config_flow_user_step_success() -> None:
         result = await flow.async_step_user(user_input)
 
         assert result["type"] == "create_entry"
-        assert result["title"] == "Joyonway P25B85 (127.0.0.1)"
+        assert result["title"] == "Joyonway Spa (127.0.0.1)"
         assert result["data"] == {
             CONF_HOST: "127.0.0.1",
             CONF_PORT: 8899,

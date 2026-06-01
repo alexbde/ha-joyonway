@@ -25,6 +25,7 @@ Capture validation summary:
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
 
 try:
     from homeassistant.util import dt as dt_util
@@ -144,6 +145,15 @@ HEATER_STATE_MAP: dict[int, str] = {
     HEATER_OZONE_ALT: "ozone",         # KDy variant / manual ozone
 }
 
+_MAPPED_INDEXES = {
+    0, 1, 2, 3, 4, 5, 6, 7, 8,  # signature
+    9,                          # water temp
+    12, 13, 14, 16, 17, 28,     # pump, ozone, heater, setpoint, light, activity
+    19, 20, 21, 22, 23, 24, 25, 26,  # heat schedule
+    29, 30, 31, 32, 33, 34, 35, 36,  # filter schedule
+    53, 54, 55, 56, 57, 58,     # datetime
+}
+
 # ──────────────────────────────────────────────────────────────
 # Command payload constants
 # All commands are built dynamically via build_frame() + CRC.
@@ -253,6 +263,12 @@ class P25B85Adapter:
             "ozone_active": heater_base in (HEATER_OZONE, HEATER_OZONE_ALT),
             "ozone_mode": "manual" if ozone_mode_manual else "auto",
             "blower": bool(activity_byte & MASK_BLOWER),
+            "heater_byte_raw": heater_byte,
+            "pump_byte_raw": pump_byte,
+            "ozone_mode_byte_raw": ozone_mode_byte,
+            "activity_byte_raw": activity_byte,
+            "light_cycle_byte_raw": light_byte,
+            "frame_length": len(frame),
         }
 
         # Parse datetime if frame is long enough.
@@ -298,6 +314,18 @@ class P25B85Adapter:
             result["filter_slot2_start"] = (raw_s2 & MASK_SLOT_HOUR, frame[IDX_FILTER_SLOT2_START_M])
             result["filter_slot2_end"] = (frame[IDX_FILTER_SLOT2_END_H], frame[IDX_FILTER_SLOT2_END_M])
             result["filter_slot2_enabled"] = bool(raw_s2 & MASK_SLOT_ENABLED)
+
+        # Compute unmapped bytes hash
+        _TRAILER_LEN = 5  # CRC32 (4) + frame end delimiter (1)
+        payload_end = max(0, len(frame) - _TRAILER_LEN)
+
+        digest_input = bytearray()
+        for i in range(payload_end):
+            if i in _MAPPED_INDEXES:
+                continue
+            digest_input.extend((i & 0xFF, frame[i]))
+
+        result["unmapped_bytes_hash"] = hashlib.md5(bytes(digest_input)).hexdigest()[:8]
 
         return result
 
@@ -582,6 +610,64 @@ _P25B85_ENTITIES: list[SpaEntityDescription] = [
         name="Spa clock",
         icon="mdi:clock-outline",
         device_class="timestamp",
+        entity_category="diagnostic",
+        enabled_by_default=False,
+    ),
+    SpaEntityDescription(
+        platform="sensor",
+        key="heater_byte_raw",
+        name="Heater byte (raw)",
+        icon="mdi:memory",
+        entity_category="diagnostic",
+        enabled_by_default=False,
+    ),
+    SpaEntityDescription(
+        platform="sensor",
+        key="pump_byte_raw",
+        name="Pump byte (raw)",
+        icon="mdi:memory",
+        entity_category="diagnostic",
+        enabled_by_default=False,
+    ),
+    SpaEntityDescription(
+        platform="sensor",
+        key="ozone_mode_byte_raw",
+        name="Ozone mode byte (raw)",
+        icon="mdi:memory",
+        entity_category="diagnostic",
+        enabled_by_default=False,
+    ),
+    SpaEntityDescription(
+        platform="sensor",
+        key="activity_byte_raw",
+        name="Activity byte (raw)",
+        icon="mdi:memory",
+        entity_category="diagnostic",
+        enabled_by_default=False,
+    ),
+    SpaEntityDescription(
+        platform="sensor",
+        key="light_cycle_byte_raw",
+        name="Light/cycle byte (raw)",
+        icon="mdi:memory",
+        entity_category="diagnostic",
+        enabled_by_default=False,
+    ),
+    SpaEntityDescription(
+        platform="sensor",
+        key="frame_length",
+        name="Frame length",
+        icon="mdi:ruler",
+        state_class="measurement",
+        native_unit="bytes",
+        entity_category="diagnostic",
+        enabled_by_default=False,
+    ),
+    SpaEntityDescription(
+        platform="sensor",
+        key="unmapped_bytes_hash",
+        name="Unmapped bytes hash",
+        icon="mdi:fingerprint",
         entity_category="diagnostic",
         enabled_by_default=False,
     ),

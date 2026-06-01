@@ -20,7 +20,7 @@ OZONE_MODE_MANUAL: str = "manual"
 DEFAULT_HOST: str = "192.168.1.100"
 DEFAULT_PORT: int = 8899
 DEFAULT_MODEL: str = "P25B85"
-DEFAULT_NAME: str = "Joyonway P25B85"
+DEFAULT_NAME: str = "Joyonway Spa"
 
 # RS485 behaviour
 TCP_TIMEOUT: float = 5.0
