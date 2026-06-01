@@ -71,6 +71,7 @@ custom_components/joyonway/
 ├── const.py             # domain, config keys, timing constants, PLATFORMS
 ├── manifest.json        # HACS-compatible, v0.1.0
 ├── config_flow.py       # IP + port, TCP connection test
+├── diagnostics.py       # configuration entry diagnostics export
 ├── protocol.py          # framing, unescape, CRC-32, build_frame
 ├── coordinator.py       # persistent TCP connection + background reader loop
 ├── entity.py            # device_info + JoyonwayCoordinatorEntity base class
@@ -221,7 +222,7 @@ custom_components/joyonway/
 | 17. Options flow | ✅ Done | Ozone mode + auto clock sync |
 | 18. Safety fixes | ✅ Done | No auto writes, schedule guard, pump simplification |
 | 19. Resilient UI refactor | ✅ Done | Persistent connection, optimistic state, grace availability |
-| 20. Polish & release | **In progress** | Code polish + consistency fixes done; live ozone test, version bump, HACS release remain |
+| 20. Polish & release | **In progress** | Tracked in docs/plans/polish_release_plan.md |
 
 ## 5. Next Steps
 
@@ -391,3 +392,18 @@ both heat and filter schedules.
   Also cleaned code style in `IntentQueue` by deduplicating failure-callback
   dispatch into a helper and corrected ozone log wording to avoid implying
   guaranteed send success. Tests: `120 passed`.
+- **Session 24 (2026-06-01):** Codebase review and action items implementation pass.
+  Addressed all valid findings from `docs/review.md` repository review:
+  - Migrated options flow from deprecated `OptionsFlowWithConfigEntry` to standard `OptionsFlow` without positional constructor parameters.
+  - Deduped coordinator storage; removed `hass.data` completely in favor of exclusive `entry.runtime_data = coordinator` across entry setup/unload and all 7 entity platform setup hooks.
+  - Passed `config_entry=entry` to the update coordinator's `super().__init__` constructor call.
+  - Implemented `find_frames_with_indices` in `protocol.py` to extract frames safely along with their boundary indices; removed fragile `rfind` calls in coordinator.
+  - Enhanced buffer parser `_try_parse_buffer` to process all broadcasts sequentially inside a TCP buffer chunk without dropping intermediate updates, returning the latest parsed state.
+  - Narrowed exception catching during frame status parsing to `(IndexError, ValueError, KeyError)`.
+  - Rate-limited `_sync_ozone_mode` execution to at most once per 10 seconds.
+  - Created `diagnostics.py` supporting configuration entry diagnostics.
+  - Registered the custom `live` marker in `pyproject.toml` and set standard `addopts` to default-skip live tests (`-m "not live"`).
+  - Renamed the live test script to `tests/live/test_schedule_ui_matrix.py`.
+  - Cleaned up legacy unused/confusing aliases `MASK_UV`, `IDX_UV_FLAG`, and `HEATER_BLOWER` in `p25b85.py`.
+  - Typed shared `device_info()` return as `DeviceInfo` in `entity.py`.
+  - Added new comprehensive test files `tests/test_config_flow.py` and new tests to `tests/test_coordinator_resilient.py` to verify config flows, multi-frame buffer parses, and exception narrowings. Tests: `129 passed`.

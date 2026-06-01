@@ -1,6 +1,7 @@
 # OS/editor/local config
 .DS_Store
 .idea/
+.vscode/
 .local/
 .env
 

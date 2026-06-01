@@ -45,8 +45,6 @@ IDX_HEATER_STATE = 14  # ✅ confirmed (KDy "byte 15")
 IDX_SETPOINT = 16    # Fahrenheit
 IDX_LIGHT_FLAGS = 17   # ✅ confirmed (KDy "byte 18")
 IDX_ACTIVITY_FLAG = 28  # ✅ confirmed (KDy "byte 29"); set during heating and UV/ozone
-# Legacy alias kept for raw diagnostics/backward compatibility.
-IDX_UV_FLAG = IDX_ACTIVITY_FLAG
 
 # Ozone mode mask (byte 13)
 MASK_OZONE_MODE_MANUAL = 0x80  # bit 7 set = Manual mode
@@ -114,8 +112,6 @@ MASK_HEATING_CYCLE = 0x80
 
 # Activity flag at byte 28 (not UV-specific; use heater byte for UV detection)
 MASK_ACTIVITY = 0x20
-# Legacy alias kept for callers that imported the old name.
-MASK_UV = MASK_ACTIVITY
 
 # Blower flag at byte 28 (bit 3)
 MASK_BLOWER = 0x08
@@ -131,7 +127,6 @@ MASK_BLOWER = 0x08
 MASK_HEATER_BLOWER = 0x08  # bit 3 on heater byte = blower running
 
 HEATER_OFF = 0x40    # Idle/off (KDy called this "cooldown") ✅ confirmed
-HEATER_BLOWER = 0x48       # Blower active (0x40 + bit 3) ✅ Phase 6 confirmed
 HEATER_STANDBY = 0x50      # Heater enabled/armed — waiting for temp drop ✅ confirmed
 HEATER_CIRCULATION = 0x51  # Pre/post-heat circulation (circle icon on panel) — needs full capture confirmation
 HEATER_HEATING = 0x55     # Actively heating (flame icon) ✅ confirmed
@@ -219,7 +214,7 @@ class P25B85Adapter:
         ozone_mode_byte = frame[IDX_OZONE_MODE]
         heater_byte = frame[IDX_HEATER_STATE]
         light_byte = frame[IDX_LIGHT_FLAGS]
-        activity_byte = frame[IDX_UV_FLAG]
+        activity_byte = frame[IDX_ACTIVITY_FLAG]
 
         # Bit 3 of the heater byte is the blower flag — strip it so the
         # status lookup works regardless of whether the blower is running.

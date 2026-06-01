@@ -43,7 +43,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up time entities from config entry."""
-    coordinator: JoyonwayP25B85Coordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator: JoyonwayP25B85Coordinator = entry.runtime_data
     entities = [
         SpaScheduleTime(coordinator, entry, *defn)
         for defn in _SCHEDULE_TIME_DEFS

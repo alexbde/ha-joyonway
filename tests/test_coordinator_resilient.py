@@ -56,6 +56,10 @@ class FakeEntry:
         self.data = {CONF_HOST: "127.0.0.1", CONF_PORT: 8899}
         self.options = {}
 
+    def async_on_unload(self, func):
+        """Mock async_on_unload."""
+        pass
+
 
 @pytest.fixture
 def hass():
@@ -251,6 +255,36 @@ def test_parse_buffer_no_broadcast(coordinator):
     result, consumed = coordinator._try_parse_buffer(bytearray(frame))
     assert result is None
     assert consumed == len(frame)
+
+
+def test_parse_buffer_multiple_broadcasts(coordinator):
+    """Multiple broadcast frames in one buffer are parsed, returning the latest valid state."""
+    frame1 = b"\x1a\xff\x02\x03\x1d"
+    frame2 = b"\x1a\xff\x04\x05\x1d"
+
+    mock_parse = MagicMock(side_effect=[{"status": "heating"}, {"status": "circulation"}])
+    coordinator._adapter.parse_status = mock_parse
+    coordinator._adapter.unescape_full_frame = True
+
+    result, consumed = coordinator._try_parse_buffer(bytearray(frame1 + frame2))
+    assert result == {"status": "circulation"}  # the latest parsed broadcast
+    assert consumed == len(frame1) + len(frame2)
+    assert mock_parse.call_count == 2
+
+
+def test_parse_buffer_exception_handling(coordinator):
+    """Expected exceptions from adapter.parse_status are caught and skipped."""
+    frame1 = b"\x1a\xff\x02\x03\x1d"
+    frame2 = b"\x1a\xff\x04\x05\x1d"
+
+    # First frame raises IndexError, second succeeds
+    mock_parse = MagicMock(side_effect=[IndexError("too short"), {"status": "standby"}])
+    coordinator._adapter.parse_status = mock_parse
+    coordinator._adapter.unescape_full_frame = True
+
+    result, consumed = coordinator._try_parse_buffer(bytearray(frame1 + frame2))
+    assert result == {"status": "standby"}  # first skipped, second returned
+    assert consumed == len(frame1) + len(frame2)
 
 
 # ── Shutdown lifecycle tests ─────────────────────────────────────────
