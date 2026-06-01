@@ -16,11 +16,16 @@ permissions:
 
 jobs:
   test:
+    name: test (${{ matrix.name }})
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
       matrix:
-        python-version: ["3.13", "3.14"]
+        include:
+          - python-version: "3.13"
+            name: "legacy"
+          - python-version: "3.14"
+            name: "current"
 
     steps:
       - name: Checkout code
