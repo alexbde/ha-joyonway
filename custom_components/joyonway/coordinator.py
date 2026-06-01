@@ -39,7 +39,7 @@ from .const import (
     SCAN_INTERVAL,
     TCP_TIMEOUT,
 )
-from .protocol import find_frames, unescape_frame, is_broadcast, validate_frame
+from .protocol import find_frames, find_frames_with_indices, unescape_frame, is_broadcast, validate_frame
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -214,6 +214,7 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
             name=DOMAIN,
             # Fallback poll interval — health check only
             update_interval=timedelta(seconds=SCAN_INTERVAL),
+            config_entry=entry,
         )
         self.host = host
         self.port = port
@@ -242,9 +243,10 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
         self.intent_queue = IntentQueue(self)
 
         # Clock sync
-        self._last_clock_sync_ts: float = 0.0
-        self._last_clock_sync_attempt_ts: float = 0.0
-        self.last_detected_ozone_mode: str | None = None
+        self._last_clock_sync_ts = 0.0
+        self._last_clock_sync_attempt_ts = 0.0
+        self.last_detected_ozone_mode = None
+        self._last_ozone_sync_check_ts = 0.0
 
     @property
     def available(self) -> bool:
@@ -392,15 +394,15 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
 
     def _try_parse_buffer(self, buf: bytes) -> tuple[dict | None, int]:
         """Return (parsed_data, consumed_bytes)."""
-        frames = find_frames(bytes(buf))
+        frames = find_frames_with_indices(bytes(buf))
         if not frames:
             return None, 0
 
         # Calculate consumed bytes up to the end of the last frame found
-        last_frame = frames[-1]
-        last_end = buf.rfind(last_frame) + len(last_frame)
+        _, last_end = frames[-1]
 
-        for raw_frame in frames:
+        latest_data: dict | None = None
+        for raw_frame, _ in frames:
             if not validate_frame(raw_frame):
                 continue
             if not is_broadcast(raw_frame):
@@ -410,13 +412,13 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
 
             try:
                 data = self._adapter.parse_status(logical)
-            except Exception:
+            except (IndexError, ValueError, KeyError):
                 _LOGGER.exception("Adapter parse failed for frame: %s", logical.hex())
                 continue
             if data is not None:
-                return data, last_end
+                latest_data = data
 
-        return None, last_end
+        return latest_data, last_end
 
     # ── Command sending ──────────────────────────────────────────────
 
@@ -471,6 +473,11 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
 
     def _sync_ozone_mode(self, data: dict) -> None:
         """Sync ozone mode config option with spa's broadcast value."""
+        now_ts = time.monotonic()
+        if now_ts - self._last_ozone_sync_check_ts < 10.0:
+            return
+        self._last_ozone_sync_check_ts = now_ts
+
         spa_ozone_mode = data.get("ozone_mode")
         if spa_ozone_mode is not None:
             self.last_detected_ozone_mode = spa_ozone_mode

@@ -25,7 +25,7 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     """Set up sensor entities from config entry."""
-    coordinator: JoyonwayP25B85Coordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator: JoyonwayP25B85Coordinator = entry.runtime_data
     descriptions = coordinator.adapter.entity_descriptions()
 
     entities = [

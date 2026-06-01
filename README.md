@@ -220,7 +220,7 @@ with retries and convergence waits:
 
 ```zsh
 source .venv/bin/activate
-python tests/live/livetest_schedule_ui_matrix.py
+python tests/live/test_schedule_ui_matrix.py
 ```
 
 ## Related Projects

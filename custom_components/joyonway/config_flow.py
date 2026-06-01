@@ -12,7 +12,6 @@ from homeassistant.config_entries import (
     ConfigFlow,
     ConfigFlowResult,
     OptionsFlow,
-    OptionsFlowWithConfigEntry,
 )
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import callback
@@ -62,7 +61,7 @@ class JoyonwayP25B85ConfigFlow(ConfigFlow, domain=DOMAIN):
     @callback
     def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
         """Return the options flow handler."""
-        return JoyonwayP25B85OptionsFlow(config_entry)
+        return JoyonwayP25B85OptionsFlow()
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -95,7 +94,7 @@ class JoyonwayP25B85ConfigFlow(ConfigFlow, domain=DOMAIN):
         )
 
 
-class JoyonwayP25B85OptionsFlow(OptionsFlowWithConfigEntry):
+class JoyonwayP25B85OptionsFlow(OptionsFlow):
     """Handle options for Joyonway P25B85."""
 
     async def async_step_init(
@@ -105,8 +104,8 @@ class JoyonwayP25B85OptionsFlow(OptionsFlowWithConfigEntry):
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
-        current_ozone_mode = self.options.get(OPT_OZONE_MODE, OZONE_MODE_AUTO)
-        current_auto_sync = self.options.get(OPT_AUTO_SYNC_CLOCK, False)
+        current_ozone_mode = self.config_entry.options.get(OPT_OZONE_MODE, OZONE_MODE_AUTO)
+        current_auto_sync = self.config_entry.options.get(OPT_AUTO_SYNC_CLOCK, False)
 
         schema = vol.Schema(
             {

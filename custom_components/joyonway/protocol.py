@@ -41,12 +41,12 @@ for _i in range(256):
     _CRC_TABLE.append(_crc)
 
 
-def find_frames(stream: bytes) -> list[bytes]:
-    """Extract frames delimited by 0x1A ... 0x1D from a raw byte stream.
+def find_frames_with_indices(stream: bytes) -> list[tuple[bytes, int]]:
+    """Extract frames delimited by 0x1A ... 0x1D and their exclusive end indices from a raw stream.
 
     Operates on raw (wire) bytes — do NOT unescape before calling this.
     """
-    frames: list[bytes] = []
+    frames: list[tuple[bytes, int]] = []
     i = 0
     n = len(stream)
     while i < n:
@@ -54,7 +54,7 @@ def find_frames(stream: bytes) -> list[bytes]:
             j = i + 1
             while j < n:
                 if stream[j] == FRAME_END:
-                    frames.append(stream[i : j + 1])
+                    frames.append((stream[i : j + 1], j + 1))
                     i = j + 1
                     break
                 j += 1
@@ -63,6 +63,14 @@ def find_frames(stream: bytes) -> list[bytes]:
         else:
             i += 1
     return frames
+
+
+def find_frames(stream: bytes) -> list[bytes]:
+    """Extract frames delimited by 0x1A ... 0x1D from a raw byte stream.
+
+    Operates on raw (wire) bytes — do NOT unescape before calling this.
+    """
+    return [frame for frame, _ in find_frames_with_indices(stream)]
 
 
 def pseudo_unescape(data: bytes) -> bytes:

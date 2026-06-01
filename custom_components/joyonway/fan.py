@@ -33,7 +33,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up fan entities from a config entry."""
-    coordinator: JoyonwayP25B85Coordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator: JoyonwayP25B85Coordinator = entry.runtime_data
     async_add_entities([SpaPumpFan(coordinator, entry)])
 
 

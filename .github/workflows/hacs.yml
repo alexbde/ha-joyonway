@@ -1,18 +1,28 @@
-# 2026-05-16 | GitHub Actions | Validate integration with HACS action
+# Validate integration with HACS action
 # Runs on: push, pull request, daily schedule, manual dispatch
 # Source: https://hacs.xyz/docs/publish/action
 name: HACS Validation
 
 on:
   push:
+    branches:
+      - main
   pull_request:
   schedule:
     - cron: "0 0 * * *"
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
-  validate:
+  hacs:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
