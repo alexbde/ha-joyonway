@@ -510,6 +510,10 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
         now = dt_util.now()
         try:
             if isinstance(spa_dt, datetime):
+                # spa_datetime is tagged with HA's local timezone (dt_util.DEFAULT_TIME_ZONE)
+                # by the adapter, so both datetimes are in the same tz — comparison is valid.
+                # The resulting now.hour / minute / second are local time, which is what the
+                # spa controller expects (it stores local time with no timezone awareness).
                 drift = abs((now - spa_dt).total_seconds())
             else:
                 return
@@ -521,8 +525,18 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
             self._last_clock_sync_ts = now_ts  # optimistic; failure logged via callback
             _LOGGER.info("Spa clock drift is %.0fs, syncing to HA time", drift)
 
-            def _build_clock_sync(overrides: dict[str, Any], _data: dict | None) -> bytes:
-                return self._adapter.build_datetime_command(
+            def _build_time_sync(overrides: dict[str, Any], _data: dict | None) -> bytes:
+                return self._adapter.build_time_command(
+                    year=overrides["year"],
+                    month=overrides["month"],
+                    day=overrides["day"],
+                    hour=overrides["hour"],
+                    minute=overrides["minute"],
+                    second=overrides["second"],
+                )
+
+            def _build_date_sync(overrides: dict[str, Any], _data: dict | None) -> bytes:
+                return self._adapter.build_date_command(
                     year=overrides["year"],
                     month=overrides["month"],
                     day=overrides["day"],
@@ -534,8 +548,9 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
             def _on_clock_failure() -> None:
                 _LOGGER.warning("Auto clock sync failed")
 
+            # 1. Update Time first (prefix 0x50) so current spa time matches HA time
             self.intent_queue.submit(
-                group="clock_sync",
+                group="clock_sync_time",
                 overrides={
                     "year": now.year,
                     "month": now.month,
@@ -544,7 +559,22 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
                     "minute": now.minute,
                     "second": now.second,
                 },
-                build_fn=_build_clock_sync,
+                build_fn=_build_time_sync,
+                on_failure=_on_clock_failure,
+            )
+
+            # 2. Update Date second (prefix 0x05) with matching time fields to satisfy hardware validation
+            self.intent_queue.submit(
+                group="clock_sync_date",
+                overrides={
+                    "year": now.year,
+                    "month": now.month,
+                    "day": now.day,
+                    "hour": now.hour,
+                    "minute": now.minute,
+                    "second": now.second,
+                },
+                build_fn=_build_date_sync,
                 on_failure=_on_clock_failure,
             )
 
