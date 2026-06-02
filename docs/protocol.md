@@ -90,7 +90,7 @@ These are long frames (60+ bytes) prefixed with destination `0xFF`.
 |------|---------|
 | 8 | Model ID (`0x03` = P25B85) |
 | 9 | Water temperature (°F, raw integer) |
-| 12 | Pump status: `0x00`=off, `0x02`=low, `0x04`=high |
+| 12 | Pump/jets status: `0x00`=off, `0x02`=low, `0x04`=high (manual jets ONLY — independent of automatic circulation) |
 | 13 | Ozone mode flag: bit 7 (`0x80`) = Manual, clear = Auto |
 | 14 | Heater/blower flags (see below) |
 | 16 | Setpoint temperature (°F) |
@@ -134,6 +134,17 @@ These are long frames (60+ bytes) prefixed with destination `0xFF`.
 > is the **heating cycle active** flag — set for the entire cycle including
 > post-heat circulation. Byte 28 bit 5 (`0x20`) also tracks cycle state
 > with identical transitions.
+>
+> **Byte 12 / byte 14 independence confirmed (guided capture 2026-06-02):**
+> Byte 12 (pump/jets) exclusively reflects manual jets state and is completely
+> independent of byte 14 (heater/circulation state). During active circulation
+> (`h=0x51`), pump byte stays `0x00` unless the user manually activates jets.
+> When jets are manually set to low (`p=0x02`) or high (`p=0x04`), they remain
+> at that value through all heating/circulation transitions (standby → heating →
+> post-heat circ). Turning jets off during active circulation correctly sets
+> `p=0x00` even though the circulation pump continues running internally.
+> The spa's display shows jets and circulation as two independent icons,
+> matching this byte-level independence.
 
 **Byte 14 bit fields:**
 - Bit 0: disinfection active (`0x01`)
