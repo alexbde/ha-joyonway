@@ -58,8 +58,18 @@ class SpaSyncClockButton(JoyonwayCoordinatorEntity, ButtonEntity):
             now = dt_util.now()
             coordinator = self.coordinator
 
-            def _build_clock(overrides: dict, data: dict | None) -> bytes | None:
-                return coordinator.adapter.build_datetime_command(
+            def _build_time(overrides: dict, data: dict | None) -> bytes | None:
+                return coordinator.adapter.build_time_command(
+                    year=overrides["year"],
+                    month=overrides["month"],
+                    day=overrides["day"],
+                    hour=overrides["hour"],
+                    minute=overrides["minute"],
+                    second=overrides["second"],
+                )
+
+            def _build_date(overrides: dict, data: dict | None) -> bytes | None:
+                return coordinator.adapter.build_date_command(
                     year=overrides["year"],
                     month=overrides["month"],
                     day=overrides["day"],
@@ -71,9 +81,11 @@ class SpaSyncClockButton(JoyonwayCoordinatorEntity, ButtonEntity):
             def _on_failure() -> None:
                 _LOGGER.error("Clock sync: command failed")
 
-            _LOGGER.debug("Clock sync: submitting intent %s", now.strftime("%Y-%m-%d %H:%M:%S"))
+            _LOGGER.debug("Clock sync: submitting sequential time and date sync intents")
+            
+            # 1. Update Time first (prefix 0x50) so current spa time matches HA time
             coordinator.intent_queue.submit(
-                group="clock_sync",
+                group="clock_sync_time",
                 overrides={
                     "year": now.year,
                     "month": now.month,
@@ -82,6 +94,21 @@ class SpaSyncClockButton(JoyonwayCoordinatorEntity, ButtonEntity):
                     "minute": now.minute,
                     "second": now.second,
                 },
-                build_fn=_build_clock,
+                build_fn=_build_time,
+                on_failure=_on_failure,
+            )
+            
+            # 2. Update Date second (prefix 0x05) with matching time fields to satisfy hardware validation
+            coordinator.intent_queue.submit(
+                group="clock_sync_date",
+                overrides={
+                    "year": now.year,
+                    "month": now.month,
+                    "day": now.day,
+                    "hour": now.hour,
+                    "minute": now.minute,
+                    "second": now.second,
+                },
+                build_fn=_build_date,
                 on_failure=_on_failure,
             )
