@@ -36,6 +36,10 @@ To complete the physical live testing at the spa hardware:
 - [ ] **Documentation:**
   - [ ] Create `CHANGELOG.md` with 1.0.0 release log.
   - [ ] Update `README.md` status, installation links, and compatibility tables.
+- [ ] **GitHub Repository Best Practices:**
+  - [ ] Add GitHub issue templates (`.github/ISSUE_TEMPLATE/` for bug reports, feature requests).
+  - [ ] Add a Pull Request template (`.github/pull_request_template.md`).
+  - [ ] Add contributing guide and repository policies (`CONTRIBUTING.md`, `SECURITY.md`).
 - [ ] **Release tagging:**
   - [ ] Run final unit test suite (`pytest`).
   - [ ] Git commit release configuration, tag the release, and push tags.
