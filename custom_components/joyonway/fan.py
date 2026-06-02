@@ -27,6 +27,7 @@ PRESET_HIGH = "high"
 PRESET_MODES = [PRESET_LOW, PRESET_HIGH]
 
 
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -151,14 +152,14 @@ class SpaPumpFan(JoyonwayCoordinatorEntity, FanEntity):
         """Set pump to a specific preset mode."""
         self._submit_pump_intent(preset_mode)
 
+
     def _submit_pump_intent(self, target: str) -> None:
         """Submit a pump command intent to the queue."""
         if target not in ("off", PRESET_LOW, PRESET_HIGH):
             _LOGGER.warning("Unsupported pump target '%s'", target)
             return
 
-        current = self._get_jets_state()
-        if current == target:
+        if self._pending_state == target:
             return
 
         self._set_pending_state(target)
@@ -166,8 +167,6 @@ class SpaPumpFan(JoyonwayCoordinatorEntity, FanEntity):
 
         def _build_pump(overrides: dict, data: dict | None) -> bytes | None:
             desired = overrides["jets"]
-            if data is not None and data.get("jets") == desired:
-                return None  # no-op
             cmd = coordinator.adapter.build_pump_command(desired)
             if cmd is None:
                 _LOGGER.error("No pump command for target '%s'", desired)
@@ -178,6 +177,7 @@ class SpaPumpFan(JoyonwayCoordinatorEntity, FanEntity):
             self._cancel_pending_timeout()
             self.async_write_ha_state()
 
+        current = self._get_jets_state()
         _LOGGER.debug("Jets: submitting intent (%s→%s)", current, target)
         coordinator.intent_queue.submit(
             group="jets",
