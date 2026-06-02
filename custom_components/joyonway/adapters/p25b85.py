@@ -559,6 +559,47 @@ class P25B85Adapter:
         ])
         return build_frame(bytes(payload))
 
+    def build_time_command(
+        self,
+        hour: int,
+        minute: int,
+        second: int,
+        year: int = 2000,
+        month: int = 1,
+        day: int = 1,
+    ) -> bytes:
+        """Build a Time-only set command frame (prefix 0x50)."""
+        return self.build_datetime_command(
+            year=year,
+            month=month,
+            day=day,
+            hour=hour,
+            minute=minute,
+            second=second,
+            set_date=False,
+        )
+
+    def build_date_command(
+        self,
+        year: int,
+        month: int,
+        day: int,
+        hour: int,
+        minute: int,
+        second: int,
+    ) -> bytes:
+        """Build a Date-only / Date & Time set command frame (prefix 0x05)."""
+        return self.build_datetime_command(
+            year=year,
+            month=month,
+            day=day,
+            hour=hour,
+            minute=minute,
+            second=second,
+            set_date=True,
+        )
+
+
 
 _P25B85_ENTITIES: list[SpaEntityDescription] = [
     # Sensors
