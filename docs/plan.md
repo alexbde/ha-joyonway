@@ -43,7 +43,7 @@ To complete the physical live testing at the spa hardware:
 - [ ] **Release tagging:**
   - [ ] Run final unit test suite (`pytest`).
   - [ ] Git commit release configuration, tag the release, and push tags.
-  - [ ] Create GitHub release with changelog details.
+  - [ ] Create GitHub release with full release notes/changelog body text in markdown, so HACS can display the changes directly in the HA Update UI instead of a simple external link.
 
 ---
 
