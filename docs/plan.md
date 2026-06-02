@@ -8,28 +8,17 @@
 ---
 
 ## 1. Open Todos
-
+ 
 ### 1.1 Remaining Live Verification
-We need to test the remaining control paths and resilience features on physical hardware.
+We have consolidated and replaced the old schedule runner with a comprehensive, unified live verification suite at [test_spa_controls.py](file:///Users/alex/repositories/alexbde/ha-joyonway/tests/live/test_spa_controls.py). This suite covers all basic controls, complete schedule matrices, ozone controls, clock drift/auto-sync, intent queue coalescing/cooldowns, and socket drop resilience.
 
-1. **Test Ozone Control:**
-   * Verify manual on/off toggles in Manual mode.
-   * Verify state is reflected correctly on the HA UI and corresponds to the physical panel.
-2. **Verify Auto Clock Sync:**
-   * Verify the clock sync triggers when time drift exceeds 30 seconds.
-   * Confirm the 1-hour cooldown is respected on both success and failure.
-3. **Verify Resilient UI & Reconnection:**
-   * Test physical connection drops (e.g. EW11 bridge restarts or network drops).
-   * Verify the persistent connection reconnects with exponential backoff.
-   * Verify optimistic state snap-backs (with 10-second timeout warning logs) function correctly.
-
-> [!TIP]
-> **Live Test Script Suggestion:** 
-> It makes great sense to write an automated live test script (e.g. [test_resilience_and_control.py](file:///Users/alex/repositories/alexbde/ha-joyonway/tests/live/test_resilience_and_control.py) or similar) to verify these paths, similar to how [test_schedule_ui_matrix.py](file:///Users/alex/repositories/alexbde/ha-joyonway/tests/live/test_schedule_ui_matrix.py) validates the schedule. 
-> This script could:
-> - Temporarily inject a large time offset to force-trigger clock sync.
-> - Cycle ozone controls.
-> - Temporarily close the TCP connection to verify automatic reconnects and optimistic state timeouts.
+To complete the physical live testing at the spa hardware:
+- [ ] **Run the Unified Live Verification Suite on Physical Hardware:**
+  - Configure the `.env` file at the root with `SPA_BRIDGE_HOST` and `SPA_BRIDGE_PORT`.
+  - Activate the virtual environment (`source .venv/bin/activate`).
+  - Run the suite: `python tests/live/test_spa_controls.py`.
+  - Select option `0` to execute all tests, or target specific numbers (1 through 6) to run individual suites.
+  - Review the generated JSONL log files and raw binary captures inside `tests/live/artifacts_schedule_matrix/`.
 
 ---
 
@@ -91,3 +80,4 @@ We need to test the remaining control paths and resilience features on physical 
 - **Phase 24 (June 2026):** Code review enhancements, including options flow refactor, exclusive `entry.runtime_data` usage, sequential multi-frame parsing, and config entry diagnostics support.
 - **Phase 25 (June 2026):** Sniffed the about/version screens and proved that version info is managed locally by the touchpad's own flash, not broadcasted over RS485.
 - **Phase 26 (June 2026):** Replaced branding icons with clean, transparent-background SVGs/PNGs (halo-free matting).
+- **Phase 27 (June 2026):** Replaced the single-purpose `test_schedule_ui_matrix.py` with a highly optimized, Unified Live Verification Suite at [test_spa_controls.py](file:///Users/alex/repositories/alexbde/ha-joyonway/tests/live/test_spa_controls.py) to validate all logical control paths (basic controls, schedule matrix, ozone controls, clock sync, intent queue coalescing/cooldown, and connection drop resilience). Optimized all delay and timeout variables for `--dry-run` simulation mode to achieve sub-20 second suite runs, achieving 100% dry-run pass rate (57/57 tests). Updated live test documentation in [README.md](file:///Users/alex/repositories/alexbde/ha-joyonway/tests/live/README.md).
