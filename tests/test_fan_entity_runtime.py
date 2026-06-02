@@ -58,7 +58,7 @@ class DummyIntentQueue:
     def __init__(self, coordinator):
         self._coordinator = coordinator
 
-    def submit(self, group, overrides, build_fn, on_failure=None):
+    def submit(self, group, overrides, build_fn, on_failure=None, verify_fn=None):
         frame = build_fn(overrides, self._coordinator.data)
         if frame is not None:
             asyncio.ensure_future(self._coordinator.async_send_command(frame))
