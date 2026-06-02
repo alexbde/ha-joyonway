@@ -203,12 +203,12 @@ This integration is built as a collaborative community-oriented project! We welc
 - **Reporting findings:** Help map undocumented registers or share command byte structures.
 - **Improving performance:** Fix bugs, refactor entities, or improve UI translations.
 
-### How to Help Reverse Engineer (Telemetry Capturing Guide)
+### How to Help Reverse Engineer
 
-If you have a Joyonway spa controller and want to help map its protocol or add full support for its firmware features, please follow this guide to capture and share diagnostic data:
+If you have a different Joyonway spa controller model and want to help map its protocol or add support for its features, you can capture and share telemetry:
 
 #### 1. Expose Raw Protocol Telemetry in HA
-Go to the **Joyonway Spa** integration, click **Entities**, and enable the following diagnostic sensors:
+Go to the **Joyonway Spa** integration in Home Assistant, click **Entities**, and enable the diagnostic sensors:
 - **Heater byte (raw)**
 - **Pump byte (raw)**
 - **Ozone mode byte (raw)**
@@ -217,22 +217,21 @@ Go to the **Joyonway Spa** integration, click **Entities**, and enable the follo
 - **Frame length**
 - **Unmapped bytes hash**
 
-Perform actions on your physical spa touchpad (e.g. click jets, lights, or adjust thermostat) and note down which raw bytes change in Home Assistant.
+Perform actions on your physical spa touchpad (e.g. click jets, lights, or adjust thermostat) and note down which raw bytes change.
 
 #### 2. Run the Developer Broadcast Byte Capture Tool
-If you have terminal access, you can run our standalone developer utility to analyze unmapped registers in real time directly using the virtual environment executable:
+If you have terminal access, you can run our standalone developer utility to analyze unmapped registers in real time:
 
 ```zsh
 # Run the analysis tool to capture 20 frames directly
-SPA_BRIDGE_HOST="192.168.1.150" SPA_BRIDGE_PORT="8899" .venv/bin/python tools/capture_unmapped_bytes.py --count 20
+SPA_BRIDGE_HOST="192.168.1.150" SPA_BRIDGE_PORT="8899" python3 tools/capture_unmapped_bytes.py --count 20
 ```
 
-The tool will parse your controller's unmapped bytes and print a clean breakdown showing:
-- Which byte positions are static vs. changing.
-- All observed hex values for each register.
-- The unique `unmapped_bytes_hash` MD5 fingerprint.
+The tool will parse your controller's unmapped bytes and print a clean breakdown showing which byte positions are static vs. changing, their observed values, and your unique MD5 `unmapped_bytes_hash`.
 
-Please share these tables, your spa model, and touchpad model on our [Community Discussion Thread](https://community.home-assistant.io/t/joyonway-spa-control/582344) or open a GitHub Issue!
+Please share these details, your spa model, and touchpad model on our [Community Discussion Thread](https://community.home-assistant.io/t/joyonway-spa-control/582344) or open a GitHub Issue!
+
+
 
 ## Development & Testing
 
