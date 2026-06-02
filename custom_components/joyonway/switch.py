@@ -251,23 +251,24 @@ class SpaHeaterSwitch(_SpaTargetStateSwitch):
         self._attr_unique_id = f"{entry.entry_id}_heater_switch"
         self._attr_device_info = device_info(entry)
 
+    def _get_coordinator_heater_state(self) -> bool | None:
+        if self.coordinator.data is None:
+            return None
+        val = self.coordinator.data.get("heater_enabled")
+        if val is None:
+            status = self.coordinator.data.get("status")
+            if status is not None:
+                val = status in ("standby", "circulation", "heating")
+        return val
+
     @property
     def is_on(self) -> bool | None:
         if self._pending_state is not None:
             return self._pending_state
-        if self.coordinator.data is None:
-            return None
-        status = self.coordinator.data.get("status")
-        if status is None:
-            return None
-        return status in ("standby", "circulation", "heating")
+        return self._get_coordinator_heater_state()
 
     def _broadcast_confirms_pending(self) -> bool:
-        status = self.coordinator.data.get("status")
-        if status is None:
-            return False
-        current_on = status in ("standby", "circulation", "heating")
-        return current_on == self._pending_state
+        return self._get_coordinator_heater_state() == self._pending_state
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         if self.is_on:
@@ -285,18 +286,22 @@ class SpaHeaterSwitch(_SpaTargetStateSwitch):
         coordinator = self.coordinator
 
         def _build_heater(overrides: dict, data: dict | None) -> bytes | None:
-            target = overrides["heater_on"]
+            target = overrides["heater_enabled"]
+            current = None
             if data is not None:
-                status = data.get("status")
-                current_on = status in ("standby", "circulation", "heating") if status else False
-                if current_on == target:
-                    return None  # no-op
+                current = data.get("heater_enabled")
+                if current is None:
+                    status = data.get("status")
+                    if status is not None:
+                        current = status in ("standby", "circulation", "heating")
+            if current == target:
+                return None  # no-op
             return coordinator.adapter.build_heater_command(on=target)
 
         _LOGGER.debug("Heater: submitting intent (on=%s)", on)
         coordinator.intent_queue.submit(
             group="heater",
-            overrides={"heater_on": on},
+            overrides={"heater_enabled": on},
             build_fn=_build_heater,
             on_failure=self._clear_pending_on_failure,
         )
@@ -346,7 +351,7 @@ class SpaBlowerSwitch(_SpaTargetStateSwitch):
         coordinator = self.coordinator
 
         def _build_blower(overrides: dict, data: dict | None) -> bytes | None:
-            target = overrides["blower_on"]
+            target = overrides["blower"]
             if data is not None and data.get("blower") == target:
                 return None  # no-op
             return coordinator.adapter.build_blower_command(on=target)
@@ -354,7 +359,7 @@ class SpaBlowerSwitch(_SpaTargetStateSwitch):
         _LOGGER.debug("Blower: submitting intent (on=%s)", on)
         coordinator.intent_queue.submit(
             group="blower",
-            overrides={"blower_on": on},
+            overrides={"blower": on},
             build_fn=_build_blower,
             on_failure=self._clear_pending_on_failure,
         )
@@ -413,7 +418,7 @@ class SpaOzoneSwitch(_SpaTargetStateSwitch):
         coordinator = self.coordinator
 
         def _build_ozone(overrides: dict, data: dict | None) -> bytes | None:
-            target = overrides["ozone_on"]
+            target = overrides["ozone_active"]
             if data is not None and data.get("ozone_active") == target:
                 return None  # no-op
             return coordinator.adapter.build_ozone_manual_command(on=target)
@@ -421,7 +426,7 @@ class SpaOzoneSwitch(_SpaTargetStateSwitch):
         _LOGGER.debug("Ozone: submitting intent (on=%s)", on)
         coordinator.intent_queue.submit(
             group="ozone",
-            overrides={"ozone_on": on},
+            overrides={"ozone_active": on},
             build_fn=_build_ozone,
             on_failure=self._clear_pending_on_failure,
         )

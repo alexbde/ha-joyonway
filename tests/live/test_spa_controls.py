@@ -192,7 +192,7 @@ class DryRunSimulator:
         self.light = False
         self.blower = False
         self.jets = "off"
-        self.heater = False
+        self.heater = True
         self.ozone_mode = "auto"
         self.ozone_active = False
         
@@ -248,9 +248,10 @@ class DryRunSimulator:
             else:
                 heater_val = 0x41  # HEATER_OZONE
         elif self.heater:
-            heater_val = 0x55  # HEATER_HEATING
-        elif self.water_temp < self.setpoint:
-            heater_val = 0x50  # HEATER_STANDBY
+            if self.water_temp < self.setpoint:
+                heater_val = 0x55  # HEATER_HEATING
+            else:
+                heater_val = 0x50  # HEATER_STANDBY
 
         if self.blower:
             heater_val |= 0x08  # MASK_HEATER_BLOWER
@@ -266,7 +267,7 @@ class DryRunSimulator:
         light_val = 0
         if self.light:
             light_val |= 0x01
-        if self.heater or self.water_temp < self.setpoint:
+        if self.heater and self.water_temp < self.setpoint:
             light_val |= 0x80
         payload.append(light_val)
         
@@ -1123,6 +1124,7 @@ class FakeCoordinator:
         self.writer = writer
         self.sent_frames = []
         self._last_command_ts = 0.0
+        self._on_data_callbacks = []
 
     async def async_send_command(self, frame: bytes) -> bool:
         now = time.monotonic()
@@ -1181,9 +1183,9 @@ async def test_intent_queue(reader: asyncio.StreamReader, writer: asyncio.Stream
         except Exception:
             return False
 
-    iq.submit("light", {"light": True}, build_light)
-    iq.submit("jets", {"jets": "low"}, build_jets)
-    iq.submit("light", {"light": False}, build_light)
+    iq.submit("light", {"light": True}, build_light, verify_fn=lambda overrides, data: True)
+    iq.submit("jets", {"jets": "low"}, build_jets, verify_fn=lambda overrides, data: True)
+    iq.submit("light", {"light": False}, build_light, verify_fn=lambda overrides, data: True)
 
     print(f"    Waiting {'0.2s' if dry_run else '3.0s'} for coalesce queue to flush...")
     await asyncio.sleep(0.2 if dry_run else 3.0)
@@ -1204,8 +1206,8 @@ async def test_intent_queue(reader: asyncio.StreamReader, writer: asyncio.Stream
     print("  Testing Command Cooldown spacing...")
     coord.sent_frames.clear()
     
-    iq.submit("light", {"light": True}, build_light)
-    iq.submit("jets", {"jets": "low"}, build_jets)
+    iq.submit("light", {"light": True}, build_light, verify_fn=lambda overrides, data: True)
+    iq.submit("jets", {"jets": "low"}, build_jets, verify_fn=lambda overrides, data: True)
     
     # Wait for execution to finish
     await asyncio.sleep(1.5 if dry_run else 6.0)
@@ -1227,8 +1229,8 @@ async def test_intent_queue(reader: asyncio.StreamReader, writer: asyncio.Stream
 
     # Revert changes by submitting revert commands to the queue
     print("  Reverting queue test mock changes...")
-    iq.submit("light", {"light": False}, build_light)
-    iq.submit("jets", {"jets": "off"}, build_jets)
+    iq.submit("light", {"light": False}, build_light, verify_fn=lambda overrides, data: True)
+    iq.submit("jets", {"jets": "off"}, build_jets, verify_fn=lambda overrides, data: True)
     await asyncio.sleep(0.2 if dry_run else 3.0)
 
     # Shutdown intent queue
@@ -1508,12 +1510,14 @@ async def run_suite(option: int) -> None:
         if _raw_bin_file:
             _raw_bin_file.close()
 
+        return failed
 
-def show_menu():
+
+def show_menu(dry_run_state: bool):
     print("\n" + "=" * 78)
     print("  Joyonway Spa Live Verification Suite")
     print("=" * 78)
-    if dry_run:
+    if dry_run_state:
         print("  [DRY-RUN] Simulating RS485 connection")
     else:
         print(f"  Host: {HOST}:{PORT}")
@@ -1526,6 +1530,7 @@ def show_menu():
     print("  6) Run TCP Connection Drop & Grace Availability Tests       [~20s]")
     print("  7) Run Low-Level Date & Time Write Test                     [~15s]")
     print("  0) Run ALL Tests                                            [~6m]")
+    print("  d) Toggle Dry-Run / Live Mode")
     print("  (Any other input to Exit)")
     print("=" * 78)
 
@@ -1533,19 +1538,49 @@ def show_menu():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Live verification suite.")
     parser.add_argument("--dry-run", action="store_true", help="Simulate spa connection")
+    parser.add_argument("--live", action="store_true", help="Connect to physical spa")
+    parser.add_argument("--non-interactive", action="store_true", help="Run without user interaction")
     args = parser.parse_args()
 
-    dry_run = args.dry_run
+    # Determine interactivity: check if stdin is a tty and --non-interactive wasn't passed
+    is_interactive = sys.stdin.isatty() and not args.non_interactive
 
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    LOG_PATH = CAPTURE_DIR / f"live_test_{ts}.jsonl"
-    RAW_BIN_PATH = CAPTURE_DIR / f"live_test_{ts}_raw.bin"
+    if not is_interactive:
+        # Non-interactive defaults: default to dry-run unless --live was explicitly requested
+        dry_run = not args.live
+        print(f"Non-interactive mode: running all tests (dry-run={dry_run})...")
+        
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        LOG_PATH = CAPTURE_DIR / f"live_test_{ts}.jsonl"
+        RAW_BIN_PATH = CAPTURE_DIR / f"live_test_{ts}_raw.bin"
 
-    show_menu()
-    user_input = input("Select an option: ").strip()
-    
-    if user_input in ("0", "1", "2", "3", "4", "5", "6", "7"):
-        opt = int(user_input)
-        asyncio.run(run_suite(opt))
-    else:
-        print("Exiting test suite.")
+        failed_count = asyncio.run(run_suite(0))
+        sys.exit(1 if failed_count > 0 else 0)
+
+    # Interactive mode: default to dry-run unless --live was explicitly requested
+    dry_run = args.dry_run if args.dry_run else (not args.live)
+
+    while True:
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        LOG_PATH = CAPTURE_DIR / f"live_test_{ts}.jsonl"
+        RAW_BIN_PATH = CAPTURE_DIR / f"live_test_{ts}_raw.bin"
+
+        show_menu(dry_run)
+        try:
+            user_input = input("Select an option: ").strip().lower()
+        except (KeyboardInterrupt, EOFError):
+            print("\nExiting.")
+            sys.exit(0)
+
+        if user_input == "d":
+            dry_run = not dry_run
+            print(f"Switched mode. Dry-run is now: {dry_run}")
+            continue
+
+        if user_input in ("0", "1", "2", "3", "4", "5", "6", "7"):
+            opt = int(user_input)
+            failed_count = asyncio.run(run_suite(opt))
+            sys.exit(1 if failed_count > 0 else 0)
+        else:
+            print("Exiting test suite.")
+            sys.exit(0)

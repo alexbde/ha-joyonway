@@ -96,6 +96,7 @@ class SpaSyncClockButton(JoyonwayCoordinatorEntity, ButtonEntity):
                 },
                 build_fn=_build_time,
                 on_failure=_on_failure,
+                verify_fn=lambda overrides, data: True,
             )
             
             # 2. Update Date second (prefix 0x05) with matching time fields to satisfy hardware validation
@@ -111,4 +112,5 @@ class SpaSyncClockButton(JoyonwayCoordinatorEntity, ButtonEntity):
                 },
                 build_fn=_build_date,
                 on_failure=_on_failure,
+                verify_fn=lambda overrides, data: True,
             )

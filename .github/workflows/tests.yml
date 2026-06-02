@@ -45,3 +45,7 @@ jobs:
       - name: Run pytest
         run: |
           pytest -W ignore
+
+      - name: Run live verification suite (dry-run)
+        run: |
+          python tests/live/test_spa_controls.py --non-interactive

@@ -29,7 +29,7 @@ class DummyIntentQueue:
         self._events = events
         self.submissions: list[tuple[str, dict, object]] = []
 
-    def submit(self, group, overrides, build_fn, on_failure=None) -> None:
+    def submit(self, group, overrides, build_fn, on_failure=None, verify_fn=None) -> None:
         self._events.append("submit")
         self.submissions.append((group, overrides, build_fn))
 

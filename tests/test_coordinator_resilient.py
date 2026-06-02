@@ -331,6 +331,7 @@ async def test_intent_queue_flush_drains_pending_immediately(coordinator):
         group="test_group",
         overrides={"x": 1},
         build_fn=lambda overrides, data: b"\xAA",
+        verify_fn=lambda overrides, data: True,
     )
     await coordinator.intent_queue.flush()
 
