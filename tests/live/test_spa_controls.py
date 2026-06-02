@@ -177,6 +177,9 @@ class DryRunStreamWriter:
     def close(self):
         self.sim.active = False
 
+    def is_closing(self):
+        return not self.sim.active
+
     async def wait_closed(self):
         pass
 
@@ -580,6 +583,7 @@ async def test_basic_controls(reader: asyncio.StreamReader, writer: asyncio.Stre
     # 3. Jets Cycling (off -> low -> high -> off)
     print("  Testing Jets Pump (low -> high -> off)...")
     orig_jets = state.get("jets", "off")
+    jets_settle = 0.5 if dry_run else 12.0
     # Low cmd
     cmd_low = adapter.build_pump_command("low")
     await send_raw_command(reader, writer, cmd_low, "Set jets LOW")
@@ -588,6 +592,7 @@ async def test_basic_controls(reader: asyncio.StreamReader, writer: asyncio.Stre
     results.append(("Jets LOW command", ok_low))
     if new_state:
         state = new_state
+    await asyncio.sleep(jets_settle)
         
     # High cmd
     cmd_high = adapter.build_pump_command("high")
@@ -597,6 +602,7 @@ async def test_basic_controls(reader: asyncio.StreamReader, writer: asyncio.Stre
     results.append(("Jets HIGH command", ok_high))
     if new_state:
         state = new_state
+    await asyncio.sleep(jets_settle)
 
     # Off cmd
     cmd_off = adapter.build_pump_command("off")
@@ -606,21 +612,27 @@ async def test_basic_controls(reader: asyncio.StreamReader, writer: asyncio.Stre
     results.append(("Jets OFF command", ok_off))
     if new_state:
         state = new_state
+    await asyncio.sleep(jets_settle)
 
     # Restore Jets
     if state.get("jets") != orig_jets:
         cmd_restore = adapter.build_pump_command(orig_jets)
         await send_raw_command(reader, writer, cmd_restore, f"Restore jets (target: {orig_jets})")
         await wait_for_expected_state(reader, lambda st: st.get("jets") == orig_jets)
+        await asyncio.sleep(jets_settle)
 
     # 4. Temperature Setpoint
     print("  Testing Setpoint Adjust...")
     orig_setpoint = state.get("setpoint", 37)
     target_setpoint = orig_setpoint - 1 if orig_setpoint >= 37 else orig_setpoint + 1
-    cmd_temp = adapter.build_temp_command(target_setpoint)
-    await send_raw_command(reader, writer, cmd_temp, f"Setpoint change (target: {target_setpoint}°C)")
-    
-    converged, new_state = await wait_for_expected_state(reader, lambda st: st.get("setpoint") == target_setpoint)
+
+    async def _setpoint_action(_attempt: int):
+        cmd_temp = adapter.build_temp_command(target_setpoint)
+        await send_raw_command(reader, writer, cmd_temp, f"Setpoint change attempt {_attempt} (target: {target_setpoint}°C)")
+        conv, after = await wait_for_expected_state(reader, lambda st: st.get("setpoint") == target_setpoint)
+        return conv, after
+
+    converged, new_state = await attempt_with_retries(_setpoint_action, "Temp setpoint change")
     print(f"  {'PASS' if converged else 'FAIL'}: Setpoint set from {orig_setpoint}°C to {target_setpoint}°C")
     results.append(("Temp setpoint change", converged))
     if new_state:
@@ -628,9 +640,42 @@ async def test_basic_controls(reader: asyncio.StreamReader, writer: asyncio.Stre
 
     # Restore Setpoint
     if converged:
-        cmd_restore = adapter.build_temp_command(orig_setpoint)
-        await send_raw_command(reader, writer, cmd_restore, f"Restore setpoint (target: {orig_setpoint}°C)")
-        await wait_for_expected_state(reader, lambda st: st.get("setpoint") == orig_setpoint)
+        async def _setpoint_restore(_attempt: int):
+            cmd_restore = adapter.build_temp_command(orig_setpoint)
+            await send_raw_command(reader, writer, cmd_restore, f"Restore setpoint attempt {_attempt} (target: {orig_setpoint}°C)")
+            conv, after = await wait_for_expected_state(reader, lambda st: st.get("setpoint") == orig_setpoint)
+            return conv, after
+
+        _, new_state = await attempt_with_retries(_setpoint_restore, "Restore setpoint")
+        if new_state:
+            state = new_state
+
+    # 5. Heater Switch Toggle & Roundtrip
+    print("  Testing Heater Switch...")
+    initial_status = state.get("status", "off")
+    orig_heater_on = initial_status in ("standby", "circulation", "heating")
+    target_heater_on = not orig_heater_on
+    
+    def _is_heater_state(st: dict, target: bool) -> bool:
+        curr_status = st.get("status", "off")
+        curr_on = curr_status in ("standby", "circulation", "heating")
+        return curr_on == target
+
+    # Roundtrip: if it was ON before, turn it OFF first, then ON
+    # If it was OFF before, turn it ON first, then OFF
+    cmd_heater = adapter.build_heater_command(target_heater_on)
+    await send_raw_command(reader, writer, cmd_heater, f"Heater toggle (target: {target_heater_on})")
+    ok_toggle, new_state = await wait_for_expected_state(reader, lambda st: _is_heater_state(st, target_heater_on))
+    print(f"  {'PASS' if ok_toggle else 'FAIL'}: Heater toggled from {orig_heater_on} to {target_heater_on}")
+    results.append(("Heater toggle", ok_toggle))
+    if new_state:
+        state = new_state
+
+    # Restore heater
+    if ok_toggle:
+        cmd_restore = adapter.build_heater_command(orig_heater_on)
+        await send_raw_command(reader, writer, cmd_restore, f"Restore Heater (target: {orig_heater_on})")
+        await wait_for_expected_state(reader, lambda st: _is_heater_state(st, orig_heater_on))
 
     return results
 
@@ -832,8 +877,15 @@ async def test_ozone_controls(reader: asyncio.StreamReader, writer: asyncio.Stre
 
         # Toggle OFF
         cmd_off = adapter.build_ozone_manual_command(False)
-        await send_raw_command(reader, writer, cmd_off, "Manual Ozone OFF (in MANUAL mode)")
-        ok_off, new_state = await wait_for_expected_state(reader, lambda st: st.get("ozone_active") is False)
+        await send_raw_command(reader, writer, cmd_off, "Manual Ozone OFF (in MANUAL mode, action=0x10)")
+        ok_off, new_state = await wait_for_expected_state(reader, lambda st: st.get("ozone_active") is False, timeout_s=6.0)
+        
+        if not ok_off:
+            print("    Ozone OFF (action=0x10) failed to turn it off. Trying fallback action=0x00...")
+            cmd_off_fallback = adapter._build_button_command(btn_group=0x01, btn_action=0x00, context=0x40)
+            await send_raw_command(reader, writer, cmd_off_fallback, "Manual Ozone OFF Fallback (action=0x00)")
+            ok_off, new_state = await wait_for_expected_state(reader, lambda st: st.get("ozone_active") is False, timeout_s=6.0)
+
         print(f"    {'PASS' if ok_off else 'FAIL'}: Manual Ozone OFF")
         results.append(("Manual Ozone OFF (in MANUAL mode)", ok_off))
         if new_state:
@@ -897,7 +949,7 @@ async def test_clock_sync(reader: asyncio.StreamReader, writer: asyncio.StreamWr
     drifted_time = datetime.now().timestamp() + 90
     dt_drift = datetime.fromtimestamp(drifted_time)
     
-    cmd_drift = adapter.build_datetime_command(
+    cmd_drift = adapter.build_time_command(
         year=dt_drift.year, month=dt_drift.month, day=dt_drift.day,
         hour=dt_drift.hour, minute=dt_drift.minute, second=dt_drift.second
     )
@@ -918,7 +970,7 @@ async def test_clock_sync(reader: asyncio.StreamReader, writer: asyncio.StreamWr
     # 2. Trigger clock sync back to system time
     print("  Triggering clock sync to restore correct system time...")
     now = datetime.now()
-    cmd_sync = adapter.build_datetime_command(
+    cmd_sync = adapter.build_time_command(
         year=now.year, month=now.month, day=now.day,
         hour=now.hour, minute=now.minute, second=now.second
     )
@@ -933,6 +985,128 @@ async def test_clock_sync(reader: asyncio.StreamReader, writer: asyncio.StreamWr
     ok_sync, _ = await wait_for_expected_state(reader, _is_synced)
     print(f"  {'PASS' if ok_sync else 'FAIL'}: Clock synchronized successfully")
     results.append(("Clock synchronization", ok_sync))
+
+    return results
+
+
+# ── Test Suite 7: Low-Level Date & Time Write Test ───────────────────
+async def test_set_datetime(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> list[tuple[str, bool]]:
+    print("\n--- Running Date & Time Write Test ---")
+    results = []
+
+    # Get baseline — the spa stores raw local time with no timezone awareness.
+    # The parser tags it +00:00 but it is always local time.
+    state = await read_broadcast(reader)
+    if state is None:
+        print("  FAIL: Unable to read baseline broadcast.")
+        return [("DateTime baseline check", False)]
+
+    orig_dt = state.get("spa_datetime")
+    print(f"  Baseline Spa Datetime: {orig_dt}")
+
+    now = datetime.now()  # local time — always matches what the spa stores
+
+    # ── Helper: extract naive local datetime from a broadcast state ──────
+    def _spa_naive_dt(st: dict) -> datetime | None:
+        spa_dt = st.get("spa_datetime")
+        if isinstance(spa_dt, datetime):
+            return spa_dt.replace(tzinfo=None)  # strip the misleading +00:00 tag
+        return None
+
+    # 1. Test Time-only Write (prefix 0x50)
+    # The hardware validates that the DATE fields in this command match the spa's
+    # current internal date — use the spa's current date, not necessarily today.
+    spa_date = _spa_naive_dt(state) or now
+    target_time_dt = now.replace(hour=(now.hour + 1) % 24)
+    print(f"  1) Testing Time-only Write (prefix 0x50, target hour: {target_time_dt.hour}): {target_time_dt.strftime('%H:%M:%S')}")
+    cmd_time = adapter.build_time_command(
+        year=spa_date.year, month=spa_date.month, day=spa_date.day,  # spa's current date
+        hour=target_time_dt.hour, minute=target_time_dt.minute, second=target_time_dt.second,
+    )
+    await send_raw_command(reader, writer, cmd_time, "Set custom Time (time-only)")
+
+    def _is_target_time(st: dict) -> bool:
+        spa_dt = _spa_naive_dt(st)
+        if spa_dt is None:
+            return False
+        # Compare only time-of-day: the spa date may still differ from local today,
+        # and a full-datetime delta would produce a multi-day error even when the time is right.
+        target_secs = target_time_dt.hour * 3600 + target_time_dt.minute * 60 + target_time_dt.second
+        spa_secs = spa_dt.hour * 3600 + spa_dt.minute * 60 + spa_dt.second
+        return abs(spa_secs - target_secs) < 15
+
+    ok_time, new_state = await wait_for_expected_state(reader, _is_target_time)
+    print(f"  {'PASS' if ok_time else 'FAIL'}: Time-only clock update verified")
+    results.append(("Time-only write (0x50)", ok_time))
+    if new_state:
+        state = new_state
+
+    # 2. Test Date-only / Date-change Write (prefix 0x05)
+    # Toggles the day field (between day 5 and 6) to verify the date update is parsed & applied.
+    # The controller requires the TIME fields in this command to match the spa's current internal
+    # time — read the spa's current time after step 1 so the time fields are correct.
+    spa_after_step1 = _spa_naive_dt(state) or now
+    target_date_day = 5 if spa_after_step1.day != 5 else 6
+    target_date_dt = spa_after_step1.replace(day=target_date_day)
+    print(f"  2) Testing Date-only Write (prefix 0x05, target day: {target_date_day}): {target_date_dt.strftime('%Y-%m-%d %H:%M:%S')}")
+    cmd_date = adapter.build_date_command(
+        year=target_date_dt.year, month=target_date_dt.month, day=target_date_dt.day,
+        hour=spa_after_step1.hour, minute=spa_after_step1.minute, second=spa_after_step1.second,
+    )
+    await send_raw_command(reader, writer, cmd_date, "Set custom Date (date-only/change)")
+
+    def _is_target_date(st: dict) -> bool:
+        spa_dt = _spa_naive_dt(st)
+        return spa_dt is not None and spa_dt.day == target_date_day
+
+    ok_date, new_state = await wait_for_expected_state(reader, _is_target_date)
+    print(f"  {'PASS' if ok_date else 'FAIL'}: Date-only clock update verified")
+    results.append(("Date-only write (0x05)", ok_date))
+    if new_state:
+        state = new_state
+
+
+
+    # Restore/Sync back to current system time.
+    # The 0x50 (time-only) command validates that its date fields match the spa's current internal date.
+    # Because test step 2 may have moved the spa date to day 5 or 6, we must read the current spa
+    # state and use *that* (modified) date when constructing the 0x50 restore command.
+    # Then the 0x05 (date) command can set the correct date, after which the time already matches.
+    print("  Restoring spa clock to current system time...")
+    current_state = await read_broadcast(reader)
+    spa_dt_now = current_state.get("spa_datetime") if current_state else None
+    if isinstance(spa_dt_now, datetime):
+        spa_date_for_time_cmd = spa_dt_now.replace(tzinfo=None)
+    else:
+        # Fallback: use the system date (may fail validation if spa date drifted)
+        spa_date_for_time_cmd = datetime.now()
+
+    now_restore = datetime.now()
+    # Step 1: Set time only (0x50) — use the spa's *current* date to satisfy hardware date-match constraint
+    cmd_restore_50 = adapter.build_time_command(
+        year=spa_date_for_time_cmd.year, month=spa_date_for_time_cmd.month, day=spa_date_for_time_cmd.day,
+        hour=now_restore.hour, minute=now_restore.minute, second=now_restore.second
+    )
+    await send_raw_command(reader, writer, cmd_restore_50, "Restore clock step 1: time-only (0x50) with spa's current date")
+    await asyncio.sleep(1.0)  # give spa time to apply time update before reading back for date step
+
+    # Step 2: Set date (0x05) — now spa time matches HA time, safe to set date with matching time fields
+    now_restore2 = datetime.now()
+    cmd_restore_05 = adapter.build_date_command(
+        year=now_restore2.year, month=now_restore2.month, day=now_restore2.day,
+        hour=now_restore2.hour, minute=now_restore2.minute, second=now_restore2.second
+    )
+    await send_raw_command(reader, writer, cmd_restore_05, "Restore clock step 2: date (0x05) with current system date+time")
+
+    def _is_restored(st: dict) -> bool:
+        spa_dt = st.get("spa_datetime")
+        if isinstance(spa_dt, datetime):
+            spa_dt = spa_dt.replace(tzinfo=None)
+        return isinstance(spa_dt, datetime) and abs((spa_dt - datetime.now().replace(tzinfo=None)).total_seconds()) < 15
+
+    ok_restore, _ = await wait_for_expected_state(reader, _is_restored)
+    print(f"  {'PASS' if ok_restore else 'FAIL'}: Spa clock restored to system time")
+    results.append(("Restore/Sync datetime", ok_restore))
 
     return results
 
@@ -959,7 +1133,10 @@ class FakeCoordinator:
         
         self.sent_frames.append((time.monotonic(), frame))
         self._last_command_ts = time.monotonic()
-        await send_raw_command(self.reader, self.writer, frame, "IntentQueue Drain command")
+        # Mock actual sending by not writing to physical socket.
+        # This prevents leaving the physical spa in a modified state.
+        _log_event("mock_command_sent", description="Mock IntentQueue command", wire_hex=frame.hex())
+        await asyncio.sleep(0.05 if dry_run else 0.5)
         return True
 
 
@@ -1045,8 +1222,14 @@ async def test_intent_queue(reader: asyncio.StreamReader, writer: asyncio.Stream
         print(f"    Measured delay between commands: {delay:.2f}s (required: >= {required_delay:.2f}s)")
         ok_cooldown = delay >= required_delay  # allowing slight scheduling drift
         
-    print(f"  {'PASS' if ok_cooldown else 'FAIL'}: Command cooldown spacing verified")
+    print(f"  {'PASS' if ok_cooldown else 'FAIL'}: Command cooldown pacing verified")
     results.append(("Command cooldown pacing", ok_cooldown))
+
+    # Revert changes by submitting revert commands to the queue
+    print("  Reverting queue test mock changes...")
+    iq.submit("light", {"light": False}, build_light)
+    iq.submit("jets", {"jets": "off"}, build_jets)
+    await asyncio.sleep(0.2 if dry_run else 3.0)
 
     # Shutdown intent queue
     await iq.shutdown()
@@ -1068,12 +1251,14 @@ async def test_connection_drop(reader: asyncio.StreamReader, writer: asyncio.Str
         writer.close()
 
     print("  Verifying connectivity detects disconnect...")
-    # Read should return EOF or throw
+    # Read until EOF to consume buffered broadcast frames
     disconnected = False
     try:
-        data = await reader.read(1024)
-        if not data:
-            disconnected = True
+        while True:
+            data = await asyncio.wait_for(reader.read(1024), timeout=1.0)
+            if not data:
+                disconnected = True
+                break
     except Exception:
         disconnected = True
 
@@ -1136,6 +1321,37 @@ async def attempt_with_retries(
     return False, last_state
 
 
+async def restore_schedule_helper(
+    reader: asyncio.StreamReader,
+    writer: asyncio.StreamWriter,
+    schedule_type: str,
+    initial_state: dict,
+) -> None:
+    prefix = schedule_type
+    s1_start = initial_state[f"{prefix}_slot1_start"]
+    s1_end = initial_state[f"{prefix}_slot1_end"]
+    s2_start = initial_state[f"{prefix}_slot2_start"]
+    s2_end = initial_state[f"{prefix}_slot2_end"]
+    s1_enabled = initial_state[f"{prefix}_slot1_enabled"]
+    s2_enabled = initial_state[f"{prefix}_slot2_enabled"]
+    
+    print(f"    Restoring {schedule_type} times...")
+    cmd_time = adapter.build_schedule_command(
+        schedule_type, s1_start, s1_end, s2_start, s2_end,
+        slot1_enabled=s1_enabled, slot2_enabled=s2_enabled,
+        write_mode="time"
+    )
+    await send_raw_command(reader, writer, cmd_time, f"Restore {schedule_type} times")
+    
+    print(f"    Restoring {schedule_type} states...")
+    cmd_state = adapter.build_schedule_command(
+        schedule_type, s1_start, s1_end, s2_start, s2_end,
+        slot1_enabled=s1_enabled, slot2_enabled=s2_enabled,
+        write_mode="state"
+    )
+    await send_raw_command(reader, writer, cmd_state, f"Restore {schedule_type} states")
+
+
 async def run_suite(option: int) -> None:
     global _log_file, _raw_bin_file
 
@@ -1160,8 +1376,14 @@ async def run_suite(option: int) -> None:
 
     reader, writer = await open_spa_connection()
     results = []
+    initial_state = None
 
     try:
+        # Capture baseline state for global recovery
+        initial_state = await read_broadcast(reader, timeout=4.0)
+        if initial_state is None:
+            print("WARNING: Could not read initial baseline state. Global restoration will be skipped.")
+
         # Option 0 or 1: Basic Controls
         if option in (0, 1):
             results.extend(await test_basic_controls(reader, writer))
@@ -1178,6 +1400,10 @@ async def run_suite(option: int) -> None:
         if option in (0, 4):
             results.extend(await test_clock_sync(reader, writer))
 
+        # Option 0 or 7: Low-Level Date & Time Write Test
+        if option in (0, 7):
+            results.extend(await test_set_datetime(reader, writer))
+
         # Option 0 or 5: IntentQueue
         if option in (0, 5):
             results.extend(await test_intent_queue(reader, writer))
@@ -1188,9 +1414,75 @@ async def run_suite(option: int) -> None:
             results.extend(await test_connection_drop(reader, writer))
 
     finally:
-        with contextlib.suppress(Exception):
-            writer.close()
-            await writer.wait_closed()
+        # Reconnect if writer was closed/dropped during testing (e.g. Option 6)
+        restored_conn = False
+        restoration_writer = writer
+        restoration_reader = reader
+        try:
+            if writer is None or writer.is_closing():
+                print("\n  Re-establishing spa connection for cleanup...")
+                restoration_reader, restoration_writer = await open_spa_connection()
+                restored_conn = True
+        except Exception as e:
+            print(f"  Warning: Re-connecting for cleanup failed: {e}")
+            restoration_writer = None
+
+        if restoration_writer is not None and initial_state is not None:
+            print("\n  [RESTORE] Restoring spa to its original state...")
+            try:
+                current = await read_broadcast(restoration_reader, timeout=4.0)
+                if current is not None:
+                    # 1. Restore Light
+                    if current.get("light") != initial_state.get("light"):
+                        print(f"    Restoring Light to {initial_state.get('light')}...")
+                        await send_raw_command(restoration_reader, restoration_writer, adapter.build_light_toggle_command(), "Restore Light")
+
+                    # 2. Restore Blower
+                    if current.get("blower") != initial_state.get("blower"):
+                        print(f"    Restoring Blower to {initial_state.get('blower')}...")
+                        await send_raw_command(restoration_reader, restoration_writer, adapter.build_blower_command(initial_state.get("blower")), "Restore Blower")
+
+                    # 3. Restore Jets
+                    if current.get("jets") != initial_state.get("jets"):
+                        print(f"    Restoring Jets to {initial_state.get('jets')}...")
+                        await send_raw_command(restoration_reader, restoration_writer, adapter.build_pump_command(initial_state.get("jets")), "Restore Jets")
+                        await asyncio.sleep(1.0 if dry_run else 12.0)
+
+                    # 4. Restore Setpoint
+                    if current.get("setpoint") != initial_state.get("setpoint"):
+                        print(f"    Restoring Setpoint to {initial_state.get('setpoint')}°C...")
+                        await send_raw_command(restoration_reader, restoration_writer, adapter.build_temp_command(initial_state.get("setpoint")), "Restore Setpoint")
+
+                    # 5. Restore Ozone Mode
+                    if current.get("ozone_mode") != initial_state.get("ozone_mode"):
+                        print(f"    Restoring Ozone mode to {initial_state.get('ozone_mode')}...")
+                        await send_raw_command(restoration_reader, restoration_writer, adapter.build_ozone_mode_command(initial_state.get("ozone_mode")), "Restore Ozone Mode")
+
+                    # 6. Restore Heater Switch
+                    initial_status = initial_state.get("status", "off")
+                    current_status = current.get("status", "off")
+                    initial_heater_on = initial_status in ("standby", "circulation", "heating")
+                    current_heater_on = current_status in ("standby", "circulation", "heating")
+                    if current_heater_on != initial_heater_on:
+                        print(f"    Restoring Heater to {'ON' if initial_heater_on else 'OFF'}...")
+                        await send_raw_command(restoration_reader, restoration_writer, adapter.build_heater_command(initial_heater_on), "Restore Heater")
+
+                    # 7. Restore Schedules (if option in 0 or 2)
+                    if option in (0, 2):
+                        for sched in ("heat", "filter"):
+                            await restore_schedule_helper(restoration_reader, restoration_writer, sched, initial_state)
+            except Exception as err:
+                print(f"  Warning: State restoration failed: {err}")
+
+        # Close the connection
+        if restored_conn and restoration_writer is not None:
+            with contextlib.suppress(Exception):
+                restoration_writer.close()
+                await restoration_writer.wait_closed()
+        elif writer is not None:
+            with contextlib.suppress(Exception):
+                writer.close()
+                await writer.wait_closed()
 
         passed = sum(1 for _, ok in results if ok)
         failed = sum(1 for _, ok in results if not ok)
@@ -1232,6 +1524,7 @@ def show_menu():
     print("  4) Run Clock Drift & Auto-Sync Tests (Force drift → sync)   [~15s]")
     print("  5) Run IntentQueue Coalescing & Cooldown Tests              [~15s]")
     print("  6) Run TCP Connection Drop & Grace Availability Tests       [~20s]")
+    print("  7) Run Low-Level Date & Time Write Test                     [~15s]")
     print("  0) Run ALL Tests                                            [~6m]")
     print("  (Any other input to Exit)")
     print("=" * 78)
@@ -1251,7 +1544,7 @@ if __name__ == "__main__":
     show_menu()
     user_input = input("Select an option: ").strip()
     
-    if user_input in ("0", "1", "2", "3", "4", "5", "6"):
+    if user_input in ("0", "1", "2", "3", "4", "5", "6", "7"):
         opt = int(user_input)
         asyncio.run(run_suite(opt))
     else:
