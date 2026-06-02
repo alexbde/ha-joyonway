@@ -19,6 +19,8 @@ These tests are designed to be run directly against the hardware via the TCP-to-
 4. **Clock Drift & Auto-Sync Tests:** Forces a temporary datetime drift (90 seconds into the future) and triggers sync calculations to restore time to match system clock, validating correct year offset transmission.
 5. **IntentQueue Coalescing & Cooldown Tests:** Validates queue coalescing (cancelling out contradictory rapid toggles), no-op logic, and mandatory command execution cooldown spacing (>= 1.0s).
 6. **TCP Connection Drop & Grace Availability Tests:** Simulates a physical TCP drop, verifying the coordinator's exponential reconnection backoff scheduling and the 10-second entity availability grace timer.
+7. **Low-Level Date & Time Write Test:** Tests time-only clock writes (prefix `0x50`) vs. full date & time clock writes (prefix `0x05`) to verify physical board compatibility.
+
 
 ### How to Run:
 

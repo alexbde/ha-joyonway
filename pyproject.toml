@@ -20,9 +20,10 @@ packages = []
 
 [tool.pytest.ini_options]
 minversion = "8.0"
-addopts = "-ra -m \"not live\""
+addopts = "-ra -m \"not live\" --ignore=tests/live"
 testpaths = ["tests"]
 asyncio_default_fixture_loop_scope = "function"
+asyncio_mode = "auto"
 markers = [
     "live: tests requiring physical hardware/bridge connections",
 ]

@@ -229,7 +229,20 @@ SPA_BRIDGE_HOST="192.168.1.150" SPA_BRIDGE_PORT="8899" python3 tools/capture_unm
 
 The tool will parse your controller's unmapped bytes and print a clean breakdown showing which byte positions are static vs. changing, their observed values, and your unique MD5 `unmapped_bytes_hash`.
 
-Please share these details, your spa model, and touchpad model on our [Community Discussion Thread](https://community.home-assistant.io/t/joyonway-spa-control/582344) or open a GitHub Issue!
+#### 3. Run the Live Verification Suite
+To see what works on your hardware and what might need adjustments, you can run the live test suite in either simulation/dry-run mode or directly against your hardware:
+
+```zsh
+# Run the verification suite offline in simulation mode
+python3 tests/live/test_spa_controls.py --dry-run
+
+# Run directly against your physical hardware (bridge host/port configured in .env)
+python3 tests/live/test_spa_controls.py
+```
+
+This checks basic commands, schedule matrices, ozone controls, auto-sync, and connection drop resilience, generating a test summary showing compatibilities.
+
+Please share these details, your test results, your spa model, and touchpad model on our [Community Discussion Thread](https://community.home-assistant.io/t/joyonway-spa-control/582344) or open a GitHub Issue!
 
 
 
@@ -247,10 +260,16 @@ python3.13 -m venv .venv
 
 Requires Python 3.13+. The `[test]` extra installs `pytest-homeassistant-custom-component` and all HA runtime dependencies.
 
-### Live schedule matrix test (optional)
+### Live Verification Suite (optional)
+
+To verify the integration controls against real spa hardware or simulate it offline:
 
 ```zsh
-.venv/bin/python tests/live/test_schedule_ui_matrix.py
+# Run in simulation/dry-run mode
+.venv/bin/python tests/live/test_spa_controls.py --dry-run
+
+# Run directly on the physical hardware bridge
+.venv/bin/python tests/live/test_spa_controls.py
 ```
 
 ## Related Projects
