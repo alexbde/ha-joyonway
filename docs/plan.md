@@ -7,6 +7,58 @@
 
 ---
 
+## 0. AI Instructions
+
+- **No PII / timestamps in code.** Do NOT add dates, author names, usernames,
+  IP addresses, or any data that could identify the developer or when work was
+  done. Dates belong only in this plan file and in git history — never in
+  `.py`, `.json`, or other shipped files.
+- **Naming convention for data keys and entities.** Keep names short and
+  consistent. No `_state` or `_status` suffixes — use bare nouns: `jets`,
+  `blower`, `light`, `status`, `setpoint`. The integration is pre-release;
+  there is no backwards compatibility constraint on key/entity naming.
+  When in doubt, match the naming already used by sibling entities.
+- This plan file is the single source of truth for the AI. Read it at the
+  start of every session.
+- **End-of-session routine.** When the user says "end this session" (or
+  similar), before finishing:
+  1. Write any new findings, decisions, or context into this plan file so a
+     fresh session can pick up without loss.
+  2. Remove redundant, outdated, or already-completed information to keep
+     the file concise and the mental load small.
+  3. Review `README.md` and update it if implementation, entities, terminology,
+     setup steps, or safety notes changed during the session.
+  4. Verify the plan file is self-contained — a new AI session with no
+     prior context should be able to read it and continue the project.
+
+### 0.1 Guided Capture Scripts
+
+When investigating unknown byte behavior or verifying protocol assumptions, create an **interactive guided capture script** rather than asking the user to manually operate the spa and describe what they see. This produces deterministic, parseable evidence.
+
+**General mechanism:**
+
+1. **Define a runbook** — a numbered sequence of physical actions (e.g., "enable heater", "set jets to low") with clear transition triggers (byte values or parsed state changes that indicate the action was completed).
+2. **Build a script** that:
+   - Connects to the bridge via TCP socket (using `.env` for host/port)
+   - Imports the protocol parser and adapter from `custom_components/` to parse frames in real-time
+   - Displays a live one-line status showing all relevant byte values (hex) and parsed states
+   - Guides the user through each step with clear prompts (`[STEP N/M] instruction`)
+   - Automatically detects step transitions by monitoring parsed state changes
+   - Captures steady-state data (e.g., `time.sleep(5)` after a transition) when needed
+   - Writes all raw bytes to a `.bin` file in `tools/captures/` for later analysis
+3. **Step transition logic** should check parsed byte values directly (e.g., `p_raw == 0x02`) in addition to derived state strings (e.g., `jets == "low"`) for robustness.
+4. **Analysis scripts** can then parse the `.bin` capture file to produce state transition tables, proving or disproving assumptions about byte semantics.
+
+**Template:** See [guided_capture.py](file:///Users/alex/repositories/alexbde/ha-joyonway/tools/guided_capture.py) for the reference implementation.
+
+**Key design rules:**
+- Use `socket.setblocking(False)` with a polling loop (not asyncio) for simplicity in standalone scripts
+- Print status with `\r` carriage return for live updating without scroll
+- Detect stale connections (no data for 15s) and warn the user
+- Always save raw bytes — they can be re-parsed with different logic later
+
+---
+
 ## 1. Open Todos
  
 ### 1.1 Remaining Live Verification
@@ -90,32 +142,4 @@ To complete the physical live testing at the spa hardware:
 - **Phase 30 (June 2026):** Implemented an adaptive, broadcast-counting State Verification and Retry Loop inside `IntentQueue` (up to 3 attempts, waiting up to 2 broadcasts per attempt, with a 4.0s safety timeout and failure callback to immediately clear optimistic state). Aligned all entity `overrides` dictionary keys with coordinator broadcast data keys across the light, heater, blower, ozone, and setpoint controls. Overrode `async_set_updated_data` in the coordinator to notify custom callbacks instead of using Home Assistant's `async_add_listener` (avoiding issues with `FakeEntry` missing `pref_disable_polling`). Refactored unit tests and the dry-run test suite (fixing decoupled heater/ozone simulation states and adding a `--non-interactive` mode). Integrated the dry-run verification suite as a step in the GitHub Actions `tests.yml` CI workflow. All 131 unit tests and 61 dry-run simulation tests pass successfully.
 - **Phase 31 (June 2026):** Guided capture at the physical spa proved byte 12 (pump) exclusively represents manual jets, completely independent of automatic circulation (byte 14). During circulation (`h=0x51`), pump byte stays `0x00`; manual jets produce `0x02` (low) or `0x04` (high) regardless of heating/circulation state. Removed the unnecessary `_verify_jets` special-case function — the default `_default_verify` (`data["jets"] == target`) is sufficient. The original jets command failures were caused by (a) the `_submit_pump_intent` no-op check comparing against live state instead of pending state, and (b) the `_build_pump` builder having a redundant no-op check. Both were fixed in Phase 30. Created [guided_capture.py](file:///Users/alex/repositories/alexbde/ha-joyonway/tools/guided_capture.py) — a reusable interactive capture tool.
 
----
 
-## 5. AI Instructions
-
-### 5.1 Guided Capture Scripts
-
-When investigating unknown byte behavior or verifying protocol assumptions, create an **interactive guided capture script** rather than asking the user to manually operate the spa and describe what they see. This produces deterministic, parseable evidence.
-
-**General mechanism:**
-
-1. **Define a runbook** — a numbered sequence of physical actions (e.g., "enable heater", "set jets to low") with clear transition triggers (byte values or parsed state changes that indicate the action was completed).
-2. **Build a script** that:
-   - Connects to the bridge via TCP socket (using `.env` for host/port)
-   - Imports the protocol parser and adapter from `custom_components/` to parse frames in real-time
-   - Displays a live one-line status showing all relevant byte values (hex) and parsed states
-   - Guides the user through each step with clear prompts (`[STEP N/M] instruction`)
-   - Automatically detects step transitions by monitoring parsed state changes
-   - Captures steady-state data (e.g., `time.sleep(5)` after a transition) when needed
-   - Writes all raw bytes to a `.bin` file in `tools/captures/` for later analysis
-3. **Step transition logic** should check parsed byte values directly (e.g., `p_raw == 0x02`) in addition to derived state strings (e.g., `jets == "low"`) for robustness.
-4. **Analysis scripts** can then parse the `.bin` capture file to produce state transition tables, proving or disproving assumptions about byte semantics.
-
-**Template:** See [guided_capture.py](file:///Users/alex/repositories/alexbde/ha-joyonway/tools/guided_capture.py) for the reference implementation.
-
-**Key design rules:**
-- Use `socket.setblocking(False)` with a polling loop (not asyncio) for simplicity in standalone scripts
-- Print status with `\r` carriage return for live updating without scroll
-- Detect stale connections (no data for 15s) and warn the user
-- Always save raw bytes — they can be re-parsed with different logic later
