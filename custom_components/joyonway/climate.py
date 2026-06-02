@@ -193,7 +193,7 @@ class SpaClimate(JoyonwayCoordinatorEntity, ClimateEntity):
             coordinator: JoyonwayP25B85Coordinator = self.coordinator
 
             def _build_temp(overrides: dict, data: dict | None) -> bytes | None:
-                target_c = overrides["setpoint_c"]
+                target_c = overrides["setpoint"]
                 if data is not None and data.get("setpoint") == target_c:
                     return None  # no-op
                 cmd = coordinator.adapter.build_temp_command(target_c)
@@ -216,7 +216,7 @@ class SpaClimate(JoyonwayCoordinatorEntity, ClimateEntity):
             self._arm_pending_timeout()
             coordinator.intent_queue.submit(
                 group="setpoint",
-                overrides={"setpoint_c": scheduled_target},
+                overrides={"setpoint": scheduled_target},
                 build_fn=_build_temp,
                 on_failure=_on_failure,
             )

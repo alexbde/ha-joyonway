@@ -52,6 +52,7 @@ async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> Non
             on_failure=lambda: _LOGGER.error(
                 "Ozone mode: failed to send '%s' command", new_mode
             ),
+            verify_fn=lambda overrides, data: True,
         )
         await coordinator.intent_queue.flush()
         _LOGGER.info("Ozone mode: queue flushed for '%s' before reload", new_mode)

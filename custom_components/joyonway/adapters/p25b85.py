@@ -258,6 +258,7 @@ class P25B85Adapter:
             "jets": jets,
             "light": bool(light_byte & MASK_LIGHT),
             "heater_active": heater_base in (HEATER_HEATING, HEATER_HEATING_ALT),
+            "heater_enabled": status in ("standby", "circulation", "heating"),
             "status": status,
             "heater_byte": heater_byte,
             "ozone_active": heater_base in (HEATER_OZONE, HEATER_OZONE_ALT),

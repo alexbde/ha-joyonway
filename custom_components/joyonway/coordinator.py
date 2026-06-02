@@ -48,6 +48,16 @@ class IntentBuildError(Exception):
     """Raised when an intent cannot be built due to invalid/missing prerequisites."""
 
 
+def _default_verify(overrides: dict[str, Any], data: dict[str, Any] | None) -> bool:
+    """Default verification function: checks if all overrides keys match in coordinator data."""
+    if data is None:
+        return False
+    for k, v in overrides.items():
+        if data.get(k) != v:
+            return False
+    return True
+
+
 @dataclass
 class _PendingGroup:
     """A batch of coalesced intents for one group."""
@@ -55,6 +65,7 @@ class _PendingGroup:
     overrides: dict[str, Any]
     build_fn: Callable[[dict[str, Any], dict[str, Any] | None], bytes | None]
     on_failure_callbacks: list[Callable[[], None]] = field(default_factory=list)
+    verify_fn: Callable[[dict[str, Any], dict[str, Any] | None], bool] | None = None
 
 
 class IntentQueue:
@@ -85,6 +96,7 @@ class IntentQueue:
         overrides: dict[str, Any],
         build_fn: Callable[[dict[str, Any], dict[str, Any] | None], bytes | None],
         on_failure: Callable[[], None] | None = None,
+        verify_fn: Callable[[dict[str, Any], dict[str, Any] | None], bool] | None = None,
     ) -> None:
         """Submit an intent for coalescing and eventual execution.
 
@@ -95,11 +107,13 @@ class IntentQueue:
                 Called at drain time. Returns wire-ready bytes, or None to
                 signal a no-op (skip sending).
             on_failure: Called if the command ultimately fails (after retries).
+            verify_fn: Optional function to verify state convergence.
         """
         if group in self._pending:
             pg = self._pending[group]
             pg.overrides.update(overrides)
             pg.build_fn = build_fn
+            pg.verify_fn = verify_fn
             if on_failure:
                 pg.on_failure_callbacks.append(on_failure)
         else:
@@ -107,6 +121,7 @@ class IntentQueue:
                 overrides=dict(overrides),
                 build_fn=build_fn,
                 on_failure_callbacks=[on_failure] if on_failure else [],
+                verify_fn=verify_fn,
             )
 
         # Start the coalesce timer if not already running
@@ -134,7 +149,9 @@ class IntentQueue:
             self._flush_task = asyncio.ensure_future(self._flush_after_window())
 
     async def _process_group(self, group_key: str, group: _PendingGroup) -> None:
-        """Build and send the coalesced command for one group."""
+        """Build and send the coalesced command for one group with verification retries."""
+        from homeassistant.core import callback
+
         data = self._coordinator.data
         try:
             frame = group.build_fn(group.overrides, data)
@@ -154,24 +171,86 @@ class IntentQueue:
             )
             return
 
-        # Send with retry
-        for attempt in range(1 + INTENT_RETRY_COUNT):
-            success = await self._coordinator.async_send_command(frame)
-            if success:
-                _LOGGER.debug(
-                    "Intent queue [%s]: command sent (attempt %d)",
-                    group_key, attempt + 1,
-                )
-                return
-            if attempt < INTENT_RETRY_COUNT:
-                _LOGGER.warning(
-                    "Intent queue [%s]: send failed, retrying", group_key
-                )
-                await asyncio.sleep(0.5)
+        # Use custom verify function or default key-matching check
+        verify_fn = group.verify_fn or _default_verify
 
-        # All attempts failed
-        _LOGGER.error("Intent queue [%s]: command failed after retries", group_key)
-        self._run_failure_callbacks(group_key, group)
+        # Set up temporary coordinator listener to track incoming broadcasts
+        update_event = asyncio.Event()
+        broadcast_count = 0
+
+        @callback
+        def on_update() -> None:
+            nonlocal broadcast_count
+            broadcast_count += 1
+            update_event.set()
+
+        self._coordinator._on_data_callbacks.append(on_update)
+
+        converged = False
+        max_attempts = 3  # 1 initial + 2 retries (total 3)
+
+        try:
+            for attempt in range(max_attempts):
+                # Reset broadcast count for this write attempt
+                broadcast_count = 0
+
+                success = await self._coordinator.async_send_command(frame)
+                if not success:
+                    _LOGGER.warning(
+                        "Intent queue [%s]: send failed on attempt %d",
+                        group_key, attempt + 1
+                    )
+                    if attempt < max_attempts - 1:
+                        await asyncio.sleep(1.0)
+                    continue
+
+                # Wait for convergence: up to 2 broadcasts or 4.0 seconds safety timeout
+                start_time = time.monotonic()
+                while time.monotonic() - start_time < 4.0:
+                    if verify_fn(group.overrides, self._coordinator.data):
+                        converged = True
+                        break
+
+                    if broadcast_count >= 2:
+                        break
+
+                    remaining = 4.0 - (time.monotonic() - start_time)
+                    if remaining <= 0:
+                        break
+
+                    update_event.clear()
+                    try:
+                        await asyncio.wait_for(update_event.wait(), timeout=remaining)
+                    except asyncio.TimeoutError:
+                        _LOGGER.warning(
+                            "Intent queue [%s]: timed out waiting for broadcast updates on attempt %d",
+                            group_key, attempt + 1
+                        )
+                        break
+
+                if converged:
+                    _LOGGER.debug(
+                        "Intent queue [%s]: converged to target state on attempt %d",
+                        group_key, attempt + 1
+                    )
+                    break
+
+                if attempt < max_attempts - 1:
+                    _LOGGER.warning(
+                        "Intent queue [%s]: not converged after %d broadcasts on attempt %d, retrying in 0.5s...",
+                        group_key, broadcast_count, attempt + 1
+                    )
+                    await asyncio.sleep(0.5)
+        finally:
+            if on_update in self._coordinator._on_data_callbacks:
+                self._coordinator._on_data_callbacks.remove(on_update)
+
+        if not converged:
+            _LOGGER.error(
+                "Intent queue [%s]: failed to converge to target state after %d attempts",
+                group_key, max_attempts
+            )
+            self._run_failure_callbacks(group_key, group)
 
     @staticmethod
     def _run_failure_callbacks(group_key: str, group: _PendingGroup) -> None:
@@ -241,6 +320,7 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
 
         # Intent queue for coalescing and serializing user actions
         self.intent_queue = IntentQueue(self)
+        self._on_data_callbacks: list[Callable[[], None]] = []
 
         # Clock sync
         self._last_clock_sync_ts = 0.0
@@ -276,6 +356,15 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
     def auto_sync_clock(self) -> bool:
         """Return whether automatic clock sync is enabled."""
         return self.entry.options.get(OPT_AUTO_SYNC_CLOCK, False)
+
+    def async_set_updated_data(self, data: Any) -> None:
+        """Set new data and notify listeners."""
+        super().async_set_updated_data(data)
+        for cb in list(self._on_data_callbacks):
+            try:
+                cb()
+            except Exception:
+                _LOGGER.exception("Error in coordinator data update callback")
 
     # ── Setup / lifecycle ────────────────────────────────────────────
 
@@ -561,6 +650,7 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
                 },
                 build_fn=_build_time_sync,
                 on_failure=_on_clock_failure,
+                verify_fn=lambda overrides, data: True,
             )
 
             # 2. Update Date second (prefix 0x05) with matching time fields to satisfy hardware validation
@@ -576,5 +666,6 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
                 },
                 build_fn=_build_date_sync,
                 on_failure=_on_clock_failure,
+                verify_fn=lambda overrides, data: True,
             )
 
