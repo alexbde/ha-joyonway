@@ -16,7 +16,6 @@ if str(ROOT) not in sys.path:
 
 from custom_components.joyonway.config_flow import (
     JoyonwayP25B85ConfigFlow,
-    JoyonwayP25B85OptionsFlow,
     _test_connection,
 )
 from custom_components.joyonway.const import (
@@ -128,52 +127,3 @@ async def test_config_flow_user_step_cannot_connect() -> None:
         assert result["type"] == "form"
         assert result["step_id"] == "user"
         assert result["errors"] == {"base": "cannot_connect"}
-
-
-@pytest.mark.asyncio
-async def test_options_flow_step_init_rendering() -> None:
-    """Test options flow step init renders form with defaults."""
-    flow = JoyonwayP25B85OptionsFlow()
-    flow.hass = MagicMock()
-    flow.handler = "test_entry"
-    
-    mock_entry = MagicMock()
-    mock_entry.options = {
-        OPT_OZONE_MODE: OZONE_MODE_MANUAL,
-        OPT_AUTO_SYNC_CLOCK: True,
-    }
-    flow.hass.config_entries.async_get_known_entry.return_value = mock_entry
-
-    result = await flow.async_step_init()
-
-    assert result["type"] == "form"
-    assert result["step_id"] == "init"
-    # Voluptuous schema defaults are kept
-    schema = result["data_schema"]
-    assert schema is not None
-
-
-@pytest.mark.asyncio
-async def test_options_flow_step_init_success() -> None:
-    """Test options flow step init succeeds and creates entry on input."""
-    flow = JoyonwayP25B85OptionsFlow()
-    flow.hass = MagicMock()
-    flow.handler = "test_entry"
-
-    mock_entry = MagicMock()
-    mock_entry.options = {}
-    flow.hass.config_entries.async_get_known_entry.return_value = mock_entry
-
-    user_input = {
-        OPT_OZONE_MODE: OZONE_MODE_AUTO,
-        OPT_AUTO_SYNC_CLOCK: False,
-    }
-
-    result = await flow.async_step_init(user_input)
-
-    assert result["type"] == "create_entry"
-    assert result["title"] == ""
-    assert result["data"] == {
-        OPT_OZONE_MODE: OZONE_MODE_AUTO,
-        OPT_AUTO_SYNC_CLOCK: False,
-    }

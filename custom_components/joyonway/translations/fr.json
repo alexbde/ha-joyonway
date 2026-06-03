@@ -17,22 +17,7 @@
       "already_configured": "Ce pont est déjà configuré."
     }
   },
-  "options": {
-    "step": {
-      "init": {
-        "title": "Options du spa",
-        "description": "Configurer le comportement du spa.",
-        "data": {
-          "ozone_mode": "Mode ozone",
-          "auto_sync_clock": "Synchronisation automatique de l'horloge"
-        },
-        "data_description": {
-          "ozone_mode": "Auto : l'ozone fonctionne uniquement selon la programmation. Manuel : active l'interrupteur ozone pour le contrôle RS485.",
-          "auto_sync_clock": "Synchroniser automatiquement l'horloge du spa lorsque l'écart dépasse 30 secondes."
-        }
-      }
-    }
-  },
+
   "entity": {
     "sensor": {
       "water_temperature": { "name": "Température de l'eau" },
@@ -73,6 +58,9 @@
       "heater": { "name": "Chauffage" },
       "ozone": { "name": "Ozone" },
       "blower": { "name": "Souffleur d'air" },
+      "auto_sync_clock": { "name": "Synchronisation automatique de l'horloge" },
+      "manual_ozone": { "name": "Ozone manuel" },
+      "manual_heating": { "name": "Chauffage manuel" },
       "heat_slot1_enabled": { "name": "Chauffage créneau 1" },
       "heat_slot2_enabled": { "name": "Chauffage créneau 2" },
       "filter_slot1_enabled": { "name": "Filtration créneau 1" },
@@ -88,12 +76,8 @@
       "filter_slot2_start": { "name": "Filtration créneau 2 début" },
       "filter_slot2_end": { "name": "Filtration créneau 2 fin" }
     },
-
     "climate": {
       "thermostat": { "name": "Thermostat" }
-    },
-    "button": {
-      "sync_clock": { "name": "Synchroniser l'horloge" }
     }
   }
 }

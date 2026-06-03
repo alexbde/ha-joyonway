@@ -13,11 +13,12 @@ from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, OZONE_MODE_MANUAL, OPTIMISTIC_TIMEOUT_SECONDS
+from .const import DOMAIN, OZONE_MODE_MANUAL, OPTIMISTIC_TIMEOUT_SECONDS, OPT_AUTO_SYNC_CLOCK
 from .coordinator import IntentBuildError, JoyonwayP25B85Coordinator
 from .entity import JoyonwayCoordinatorEntity, device_info
 
@@ -35,8 +36,11 @@ async def async_setup_entry(
     entities: list[SwitchEntity] = [
         SpaHeaterSwitch(coordinator, entry),
         SpaLightSwitch(coordinator, entry),
-        *([SpaOzoneSwitch(coordinator, entry)] if coordinator.ozone_mode == OZONE_MODE_MANUAL else []),
+        SpaOzoneSwitch(coordinator, entry),
         SpaBlowerSwitch(coordinator, entry),
+        SpaAutoClockSyncSwitch(coordinator, entry),
+        SpaManualOzoneSwitch(coordinator, entry),
+        SpaManualHeaterSwitch(coordinator, entry),
         SpaScheduleSlotSwitch(coordinator, entry, "heat", 1),
         SpaScheduleSlotSwitch(coordinator, entry, "heat", 2),
         SpaScheduleSlotSwitch(coordinator, entry, "filter", 1),
@@ -251,6 +255,11 @@ class SpaHeaterSwitch(_SpaTargetStateSwitch):
         self._attr_unique_id = f"{entry.entry_id}_heater_switch"
         self._attr_device_info = device_info(entry)
 
+    @property
+    def available(self) -> bool:
+        """Only available when manual heating is ON."""
+        return super().available and self.coordinator.heater_mode == "manual"
+
     def _get_coordinator_heater_state(self) -> bool | None:
         if self.coordinator.data is None:
             return None
@@ -387,9 +396,7 @@ class SpaOzoneSwitch(_SpaTargetStateSwitch):
     @property
     def available(self) -> bool:
         """Only available when ozone mode is Manual."""
-        if self.coordinator.ozone_mode != OZONE_MODE_MANUAL:
-            return False
-        return super().available
+        return super().available and self.coordinator.ozone_mode == OZONE_MODE_MANUAL
 
     @property
     def is_on(self) -> bool | None:
@@ -552,5 +559,158 @@ class SpaScheduleSlotSwitch(_SpaTargetStateSwitch):
             group=f"{self._schedule_type}_schedule_state",
             overrides={self._key: enabled},
             build_fn=_build_schedule_state,
+            on_failure=self._clear_pending_on_failure,
+        )
+
+
+class SpaAutoClockSyncSwitch(JoyonwayCoordinatorEntity, SwitchEntity):
+    """Switch entity for enabling/disabling auto clock sync."""
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "auto_sync_clock"
+    _attr_icon = "mdi:clock-fast"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(
+        self,
+        coordinator: JoyonwayP25B85Coordinator,
+        entry: ConfigEntry,
+    ) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_auto_sync_clock"
+        self._attr_device_info = device_info(entry)
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if auto clock sync is enabled."""
+        return self.coordinator.auto_sync_clock
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Enable auto clock sync."""
+        new_options = {**self.coordinator.entry.options, OPT_AUTO_SYNC_CLOCK: True}
+        self.hass.config_entries.async_update_entry(
+            self.coordinator.entry, options=new_options
+        )
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Disable auto clock sync."""
+        new_options = {**self.coordinator.entry.options, OPT_AUTO_SYNC_CLOCK: False}
+        self.hass.config_entries.async_update_entry(
+            self.coordinator.entry, options=new_options
+        )
+
+
+class SpaManualOzoneSwitch(_SpaTargetStateSwitch):
+    """Switch entity for toggling Ozone Mode (Manual vs Auto)."""
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "manual_ozone"
+    _attr_icon = "mdi:shield-sun"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(
+        self,
+        coordinator: JoyonwayP25B85Coordinator,
+        entry: ConfigEntry,
+    ) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_manual_ozone_switch"
+        self._attr_device_info = device_info(entry)
+
+    @property
+    def is_on(self) -> bool | None:
+        if self._pending_state is not None:
+            return self._pending_state
+        if self.coordinator.data is None:
+            return None
+        return self.coordinator.ozone_mode == "manual"
+
+    def _broadcast_confirms_pending(self) -> bool:
+        expected = "manual" if self._pending_state else "auto"
+        return self.coordinator.ozone_mode == expected
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        if self.is_on:
+            return
+        self._submit_mode_intent(manual=True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        if self.is_on is False:
+            return
+        self._submit_mode_intent(manual=False)
+
+    def _submit_mode_intent(self, manual: bool) -> None:
+        self._set_pending_state(manual)
+        coordinator = self.coordinator
+        mode = "manual" if manual else "auto"
+
+        def _build_mode(overrides: dict, data: dict | None) -> bytes | None:
+            target = overrides["mode"]
+            if data is not None and data.get("ozone_mode") == target:
+                return None
+            return coordinator.adapter.build_ozone_mode_command(target)
+
+        coordinator.intent_queue.submit(
+            group="ozone_mode",
+            overrides={"mode": mode},
+            build_fn=_build_mode,
+            on_failure=self._clear_pending_on_failure,
+        )
+
+
+class SpaManualHeaterSwitch(_SpaTargetStateSwitch):
+    """Switch entity for toggling Heater Mode / Manual Heating (Manual vs Auto)."""
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "manual_heating"
+    _attr_icon = "mdi:heating-coil"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(
+        self,
+        coordinator: JoyonwayP25B85Coordinator,
+        entry: ConfigEntry,
+    ) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_manual_heating_switch"
+        self._attr_device_info = device_info(entry)
+
+    @property
+    def is_on(self) -> bool | None:
+        if self._pending_state is not None:
+            return self._pending_state
+        if self.coordinator.data is None:
+            return None
+        return self.coordinator.heater_mode == "manual"
+
+    def _broadcast_confirms_pending(self) -> bool:
+        expected = "manual" if self._pending_state else "auto"
+        return self.coordinator.heater_mode == expected
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        if self.is_on:
+            return
+        self._submit_mode_intent(manual=True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        if self.is_on is False:
+            return
+        self._submit_mode_intent(manual=False)
+
+    def _submit_mode_intent(self, manual: bool) -> None:
+        self._set_pending_state(manual)
+        coordinator = self.coordinator
+        mode = "manual" if manual else "auto"
+
+        def _build_mode(overrides: dict, data: dict | None) -> bytes | None:
+            target = overrides["mode"]
+            if data is not None and data.get("heater_mode") == target:
+                return None
+            return coordinator.adapter.build_heater_mode_command(target)
+
+        coordinator.intent_queue.submit(
+            group="heater_mode",
+            overrides={"mode": mode},
+            build_fn=_build_mode,
             on_failure=self._clear_pending_on_failure,
         )
