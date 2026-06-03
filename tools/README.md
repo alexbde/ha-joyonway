@@ -69,7 +69,6 @@ Binary capture files are automatically saved with timestamped names in `tools/ca
 ---
 
 ## ⚠️ Single-Client Connection Reminder
-Most RS-485 bridges (like the Elfin EW11) only accept a **single TCP client connection**. Before running these utilities, ensure that:
+Most RS-485 bridges only accept a **single TCP client connection**. Before running these utilities, ensure that:
 - The Home Assistant integration is temporarily disabled or stopped.
 - Any mobile connections or other socket clients connected to the bridge are closed.
-

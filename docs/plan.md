@@ -61,20 +61,7 @@ When investigating unknown byte behavior or verifying protocol assumptions, crea
 
 ## 1. Open Todos
  
-### 1.1 Remaining Live Verification
-We have consolidated and replaced the old schedule runner with a comprehensive, unified live verification suite at [test_spa_controls.py](file:///Users/alex/repositories/alexbde/ha-joyonway/tests/live/test_spa_controls.py). This suite covers all basic controls, complete schedule matrices, ozone controls, clock drift/auto-sync, intent queue coalescing/cooldowns, and socket drop resilience.
-
-To complete the physical live testing at the spa hardware:
-- [ ] **Run the Unified Live Verification Suite on Physical Hardware:**
-  - Configure the `.env` file at the root with `SPA_BRIDGE_HOST` and `SPA_BRIDGE_PORT`.
-  - Activate the virtual environment (`source .venv/bin/activate`).
-  - Run the suite: `python tests/live/test_spa_controls.py`.
-  - Select option `0` to execute all tests, or target specific numbers (1 through 6) to run individual suites.
-  - Review the generated JSONL log files and raw binary captures inside `tests/live/artifacts_schedule_matrix/`.
-
----
-
-### 1.2 Polish & Release
+### 1.3 Polish & Release
 - [ ] **Code Polish & Verification:**
   - [ ] Audit imports & dead code (Ruff check/format).
   - [ ] Validate type annotations (`mypy --strict` on core files).
@@ -107,8 +94,8 @@ To complete the physical live testing at the spa hardware:
 - **Optimistic state & Non-silent snap-back:** All writable entities set pending state immediately on command send. Cleared only when broadcast confirms the new value. If not confirmed in 10s, it snaps back and logs a `WARNING` identifying the entity and failed action.
 - **Intent queue:** All entity writes are routed through `IntentQueue` on the coordinator. Merges same-group edits (e.g., multiple schedule slots) within a 300ms coalesce window, cancels redundant commands, and paces commands with a 1.0s cooldown to prevent bus contention.
 - **Schedule command split:** Schedule writes use two flag modes: `write_mode="state"` for enables (`0xAA/0x62/0x9A/0x52`) and `write_mode="time"` for time edits (`0xAA/0x6A/0x9A/0x5A`). Prevents write refusal issues when slot 2 is disabled.
-- **Ozone control:** Mode set via options flow, synced from broadcast byte 13. Ozone switch is created *only* in Manual mode.
-- **Auto clock sync:** Drift-triggered (>30s) sync with a 1-hour cooldown (cooldown applies to both success and failure to prevent log spam).
+- **Ozone control & Heater control availability:** Both Ozone and Heater main switches are linked to their respective configuration switches. SpaOzoneSwitch and SpaHeaterSwitch are only available when the corresponding config switch (SpaManualOzoneSwitch / SpaManualHeaterSwitch) is enabled (meaning the spa is in Manual mode).
+- **Auto clock sync:** Drift-triggered (>30s) sync with a 1-hour cooldown (cooldown applies to both success and failure to prevent log spam). Now managed via a standard native CONFIG switch entity.
 - **Diagnostics support:** Added entry diagnostics via `diagnostics.py` to redact sensitive fields (IP/Port) and export raw byte states (`heater_byte_raw`, `pump_byte_raw`, etc.) for easier troubleshooting.
 
 ---
@@ -143,5 +130,6 @@ To complete the physical live testing at the spa hardware:
 - **Phase 31 (June 2026):** Guided capture at the physical spa proved byte 12 (pump) exclusively represents manual jets, completely independent of automatic circulation (byte 14). During circulation (`h=0x51`), pump byte stays `0x00`; manual jets produce `0x02` (low) or `0x04` (high) regardless of heating/circulation state. Removed the unnecessary `_verify_jets` special-case function — the default `_default_verify` (`data["jets"] == target`) is sufficient. The original jets command failures were caused by (a) the `_submit_pump_intent` no-op check comparing against live state instead of pending state, and (b) the `_build_pump` builder having a redundant no-op check. Both were fixed in Phase 30. Created [guided_capture.py](file:///Users/alex/repositories/alexbde/ha-joyonway/tools/guided_capture.py) — a reusable interactive capture tool.
 - **Phase 32 (June 2026):** Implemented speed percentage control support (`FanEntityFeature.SET_SPEED`, `percentage`, `async_set_percentage`) to `SpaJetsFan` (jets) to resolve UI card control issues. Captured physical bus sniffing of jets transitions, verifying the exact three command bytes (`0x02,0x02`, `0x06,0x04`, `0x04,0x00`) and the controller's state-dependent behavior. Discovered physical hardware limitations where direct transitions `low -> off` and `high -> low` are ignored or shut down. Resolved this by building a transition state machine into `SpaJetsFan` that sequences intermediate states (`low -> high -> off` and `high -> off -> low`) dynamically using the `IntentQueue`. Extended `test_spa_controls.py` to cover all 6 transition permutations (passing 64/64 tests) and updated `DryRunSimulator`. Refactored `guided_capture.py` into a menu-driven capture utility. Documented the findings in `protocol.md` and updated `README.md`. All 132 unit tests pass.
 - **Phase 33 (June 2026):** Enhanced the spa thermostat entity (`SpaClimate`) by reducing `TEMP_DEBOUNCE_SECONDS` to `0.5s` for high-responsiveness setpoint adjustments. Added support for `HVACMode.OFF` and `HVACMode.HEAT` directly on the climate card to arm/disarm the heater. Implemented optimistic `_pending_hvac_mode` tracking with a `10s` safety timeout to prevent card flickering. Mapped coordinator states to HA's HVAC actions: heater disabled (or pending off) $\rightarrow$ `HVACAction.OFF`, status `"heating"` $\rightarrow$ `HVACAction.HEATING`, status `"circulation"` $\rightarrow$ `HVACAction.PREHEATING`, status `"ozone"` $\rightarrow$ `HVACAction.FAN`, status `"standby"` $\rightarrow$ `HVACAction.IDLE`. Expanded the unit test suite (`tests/test_entities_runtime.py`) to verify hvac mode commands, optimistic timeouts, and hvac action mappings. All 134 unit tests and 64 dry-run simulation tests pass.
+- **Phase 34 (June 2026):** Captured physical RS485 packets for heater mode setting transitions on the touchpad using the extended `guided_capture.py` script. Analyzed the packets and found that Byte 13 bit 4 (`0x10`) tracks the manual heating state, and command modifiers/context bytes operate symmetrically to ozone mode (`modifier=0x40`, `context=0x80` for Auto, `context=0xC0` for Manual). Completely removed the configuration options flow, deleting the select platform (`select.py`). Migrated all configuration settings (`Manual Ozone`, `Manual Heating`, and `Auto Clock Sync`) to native HA configuration switches. Established dependency mapping ensuring the main `Ozone` and `Heater` switches are disabled (unavailable) unless their respective `Manual` configuration switches are turned ON. Expanded unit tests to achieve 100% coverage on new entity availability logic. All 137 unit tests pass.
 
 
