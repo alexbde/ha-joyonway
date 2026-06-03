@@ -227,23 +227,88 @@ def test_fan_reports_power_features(entry: SimpleNamespace) -> None:
 
 
 def test_climate_action_mapping(entry: SimpleNamespace) -> None:
-    heating = SpaClimate(DummyCoordinator(data={"status": "heating"}), entry)
-    circulation = SpaClimate(DummyCoordinator(data={"status": "circulation"}), entry)
-    standby = SpaClimate(DummyCoordinator(data={"status": "standby"}), entry)
-    idle = SpaClimate(DummyCoordinator(data={"status": "off"}), entry)
+    # Heater enabled (HEAT mode)
+    heating = SpaClimate(DummyCoordinator(data={"status": "heating", "heater_enabled": True}), entry)
+    circulation = SpaClimate(DummyCoordinator(data={"status": "circulation", "heater_enabled": True}), entry)
+    ozone = SpaClimate(DummyCoordinator(data={"status": "ozone", "heater_enabled": True}), entry)
+    standby = SpaClimate(DummyCoordinator(data={"status": "standby", "heater_enabled": True}), entry)
+
+    # Heater disabled (OFF mode)
+    heater_off = SpaClimate(DummyCoordinator(data={"status": "off", "heater_enabled": False}), entry)
 
     assert heating.hvac_action == HVACAction.HEATING
     assert circulation.hvac_action == HVACAction.PREHEATING
+    assert ozone.hvac_action == HVACAction.FAN
     assert standby.hvac_action == HVACAction.IDLE
-    assert idle.hvac_action == HVACAction.IDLE
+    assert heater_off.hvac_action == HVACAction.OFF
 
 
 @pytest.mark.asyncio
 async def test_climate_rejects_unsupported_hvac_mode(entry: SimpleNamespace) -> None:
     climate = SpaClimate(DummyCoordinator(data={"status": "off"}), entry)
+    climate.hass = DummyHass()
 
     with pytest.raises(HomeAssistantError):
-        await climate.async_set_hvac_mode(HVACMode.OFF)
+        await climate.async_set_hvac_mode(HVACMode.COOL)
+
+
+@pytest.mark.asyncio
+async def test_climate_hvac_mode_commands(entry: SimpleNamespace) -> None:
+    coordinator = DummyCoordinator(data={"status": "off", "heater_enabled": False})
+    climate = SpaClimate(coordinator, entry)
+    climate.hass = DummyHass()
+    climate.async_write_ha_state = lambda: None
+
+    # 1. Turn HEAT on
+    await climate.async_set_hvac_mode(HVACMode.HEAT)
+    assert climate._pending_hvac_mode == HVACMode.HEAT
+    assert climate.hvac_mode == HVACMode.HEAT
+
+    # Let the intent queue run
+    await asyncio.sleep(0)
+    sent = [call.args[0] for call in coordinator.async_send_command.await_args_list]
+    assert CMD_HEATER_ON in sent
+
+    # 2. Simulate broadcast update confirming state
+    coordinator.data["heater_enabled"] = True
+    climate._handle_coordinator_update()
+    assert climate._pending_hvac_mode is None
+    assert climate.hvac_mode == HVACMode.HEAT
+
+    # 3. Turn HEAT off
+    await climate.async_set_hvac_mode(HVACMode.OFF)
+    assert climate._pending_hvac_mode == HVACMode.OFF
+    assert climate.hvac_mode == HVACMode.OFF
+
+    # Let the intent queue run
+    await asyncio.sleep(0)
+    sent = [call.args[0] for call in coordinator.async_send_command.await_args_list]
+    assert CMD_HEATER_OFF in sent
+
+    # Cleanup
+    climate._cancel_pending_hvac_timeout()
+
+
+@pytest.mark.asyncio
+async def test_climate_hvac_mode_optimistic_and_timeout(
+    entry: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    coordinator = DummyCoordinator(data={"status": "off", "heater_enabled": False})
+    climate = SpaClimate(coordinator, entry)
+    climate.hass = DummyHass()
+    climate.async_write_ha_state = lambda: None
+
+    import custom_components.joyonway.climate as climate_module
+    monkeypatch.setattr(climate_module, "OPTIMISTIC_TIMEOUT_SECONDS", 0.01)
+
+    await climate.async_set_hvac_mode(HVACMode.HEAT)
+    assert climate._pending_hvac_mode == HVACMode.HEAT
+    assert climate.hvac_mode == HVACMode.HEAT
+
+    # Wait for the timeout to fire
+    await asyncio.sleep(0.02)
+    assert climate._pending_hvac_mode is None
+    assert climate.hvac_mode == HVACMode.OFF  # reverted
 
 
 @pytest.mark.asyncio

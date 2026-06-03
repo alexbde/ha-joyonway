@@ -511,8 +511,7 @@ flag. The actual hour is in the lower 6 bits (mask 0x3F).
   this byte's value matching actual state.
 - **Auto-off**: pump high speed auto-stops after 20 minutes (hardware timer).
 - **Panel-local settings** confirmed: Auto Lock, Brightness, Screen Flip, and the **About / Diagnostics screens** (Panel ID, Panel Version, Board Version, capability displays like Jets 1 Two Speed, Blower Yes, Ozone Yes, Cycle Pump No) produce no RS485 command frames and no broadcast state changes. Sniff/differential capture analysis verified that during menu click-through, 100% of the broadcast payload remains bit-identical (outside of the ticking clock seconds field) and no interactive query/response traffic occurs. These parameters are stored and handled entirely locally by the display panel.
-- **Light mode setting** was not captured in Phase 6 (skipped). Whether
-  light color mode is RS485 or panel-local remains unknown.
+- **Light color mode**: Physical spa testing and manual review verified that the spa hardware does not support color selection commands. The light automatically cycles through colors locally, and the controller only supports standard ON/OFF toggling via RS485.
 - **Byte 17 bit 7** (`0x80`): Set during heating and disinfection. Not a
   light flag — appears to be a general "active operation" indicator.
   The actual light state is byte 17 bit 0 only.

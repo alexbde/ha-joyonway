@@ -33,7 +33,7 @@ _LOGGER = logging.getLogger(__name__)
 
 # Debounce delay for temperature slider (seconds).
 # Waits this long after the last set_temperature call before sending.
-TEMP_DEBOUNCE_SECONDS = 1.5
+TEMP_DEBOUNCE_SECONDS = 0.5
 
 
 async def async_setup_entry(
@@ -52,7 +52,7 @@ class SpaClimate(JoyonwayCoordinatorEntity, ClimateEntity):
     _attr_has_entity_name = True
     _attr_translation_key = "thermostat"
     _attr_icon = "mdi:hot-tub"
-    _attr_hvac_modes = [HVACMode.HEAT]
+    _attr_hvac_modes = [HVACMode.HEAT, HVACMode.OFF]
     _attr_supported_features = ClimateEntityFeature.TARGET_TEMPERATURE
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_target_temperature_step = 1.0
@@ -72,15 +72,35 @@ class SpaClimate(JoyonwayCoordinatorEntity, ClimateEntity):
         self._debounce_task: asyncio.Task | None = None
         self._pending_temp: int | None = None
         self._pending_timeout_task: asyncio.Task | None = None
+        self._pending_hvac_mode: HVACMode | None = None
+        self._pending_hvac_timeout_task: asyncio.Task | None = None
 
     @callback
     def _handle_coordinator_update(self) -> None:
-        """Clear pending temp when broadcast confirms the new setpoint."""
+        """Clear pending states when broadcast confirms them."""
         if self._pending_temp is not None and self.coordinator.data is not None:
             if self.coordinator.data.get("setpoint") == self._pending_temp:
                 self._pending_temp = None
                 self._cancel_pending_timeout()
+
+        if self._pending_hvac_mode is not None and self.coordinator.data is not None:
+            expected_state = self._pending_hvac_mode == HVACMode.HEAT
+            if self._get_coordinator_heater_state() == expected_state:
+                self._pending_hvac_mode = None
+                self._cancel_pending_hvac_timeout()
+
         super()._handle_coordinator_update()
+
+    def _get_coordinator_heater_state(self) -> bool | None:
+        """Return heater enabled/armed state from coordinator."""
+        if self.coordinator.data is None:
+            return None
+        val = self.coordinator.data.get("heater_enabled")
+        if val is None:
+            status = self.coordinator.data.get("status")
+            if status is not None:
+                val = status in ("standby", "circulation", "heating")
+        return val
 
     def _arm_pending_timeout(self) -> None:
         """Start a timeout to clear pending temp if broadcast never confirms."""
@@ -105,6 +125,29 @@ class SpaClimate(JoyonwayCoordinatorEntity, ClimateEntity):
         self._pending_timeout_task = None
         self.async_write_ha_state()
 
+    def _arm_pending_hvac_timeout(self) -> None:
+        """Start a timeout to clear pending HVAC mode if broadcast never confirms."""
+        self._cancel_pending_hvac_timeout()
+        self._pending_hvac_timeout_task = self.hass.async_create_task(
+            self._pending_hvac_timeout()
+        )
+
+    def _cancel_pending_hvac_timeout(self) -> None:
+        if self._pending_hvac_timeout_task is not None:
+            self._pending_hvac_timeout_task.cancel()
+            self._pending_hvac_timeout_task = None
+
+    async def _pending_hvac_timeout(self) -> None:
+        await asyncio.sleep(OPTIMISTIC_TIMEOUT_SECONDS)
+        _LOGGER.warning(
+            "Thermostat: HVAC mode %s not confirmed by spa within %ds, reverting",
+            self._pending_hvac_mode,
+            int(OPTIMISTIC_TIMEOUT_SECONDS),
+        )
+        self._pending_hvac_mode = None
+        self._pending_hvac_timeout_task = None
+        self.async_write_ha_state()
+
     @property
     def current_temperature(self) -> float | None:
         """Return the current water temperature."""
@@ -123,25 +166,40 @@ class SpaClimate(JoyonwayCoordinatorEntity, ClimateEntity):
 
     @property
     def hvac_mode(self) -> HVACMode:
-        """Return current HVAC mode — spa is always in HEAT mode."""
-        return HVACMode.HEAT
+        """Return current HVAC mode based on heater enabled state."""
+        if self._pending_hvac_mode is not None:
+            return self._pending_hvac_mode
+        state = self._get_coordinator_heater_state()
+        if state is True:
+            return HVACMode.HEAT
+        if state is False:
+            return HVACMode.OFF
+        return HVACMode.HEAT  # fallback / default
 
     @property
     def hvac_action(self) -> HVACAction | None:
-        """Return current HVAC action based on heater state.
+        """Return current HVAC action based on heater state and coordinator status.
 
         Maps controller heater states to HA actions:
+          - HVACMode.OFF → OFF
           - heating → HEATING (actively heating water)
           - circulation → PREHEATING (pump running pre/post-heat)
-          - standby / off / ozone / unknown → IDLE
+          - ozone → FAN
+          - standby / other → IDLE
         """
         if self.coordinator.data is None:
             return None
+
+        if self.hvac_mode == HVACMode.OFF:
+            return HVACAction.OFF
+
         status = self.coordinator.data.get("status")
         if status == "heating":
             return HVACAction.HEATING
         if status == "circulation":
             return HVACAction.PREHEATING
+        if status == "ozone":
+            return HVACAction.FAN
         return HVACAction.IDLE
 
     @property
@@ -154,9 +212,52 @@ class SpaClimate(JoyonwayCoordinatorEntity, ClimateEntity):
         }
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
-        """Set HVAC mode — only HEAT is supported (no-op)."""
-        if hvac_mode != HVACMode.HEAT:
-            raise HomeAssistantError("Only HEAT mode is supported")
+        """Set HVAC mode by enabling/disabling the heater."""
+        if hvac_mode not in self._attr_hvac_modes:
+            raise HomeAssistantError(f"Unsupported HVAC mode: {hvac_mode}")
+
+        if hvac_mode == HVACMode.HEAT:
+            self._submit_heater_intent(on=True)
+        elif hvac_mode == HVACMode.OFF:
+            self._submit_heater_intent(on=False)
+
+    def _submit_heater_intent(self, on: bool) -> None:
+        """Submit heater intent to the queue."""
+        self._pending_hvac_mode = HVACMode.HEAT if on else HVACMode.OFF
+        self._arm_pending_hvac_timeout()
+        self.async_write_ha_state()
+
+        coordinator = self.coordinator
+
+        def _build_heater(overrides: dict, data: dict | None) -> bytes | None:
+            target = overrides["heater_enabled"]
+            current = None
+            if data is not None:
+                current = data.get("heater_enabled")
+                if current is None:
+                    status = data.get("status")
+                    if status is not None:
+                        current = status in ("standby", "circulation", "heating")
+            if current == target:
+                return None  # no-op
+            return coordinator.adapter.build_heater_command(on=target)
+
+        def _on_failure() -> None:
+            self._pending_hvac_mode = None
+            self._cancel_pending_hvac_timeout()
+            self.async_write_ha_state()
+            _LOGGER.error(
+                "Thermostat: heater command failed for HVAC mode %s",
+                "HEAT" if on else "OFF",
+            )
+
+        _LOGGER.debug("Thermostat: submitting heater intent (on=%s)", on)
+        coordinator.intent_queue.submit(
+            group="heater",
+            overrides={"heater_enabled": on},
+            build_fn=_build_heater,
+            on_failure=_on_failure,
+        )
 
     async def async_set_temperature(self, **kwargs) -> None:
         """Set target temperature with debouncing for slider support.
@@ -243,6 +344,7 @@ class SpaClimate(JoyonwayCoordinatorEntity, ClimateEntity):
         await super().async_will_remove_from_hass()
         await self._async_cancel_debounce_task()
         self._cancel_pending_timeout()
+        self._cancel_pending_hvac_timeout()
 
 
 
