@@ -91,7 +91,7 @@ These are long frames (60+ bytes) prefixed with destination `0xFF`.
 | 8 | Model ID (`0x03` = P25B85) |
 | 9 | Water temperature (°F, raw integer) |
 | 12 | Pump/jets status: `0x00`=off, `0x02`=low, `0x04`=high (manual jets ONLY — independent of automatic circulation) |
-| 13 | Ozone mode flag: bit 7 (`0x80`) = Manual, clear = Auto |
+| 13 | Configuration mode flags: bit 7 (`0x80`) = Manual Ozone (clear = Auto), bit 4 (`0x10`) = Manual Heating (clear = Auto) |
 | 14 | Heater/blower flags (see below) |
 | 16 | Setpoint temperature (°F) |
 | 17 | Light/cycle flags: bit 0 = light ON, bit 7 = heating cycle active |
@@ -215,6 +215,17 @@ Where `[type]` = `A1` / `A2` / `A3` / `A4`.
 These use the pattern: `pump_b9=0x00, btn=0x00, modifier=0x80` with byte[12]
 distinguishing the mode. The mode setting is reflected in the broadcast frame
 at byte 13 bit 7 (`0x80` = Manual, clear = Auto).
+
+**Heater mode commands** (byte[9]=`0x00`, byte[11]=`0x40`):
+
+| Mode | byte[12] | Notes |
+|------|----------|-------|
+| Auto | `0x80` | Standard scheduling/automatic heating mode |
+| Manual | `0xC0` | Enables manual ON/OFF heating toggle |
+
+These use the pattern: `pump_b9=0x00, btn=0x00, modifier=0x40` with byte[12]
+distinguishing the mode. The mode setting is reflected in the broadcast frame
+at byte 13 bit 4 (`0x10` = Manual, clear = Auto).
 
 **Pump commands** use bytes 7–8 (panel usually emits transition patterns):
 
@@ -395,6 +406,8 @@ been verified for all frames.
 | Ozone mode → Manual | `1a0120103ca110a10000000080400062003a8412c71d` |
 | Ozone manual ON | `1a0120103ca110a100000101004000620060b46dea1d` |
 | Ozone manual OFF | `1a0120103ca110a1000001100040006200bd2b48431d` |
+| Heater mode → Auto | `1a0120103ca110a1000000004080006200d2e5785d1d` |
+| Heater mode → Manual | `1a0120103ca110a10000000040c0006200a595fe691d` |
 
 #### 5.2. Configuration Commands (Phase 6 capture)
 

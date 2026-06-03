@@ -49,6 +49,7 @@ IDX_ACTIVITY_FLAG = 28  # ✅ confirmed (KDy "byte 29"); set during heating and 
 
 # Ozone mode mask (byte 13)
 MASK_OZONE_MODE_MANUAL = 0x80  # bit 7 set = Manual mode
+MASK_HEATER_MODE_MANUAL = 0x10  # bit 4 set = Manual mode
 IDX_DATETIME_START = 53  # bytes 53-58: year, month, day, hour, minute, second
 
 # Schedule byte positions in broadcast frame
@@ -249,6 +250,8 @@ class P25B85Adapter:
 
         # Ozone mode: bit 7 of byte 13 (0=Auto, 1=Manual)
         ozone_mode_manual = bool(ozone_mode_byte & MASK_OZONE_MODE_MANUAL)
+        # Heater mode: bit 4 of byte 13 (0=Auto, 1=Manual)
+        heater_mode_manual = bool(ozone_mode_byte & MASK_HEATER_MODE_MANUAL)
 
         result: dict = {
             "water_temperature": _fahrenheit_to_celsius(water_temp_f),
@@ -263,6 +266,7 @@ class P25B85Adapter:
             "heater_byte": heater_byte,
             "ozone_active": heater_base in (HEATER_OZONE, HEATER_OZONE_ALT),
             "ozone_mode": "manual" if ozone_mode_manual else "auto",
+            "heater_mode": "manual" if heater_mode_manual else "auto",
             "blower": bool(activity_byte & MASK_BLOWER),
             "heater_byte_raw": heater_byte,
             "pump_byte_raw": pump_byte,
@@ -443,6 +447,26 @@ class P25B85Adapter:
 
         return self._build_button_command(
             modifier=0x80,
+            context=context,
+            setpoint_f=setpoint_f,
+        )
+
+    def build_heater_mode_command(self, mode: str, setpoint_f: int = 0x62) -> bytes:
+        """Build a heater mode switch command (Auto or Manual).
+
+        Args:
+            mode: "auto" or "manual"
+            setpoint_f: current setpoint in °F (controller ignores)
+        """
+        if mode == "auto":
+            context = 0x80
+        elif mode == "manual":
+            context = 0xC0
+        else:
+            raise ValueError(f"Unsupported heater mode: {mode}")
+
+        return self._build_button_command(
+            modifier=0x40,
             context=context,
             setpoint_f=setpoint_f,
         )
