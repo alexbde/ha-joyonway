@@ -51,8 +51,9 @@ CMD_HEATER_ON = _adapter.build_heater_command(on=True)
 CMD_HEATER_OFF = _adapter.build_heater_command(on=False)
 CMD_BLOWER_ON = _adapter.build_blower_command(on=True)
 CMD_BLOWER_OFF = _adapter.build_blower_command(on=False)
-CMD_PUMP_OFF_TO_LOW = _adapter.build_pump_command("low")
-CMD_PUMP_HIGH_TO_OFF = _adapter.build_pump_command("off")
+CMD_PUMP_LOW = _adapter.build_pump_command("low")
+CMD_PUMP_HIGH = _adapter.build_pump_command("high")
+CMD_PUMP_OFF = _adapter.build_pump_command("off")
 
 
 class DummyAdapter:
@@ -81,9 +82,11 @@ class DummyAdapter:
     @staticmethod
     def build_pump_command(target: str) -> bytes | None:
         if target == "low":
-            return CMD_PUMP_OFF_TO_LOW
+            return CMD_PUMP_LOW
+        if target == "high":
+            return CMD_PUMP_HIGH
         if target == "off":
-            return CMD_PUMP_HIGH_TO_OFF
+            return CMD_PUMP_OFF
         return None
 
 
