@@ -499,25 +499,25 @@ def test_build_light_toggle(adapter: P25B85Adapter) -> None:
     assert p[10] == 0x40  # btn_action = toggle
 
 
-def test_build_pump_commands(adapter: P25B85Adapter) -> None:
-    """Pump commands encode correct bytes 7-8 for each target state."""
-    f_low = adapter.build_pump_command("low")
+def test_build_jets_commands(adapter: P25B85Adapter) -> None:
+    """Jets commands encode correct bytes 7-8 for each target state."""
+    f_low = adapter.build_jets_command("low")
     assert f_low is not None
     p_low = _frame_payload(f_low)
     assert p_low[7] == 0x02 and p_low[8] == 0x02
 
-    f_high = adapter.build_pump_command("high")
+    f_high = adapter.build_jets_command("high")
     assert f_high is not None
     p_high = _frame_payload(f_high)
     assert p_high[7] == 0x06 and p_high[8] == 0x04
 
-    f_off = adapter.build_pump_command("off")
+    f_off = adapter.build_jets_command("off")
     assert f_off is not None
     p_off = _frame_payload(f_off)
     assert p_off[7] == 0x04 and p_off[8] == 0x00
 
     # Invalid target returns None
-    assert adapter.build_pump_command("turbo") is None
+    assert adapter.build_jets_command("turbo") is None
 
 
 def test_build_heater_commands(adapter: P25B85Adapter) -> None:

@@ -1,7 +1,7 @@
-"""Fan platform for Joyonway P25B85 — pump speed control.
+"""Fan platform for Joyonway P25B85 — jets speed control.
 
 The spa has a single dual-speed pump (off / low / high).
-Exposed as a fan entity with preset modes for natural HA integration.
+Exposed as a fan entity with speed percentage control.
 Uses optimistic state with snap-back on the next broadcast mismatch.
 Commands are submitted to the coordinator's intent queue.
 """
@@ -22,10 +22,6 @@ from .entity import JoyonwayCoordinatorEntity, device_info
 
 _LOGGER = logging.getLogger(__name__)
 
-PRESET_LOW = "low"
-PRESET_HIGH = "high"
-PRESET_MODES = [PRESET_LOW, PRESET_HIGH]
-
 
 
 async def async_setup_entry(
@@ -35,19 +31,17 @@ async def async_setup_entry(
 ) -> None:
     """Set up fan entities from a config entry."""
     coordinator: JoyonwayP25B85Coordinator = entry.runtime_data
-    async_add_entities([SpaPumpFan(coordinator, entry)])
+    async_add_entities([SpaJetsFan(coordinator, entry)])
 
 
-class SpaPumpFan(JoyonwayCoordinatorEntity, FanEntity):
-    """Fan entity representing the spa pump (off / low / high)."""
+class SpaJetsFan(JoyonwayCoordinatorEntity, FanEntity):
+    """Fan entity representing the spa jets (off / low / high)."""
 
     _attr_has_entity_name = True
     _attr_translation_key = "jets"
     _attr_icon = "mdi:weather-windy"
-    _attr_preset_modes = PRESET_MODES
     _attr_supported_features = (
         FanEntityFeature.SET_SPEED
-        | FanEntityFeature.PRESET_MODE
         | FanEntityFeature.TURN_ON
         | FanEntityFeature.TURN_OFF
     )
@@ -58,7 +52,7 @@ class SpaPumpFan(JoyonwayCoordinatorEntity, FanEntity):
         coordinator: JoyonwayP25B85Coordinator,
         entry: ConfigEntry,
     ) -> None:
-        """Initialize the pump fan."""
+        """Initialize the jets fan."""
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry.entry_id}_jets"
         self._attr_device_info = device_info(entry)
@@ -67,14 +61,19 @@ class SpaPumpFan(JoyonwayCoordinatorEntity, FanEntity):
 
     @callback
     def _handle_coordinator_update(self) -> None:
-        """Clear optimistic state only when broadcast confirms the new value."""
+        """Clear optimistic state or trigger intermediate transitions on update."""
         if self._pending_state is not None and self.coordinator.data is not None:
             current = self.coordinator.adapter.get_jets_state(self.coordinator.data)
             if current == self._pending_state:
                 # Broadcast confirms the new value — clear optimistic state
                 self._cancel_pending_timeout()
                 self._pending_state = None
-            # Otherwise keep pending state until timeout (snap-back on timeout)
+            else:
+                # If we are in an intermediate state of a multi-step transition,
+                # trigger the next transition step.
+                if (current == "high" and self._pending_state == "off") or \
+                   (current == "off" and self._pending_state == "low"):
+                    self._submit_next_jets_step(current, self._pending_state)
         else:
             self._cancel_pending_timeout()
             self._pending_state = None
@@ -124,16 +123,6 @@ class SpaPumpFan(JoyonwayCoordinatorEntity, FanEntity):
         return self.coordinator.data.get("jets", "off") != "off"
 
     @property
-    def preset_mode(self) -> str | None:
-        """Return current preset mode (low/high) or None if off."""
-        state = self._get_jets_state()
-        if state == "high":
-            return PRESET_HIGH
-        if state == "low":
-            return PRESET_LOW
-        return None
-
-    @property
     def percentage(self) -> int | None:
         """Return the current speed percentage."""
         state = self._get_jets_state()
@@ -148,8 +137,8 @@ class SpaPumpFan(JoyonwayCoordinatorEntity, FanEntity):
         if percentage == 0:
             await self.async_turn_off()
             return
-        target = PRESET_LOW if percentage <= 50 else PRESET_HIGH
-        self._submit_pump_intent(target)
+        target = "low" if percentage <= 50 else "high"
+        self._submit_jets_intent(target)
 
     async def async_turn_on(
         self,
@@ -157,43 +146,59 @@ class SpaPumpFan(JoyonwayCoordinatorEntity, FanEntity):
         preset_mode: str | None = None,
         **kwargs: Any,
     ) -> None:
-        """Turn pump on."""
-        del kwargs
-        if preset_mode is not None:
-            await self.async_set_preset_mode(preset_mode)
-            return
+        """Turn jets on."""
+        del preset_mode, kwargs
         if percentage is not None:
             await self.async_set_percentage(percentage)
             return
-        self._submit_pump_intent(PRESET_LOW)
+        self._submit_jets_intent("low")
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        """Turn pump off."""
+        """Turn jets off."""
         del kwargs
-        self._submit_pump_intent("off")
+        self._submit_jets_intent("off")
 
-    async def async_set_preset_mode(self, preset_mode: str) -> None:
-        """Set pump to a specific preset mode."""
-        self._submit_pump_intent(preset_mode)
-
-
-    def _submit_pump_intent(self, target: str) -> None:
-        """Submit a pump command intent to the queue."""
-        if target not in ("off", PRESET_LOW, PRESET_HIGH):
-            _LOGGER.warning("Unsupported pump target '%s'", target)
+    def _submit_jets_intent(self, target: str) -> None:
+        """Submit a jets command intent to the queue."""
+        if target not in ("off", "low", "high"):
+            _LOGGER.warning("Unsupported jets target '%s'", target)
             return
 
         if self._pending_state == target:
             return
 
         self._set_pending_state(target)
+        current = self.coordinator.adapter.get_jets_state(self.coordinator.data or {})
+
+        # Determine the immediate next physical command we must send
+        if current == "low" and target == "off":
+            next_step = "high"
+        elif current == "high" and target == "low":
+            next_step = "off"
+        else:
+            next_step = target
+
+        self._send_jets_command(next_step)
+
+    def _submit_next_jets_step(self, current: str, target: str) -> None:
+        """Submit the next command step in a multi-step transition."""
+        if current == "high" and target == "off":
+            next_step = "off"
+        elif current == "off" and target == "low":
+            next_step = "low"
+        else:
+            return
+        self._send_jets_command(next_step)
+
+    def _send_jets_command(self, next_step: str) -> None:
+        """Submit the physical jets command to the queue."""
         coordinator = self.coordinator
 
-        def _build_pump(overrides: dict, data: dict | None) -> bytes | None:
+        def _build_jets(overrides: dict, data: dict | None) -> bytes | None:
             desired = overrides["jets"]
-            cmd = coordinator.adapter.build_pump_command(desired)
+            cmd = coordinator.adapter.build_jets_command(desired)
             if cmd is None:
-                _LOGGER.error("No pump command for target '%s'", desired)
+                _LOGGER.error("No jets command for target '%s'", desired)
             return cmd
 
         def _on_failure() -> None:
@@ -201,11 +206,11 @@ class SpaPumpFan(JoyonwayCoordinatorEntity, FanEntity):
             self._cancel_pending_timeout()
             self.async_write_ha_state()
 
-        current = self._get_jets_state()
-        _LOGGER.debug("Jets: submitting intent (%s→%s)", current, target)
+        _LOGGER.debug("Jets: sending step command '%s' (target: %s)", next_step, self._pending_state)
+        self._arm_pending_timeout()
         coordinator.intent_queue.submit(
             group="jets",
-            overrides={"jets": target},
-            build_fn=_build_pump,
+            overrides={"jets": next_step},
+            build_fn=_build_jets,
             on_failure=_on_failure,
         )

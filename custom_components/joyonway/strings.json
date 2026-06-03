@@ -88,19 +88,7 @@
       "filter_slot2_start": { "name": "Filter slot 2 start" },
       "filter_slot2_end": { "name": "Filter slot 2 end" }
     },
-    "fan": {
-      "jets": {
-        "name": "Jets",
-        "state_attributes": {
-          "preset_mode": {
-            "state": {
-              "low": "Low",
-              "high": "High"
-            }
-          }
-        }
-      }
-    },
+
     "climate": {
       "thermostat": { "name": "Thermostat" }
     },

@@ -22,13 +22,13 @@ from homeassistant.components.fan import FanEntityFeature
 
 from custom_components.joyonway.adapters.p25b85 import P25B85Adapter
 from custom_components.joyonway.const import CONF_HOST
-from custom_components.joyonway.fan import SpaPumpFan
+from custom_components.joyonway.fan import SpaJetsFan
 
 # Build real command frames
 _adapter = P25B85Adapter()
-CMD_PUMP_LOW = _adapter.build_pump_command("low")
-CMD_PUMP_HIGH = _adapter.build_pump_command("high")
-CMD_PUMP_OFF = _adapter.build_pump_command("off")
+CMD_JETS_LOW = _adapter.build_jets_command("low")
+CMD_JETS_HIGH = _adapter.build_jets_command("high")
+CMD_JETS_OFF = _adapter.build_jets_command("off")
 
 
 class DummyHass:
@@ -45,13 +45,13 @@ class DummyAdapter:
         return data.get("jets", "off")
 
     @staticmethod
-    def build_pump_command(target: str) -> bytes | None:
+    def build_jets_command(target: str) -> bytes | None:
         if target == "low":
-            return CMD_PUMP_LOW
+            return CMD_JETS_LOW
         if target == "high":
-            return CMD_PUMP_HIGH
+            return CMD_JETS_HIGH
         if target == "off":
-            return CMD_PUMP_OFF
+            return CMD_JETS_OFF
         return None
 
 
@@ -87,10 +87,9 @@ def _make_entry() -> SimpleNamespace:
 
 def test_fan_supported_features_include_power_actions() -> None:
     coordinator = DummyCoordinator(data={"jets": "off"})
-    entity = SpaPumpFan(coordinator, _make_entry())
+    entity = SpaJetsFan(coordinator, _make_entry())
 
     assert entity.supported_features & FanEntityFeature.SET_SPEED
-    assert entity.supported_features & FanEntityFeature.PRESET_MODE
     assert entity.supported_features & FanEntityFeature.TURN_ON
     assert entity.supported_features & FanEntityFeature.TURN_OFF
 
@@ -98,14 +97,14 @@ def test_fan_supported_features_include_power_actions() -> None:
 @pytest.mark.asyncio
 async def test_fan_turn_on_and_turn_off_paths() -> None:
     coordinator = DummyCoordinator(data={"jets": "off"})
-    entity = SpaPumpFan(coordinator, _make_entry())
+    entity = SpaJetsFan(coordinator, _make_entry())
     entity.hass = DummyHass()
     entity.async_write_ha_state = lambda: None
 
     # off -> low via turn_on default path
     await entity.async_turn_on()
     await asyncio.sleep(0)  # let intent queue task execute
-    coordinator.async_send_command.assert_awaited_once_with(CMD_PUMP_LOW)
+    coordinator.async_send_command.assert_awaited_once_with(CMD_JETS_LOW)
     assert entity._pending_state == "low"
 
     coordinator.async_send_command.reset_mock()
@@ -117,7 +116,7 @@ async def test_fan_turn_on_and_turn_off_paths() -> None:
     # high -> off via turn_off direct path
     await entity.async_turn_off()
     await asyncio.sleep(0)  # let intent queue task execute
-    coordinator.async_send_command.assert_awaited_once_with(CMD_PUMP_OFF)
+    coordinator.async_send_command.assert_awaited_once_with(CMD_JETS_OFF)
     assert entity._pending_state == "off"
     entity._cancel_pending_timeout()
 
@@ -125,7 +124,7 @@ async def test_fan_turn_on_and_turn_off_paths() -> None:
 @pytest.mark.asyncio
 async def test_fan_percentage_paths() -> None:
     coordinator = DummyCoordinator(data={"jets": "off"})
-    entity = SpaPumpFan(coordinator, _make_entry())
+    entity = SpaJetsFan(coordinator, _make_entry())
     entity.hass = DummyHass()
     entity.async_write_ha_state = lambda: None
 
@@ -135,7 +134,7 @@ async def test_fan_percentage_paths() -> None:
     # Set percentage to 50 (low)
     await entity.async_set_percentage(50)
     await asyncio.sleep(0)
-    coordinator.async_send_command.assert_awaited_once_with(CMD_PUMP_LOW)
+    coordinator.async_send_command.assert_awaited_once_with(CMD_JETS_LOW)
     assert entity._pending_state == "low"
     assert entity.percentage == 50
 
@@ -144,7 +143,7 @@ async def test_fan_percentage_paths() -> None:
     coordinator.data = {"jets": "low"}
 
     # Set percentage to 100 (high)
-    cmd_high = _adapter.build_pump_command("high")
+    cmd_high = _adapter.build_jets_command("high")
     await entity.async_set_percentage(100)
     await asyncio.sleep(0)
     coordinator.async_send_command.assert_awaited_once_with(cmd_high)
@@ -158,7 +157,7 @@ async def test_fan_percentage_paths() -> None:
     # Set percentage to 0 (off)
     await entity.async_set_percentage(0)
     await asyncio.sleep(0)
-    coordinator.async_send_command.assert_awaited_once_with(CMD_PUMP_OFF)
+    coordinator.async_send_command.assert_awaited_once_with(CMD_JETS_OFF)
     assert entity._pending_state == "off"
     assert entity.percentage == 0
     entity._cancel_pending_timeout()

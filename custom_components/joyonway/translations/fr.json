@@ -53,7 +53,7 @@
         "state": {
           "off": "Arrêt",
           "low": "Faible",
-          "high": "Fort"
+          "high": "Élevé"
         }
       },
       "spa_datetime": { "name": "Date & heure" },
@@ -88,19 +88,7 @@
       "filter_slot2_start": { "name": "Filtration créneau 2 début" },
       "filter_slot2_end": { "name": "Filtration créneau 2 fin" }
     },
-    "fan": {
-      "jets": {
-        "name": "Jets",
-        "state_attributes": {
-          "preset_mode": {
-            "state": {
-              "low": "Faible",
-              "high": "Fort"
-            }
-          }
-        }
-      }
-    },
+
     "climate": {
       "thermostat": { "name": "Thermostat" }
     },

@@ -52,7 +52,7 @@ Below is one concrete, fully tested hardware configuration that is confirmed to 
 - **Water temperature** monitoring (°C)
 - **Setpoint temperature** monitoring (°C)
 - **Thermostat control** (10°C to 40°C) with debounced slider writes
-- **Jets control** (off/low/high) via fan preset modes
+- **Jets control** (0% / 50% / 100%) via speed percentage controls
 - **Ozone** manual on/off (available when mode set to Manual in options)
 - **Light** on/off via toggle command
 - **Heater** manual on/off
@@ -175,7 +175,7 @@ These raw-byte telemetry sensors help troubleshoot connection states and reverse
 
 | Entity | Description                                                  |
 |--------|--------------------------------------------------------------|
-| Jets   | Pump control via preset modes `low` / `high` (off supported) |
+| Jets   | Pump control via speed percentages (0% / 50% / 100%) |
 
 ### Climate
 

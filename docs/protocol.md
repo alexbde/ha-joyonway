@@ -228,16 +228,21 @@ at byte 13 bit 7 (`0x80` = Manual, clear = Auto).
 > for pump transitions. Phase 6 captures show `0x00`. Both appear to work.
 > The controller likely ignores byte[10] for pump commands.
 
-**Controller-accepted jets target bytes (integration canonical behavior):**
+**Controller-accepted jets transition bytes (state-dependent hardware behavior):**
 
-| Target | byte[7] | byte[8] | Notes |
-|--------|---------|---------|-------|
-| Off | `0x04` | `0x00` | Accepted regardless of prior state |
-| Low | `0x02` | `0x02` | Accepted regardless of prior state |
-| High | `0x06` | `0x04` | Accepted regardless of prior state |
+The controller does not accept arbitrary direct writes to target states regardless of the current state. Instead, it enforces state-dependent transition rules based on the following three transition commands:
 
-Live tests in this repo confirm direct target writes are accepted (not only
-panel-style cycle transitions). The panel UI still behaves as a cycle button.
+| Transition Command | byte[7] | byte[8] | Controller Behavior by Current State |
+|--------------------|---------|---------|--------------------------------------|
+| **OFF → LOW**      | `0x02`  | `0x02`  | • From **OFF**: transitions to **LOW**.<br>• From **HIGH**: transitions to **OFF** (aborted/invalid transition fallback).<br>• From **LOW**: ignored. |
+| **LOW → HIGH**     | `0x06`  | `0x04`  | • From **LOW**: transitions to **HIGH**.<br>• From **OFF**: transitions directly to **HIGH**.<br>• From **HIGH**: ignored. |
+| **HIGH → OFF**     | `0x04`  | `0x00`  | • From **HIGH**: transitions to **OFF**.<br>• From **LOW**: ignored.<br>• From **OFF**: ignored. |
+
+Because the controller ignores commands that do not correspond to permitted transitions:
+- **LOW → OFF** cannot be achieved directly. The integration must transition **LOW → HIGH** (`0x06, 0x04`), wait for the state to update to HIGH, and then transition **HIGH → OFF** (`0x04, 0x00`).
+- **HIGH → LOW** cannot be achieved directly. The integration must transition **HIGH → OFF** (`0x04, 0x00`), wait for the state to update to OFF, and then transition **OFF → LOW** (`0x02, 0x02`). Sending `(0x02, 0x02)` while HIGH will cause a hard shutdown to OFF.
+
+This matches the physical touch panel UI behavior (which cycles OFF → LOW → HIGH → OFF) and the observed RS-485 behavior in sniffer captures.
 
 ### 4.2. DateTime Set (type 0xA2)
 
@@ -491,9 +496,7 @@ flag. The actual hour is in the lower 6 bits (mask 0x3F).
 
 - **Light is a toggle** — same frame for ON and OFF. Software must track
   state and refuse to send when state is unknown.
-- **Pump panel UI is a cycle** — OFF → Low → High → OFF on the touch panel.
-  On RS485, the controller accepts direct target bytes for OFF/Low/High.
-  The integration uses these direct target bytes and confirms via broadcast.
+- **Pump commands are state-dependent** — physical panel UI is a cycle (OFF → LOW → HIGH → OFF), and the controller's RS-485 transition commands reflect this. Direct commands for LOW → OFF and HIGH → LOW do not exist/fail (e.g. sending LOW command when HIGH triggers a shutdown to OFF). The integration must execute sequenced transitions (LOW → HIGH → OFF and HIGH → OFF → LOW) by waiting for state feedback.
 - **Heater and blower** have distinct ON/OFF frames — safe to send
   regardless of current state.
 - **Ozone / disinfection** can be toggled via RS485 when mode is set to
