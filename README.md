@@ -53,14 +53,13 @@ Below is one concrete, fully tested hardware configuration that is confirmed to 
 - **Setpoint temperature** monitoring (°C)
 - **Thermostat control** (10°C to 40°C) with fast debounced slider writes, supporting HVAC modes (`HEAT`/`OFF`) to enable/disable the heater directly
 - **Jets control** (0% / 50% / 100%) via speed percentage controls
-- **Ozone** manual on/off (available when mode set to Manual in options)
+- **Manual ozone** switch (CONFIG category) to toggle between Auto and Manual ozone mode, unlocking the **Ozone** ON/OFF switch
+- **Manual heating** switch (CONFIG category) to toggle between Auto and Manual heating mode, unlocking the **Heater** ON/OFF switch
 - **Light** on/off via toggle command
-- **Heater** manual on/off
 - **Blower (air bubbler, optional hardware)** on/off
 - **Heat schedule** — 2 time slots with start/end times and enable/disable
 - **Filter schedule** — 2 time slots with start/end times and enable/disable
-- **Clock sync** — manual button (auto-sync available via options, disabled by default)
-- **Options flow** — ozone mode (Auto/Manual, synced with spa) and auto clock sync toggle
+- **Auto-sync clock** switch (CONFIG category) to automatically align the spa's internal clock when drift exceeds 30 seconds
 - **Status sensor** — off / standby / circulation / heating / ozone (with dynamic icons)
 - **Jets sensor** — off / low / high
 - **Persistent TCP connection** — real-time state updates (~1–2 s), automatic reconnect with exponential backoff
@@ -112,15 +111,6 @@ After restart, go to **Settings → Devices & Services → Add integration** and
 
 The integration performs a TCP connection test before saving.
 
-### Options
-
-After setup, go to **Settings → Devices & Services → Joyonway Spa → Configure** to access options:
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| Ozone mode | Auto | **Auto**: ozone runs on its schedule only (ozone switch hidden). **Manual**: enables the ozone switch for RS485 control. Setting is synced with the spa — the integration reads the current mode from the broadcast on startup. |
-| Auto-sync clock | OFF | Automatically syncs the spa clock when drift exceeds 30 seconds (1-hour cooldown). Disabled by default to avoid unsolicited writes. |
-
 > **⚠️ Connection note:** The Elfin EW11 supports up to 4 simultaneous TCP connections. Home Assistant uses one; you can still use debug/capture tools in parallel.
 
 ## Entities
@@ -159,10 +149,13 @@ These raw-byte telemetry sensors help troubleshoot connection states and reverse
 
 | Entity             | Description                                   |
 |--------------------|-----------------------------------------------|
-| Heater             | Heater manual on/off                          |
-| Ozone              | Ozone on/off (shown only when mode = Manual; hidden in Auto) |
-| Light              | Light on/off (toggle with state guard)        |
-| Blower             | Air blower / air bubbler on/off (optional hardware, disabled by default) |
+| Heater             | Heater manual ON/OFF (available when **Manual heating** is ON) |
+| Ozone              | Ozone ON/OFF (available when **Manual ozone** is ON) |
+| Light              | Light ON/OFF (toggle with state guard)        |
+| Blower             | Air blower / air bubbler ON/OFF (optional hardware, disabled by default) |
+| Manual ozone       | Toggle Ozone Mode between Auto and Manual (CONFIG category) |
+| Manual heating     | Toggle Heater Mode between Auto (Manual Heating OFF) and Manual (Manual Heating ON) (CONFIG category) |
+| Auto-sync clock    | Enable/disable automatic spa clock sync (CONFIG category) |
 | Heat slot 1 / 2   | Enable/disable heating schedule slots         |
 | Filter slot 1 / 2 | Enable/disable filtration schedule slots      |
 
@@ -184,12 +177,6 @@ These raw-byte telemetry sensors help troubleshoot connection states and reverse
 |------------------------------|------------------------------------|
 | Heat slot 1/2 start/end     | Heating schedule times (HH:MM)     |
 | Filter slot 1/2 start/end   | Filtration schedule times (HH:MM)  |
-
-### Button
-
-| Entity     | Description                                           |
-|------------|-------------------------------------------------------|
-| Sync clock | Sends current HA time to spa controller (disabled by default) |
 
 ## Contributions Welcome
 
@@ -278,7 +265,7 @@ To verify the integration controls against real spa hardware or simulate it offl
 |--------------------------------------------------------------|--------------------------------------------------------------------------------------------------|
 | **[KDy](https://community.home-assistant.io/u/kdy)**         | Baud rate discovery (oscilloscope), P25B85 byte map, pseudo-escape mechanism, CRC safety warning |
 | **[christopheknap](https://github.com/KnapTheBuilder)**      | P23B32 HACS integration, command frame captures, frame analyzer tool                             |
-| **[Gaet78](https://community.home-assistant.io/u/gaet78)**   | P69B133 integration, 30s timing discovery                                                        |
+| **[Gaet78](https://community.home-assistant.io/u/gaet78)**   | P69B133 integration                                                                              |
 | **[c0mpleX](https://community.home-assistant.io/u/c0mplex)** | Frame samples and community discussion                                                           |
 
 ## Disclaimer

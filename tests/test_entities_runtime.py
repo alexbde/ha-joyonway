@@ -33,13 +33,22 @@ from custom_components.joyonway.binary_sensor import (
     JoyonwayBridgeConnectivity,
 )
 from custom_components.joyonway.climate import SpaClimate
-from custom_components.joyonway.const import CONF_HOST
+from custom_components.joyonway.const import (
+    CONF_HOST,
+    OZONE_MODE_AUTO,
+    OZONE_MODE_MANUAL,
+    OPT_AUTO_SYNC_CLOCK,
+)
 from custom_components.joyonway.fan import SpaJetsFan
 from custom_components.joyonway.sensor import JoyonwaySensor
 from custom_components.joyonway.switch import (
+    SpaAutoClockSyncSwitch,
     SpaBlowerSwitch,
     SpaHeaterSwitch,
     SpaLightSwitch,
+    SpaManualHeaterSwitch,
+    SpaManualOzoneSwitch,
+    SpaOzoneSwitch,
     SpaScheduleSlotSwitch,
 )
 from custom_components.joyonway.time import SpaScheduleTime
@@ -440,4 +449,162 @@ def test_diagnostic_sensors_runtime(entry: SimpleNamespace) -> None:
     assert entity_length.native_value == 61
     assert entity_length.native_unit_of_measurement == "bytes"
     assert entity_length.entity_category == EntityCategory.DIAGNOSTIC
+
+
+@pytest.mark.asyncio
+async def test_ozone_switch_availability_and_commands(entry: SimpleNamespace) -> None:
+    """Test SpaOzoneSwitch available and commands behavior."""
+    coordinator = DummyCoordinator(data={"ozone_active": False})
+    coordinator.entry = entry
+    coordinator.ozone_mode = OZONE_MODE_AUTO
+    
+    CMD_OZONE_ON = b"\x55"
+    CMD_OZONE_OFF = b"\x66"
+    coordinator.adapter.build_ozone_manual_command = lambda on: CMD_OZONE_ON if on else CMD_OZONE_OFF
+
+    entity = SpaOzoneSwitch(coordinator, entry)
+    entity.hass = DummyHass()
+    entity.async_write_ha_state = lambda: None
+
+    # Available check (should be false because ozone mode is auto)
+    assert entity.available is False
+
+    # Switch ozone mode to manual
+    coordinator.ozone_mode = OZONE_MODE_MANUAL
+    assert entity.available is True
+
+    # Turn ozone on
+    await entity.async_turn_on()
+    assert entity._pending_state is True
+    assert entity.is_on is True
+
+    # Let the mock intent queue process command
+    await asyncio.sleep(0)
+    coordinator.async_send_command.assert_awaited_once_with(CMD_OZONE_ON)
+
+    # Confirm state update
+    coordinator.data["ozone_active"] = True
+    entity._handle_coordinator_update()
+    assert entity._pending_state is None
+    assert entity.is_on is True
+
+    entity._cancel_pending_timeout()
+
+
+@pytest.mark.asyncio
+async def test_auto_clock_sync_switch(entry: SimpleNamespace) -> None:
+    """Test SpaAutoClockSyncSwitch status and toggling."""
+    entry.options = {OPT_AUTO_SYNC_CLOCK: False}
+    coordinator = DummyCoordinator(data={})
+    coordinator.entry = entry
+    coordinator.auto_sync_clock = False
+
+    entity = SpaAutoClockSyncSwitch(coordinator, entry)
+    entity.hass = DummyHass()
+    
+    # Mock config entry updates
+    updated_options = {}
+    def mock_update_entry(entry, options):
+        updated_options.update(options)
+        entry.options = options
+    entity.hass.config_entries = SimpleNamespace(
+        async_update_entry=mock_update_entry
+    )
+
+    assert entity.is_on is False
+
+    # Turn on auto clock sync switch
+    await entity.async_turn_on()
+    assert updated_options[OPT_AUTO_SYNC_CLOCK] is True
+
+    # Turn off auto clock sync switch
+    await entity.async_turn_off()
+    assert updated_options[OPT_AUTO_SYNC_CLOCK] is False
+
+
+@pytest.mark.asyncio
+async def test_manual_ozone_switch(entry: SimpleNamespace) -> None:
+    """Test SpaManualOzoneSwitch toggles ozone mode."""
+    coordinator = DummyCoordinator(data={})
+    coordinator.entry = entry
+    coordinator.ozone_mode = "auto"
+    
+    CMD_AUTO = b"\x11"
+    CMD_MANUAL = b"\x22"
+    coordinator.adapter.build_ozone_mode_command = lambda mode: CMD_AUTO if mode == "auto" else CMD_MANUAL
+
+    entity = SpaManualOzoneSwitch(coordinator, entry)
+    entity.hass = DummyHass()
+    entity.async_write_ha_state = lambda: None
+
+    assert entity.is_on is False
+
+    # Turn on manual ozone
+    await entity.async_turn_on()
+    assert entity._pending_state is True
+    assert entity.is_on is True
+
+    # Let mock intent queue run
+    await asyncio.sleep(0)
+    coordinator.async_send_command.assert_awaited_once_with(CMD_MANUAL)
+
+    # Confirm update
+    coordinator.ozone_mode = "manual"
+    entity._handle_coordinator_update()
+    assert entity._pending_state is None
+    assert entity.is_on is True
+
+    entity._cancel_pending_timeout()
+
+
+@pytest.mark.asyncio
+async def test_manual_heating_switch(entry: SimpleNamespace) -> None:
+    """Test SpaManualHeaterSwitch toggles heater mode."""
+    coordinator = DummyCoordinator(data={})
+    coordinator.entry = entry
+    coordinator.heater_mode = "auto"
+    
+    CMD_AUTO = b"\x33"
+    CMD_MANUAL = b"\x44"
+    coordinator.adapter.build_heater_mode_command = lambda mode: CMD_AUTO if mode == "auto" else CMD_MANUAL
+
+    entity = SpaManualHeaterSwitch(coordinator, entry)
+    entity.hass = DummyHass()
+    entity.async_write_ha_state = lambda: None
+
+    assert entity.is_on is False
+
+    # Turn on manual heating
+    await entity.async_turn_on()
+    assert entity._pending_state is True
+    assert entity.is_on is True
+
+    # Let mock intent queue run
+    await asyncio.sleep(0)
+    coordinator.async_send_command.assert_awaited_once_with(CMD_MANUAL)
+
+    # Confirm update
+    coordinator.heater_mode = "manual"
+    entity._handle_coordinator_update()
+    assert entity._pending_state is None
+    assert entity.is_on is True
+
+    entity._cancel_pending_timeout()
+
+
+@pytest.mark.asyncio
+async def test_heater_switch_availability(entry: SimpleNamespace) -> None:
+    """Test SpaHeaterSwitch availability checks heater_mode."""
+    coordinator = DummyCoordinator(data={})
+    coordinator.entry = entry
+    coordinator.heater_mode = "auto"
+
+    entity = SpaHeaterSwitch(coordinator, entry)
+    
+    # In auto mode, should be unavailable
+    assert entity.available is False
+
+    # In manual mode, should be available
+    coordinator.heater_mode = "manual"
+    assert entity.available is True
 

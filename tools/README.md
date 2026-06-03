@@ -49,7 +49,26 @@ python3 tools/frame_parser_38400.py --diff tools/captures/baseline/00_baseline_b
 
 ---
 
+## 4. Guided Interactive Capture (`guided_capture.py`)
+
+Capture specific sequences of physical actions at the spa touchpad to gather deterministic RS-485 binary trace logs for analysis:
+
+```bash
+# Run the interactive capture tool
+python3 tools/guided_capture.py
+```
+
+The script offers a menu to guide you through targeted transition runbooks:
+- **Jets Transitions:** Guides through OFF → LOW → HIGH → LOW → OFF → HIGH → OFF transitions.
+- **Heating & Circulation Sequence:** Captures heating loops and pump/jets dependencies.
+- **Heater Mode Transitions:** Captures transitions between AUTO and MANUAL heating modes.
+- **Real-time monitor:** Continuously prints incoming broadcasts parsed with the adapter logic.
+
+Binary capture files are automatically saved with timestamped names in `tools/captures/` for analysis.
+
+---
+
 ## ⚠️ Single-Client Connection Reminder
-Most RS-485 bridges (like the Elfin EW11) only accept a **single TCP client connection**. Before running these utilities, ensure that:
+Most RS-485 bridges only accept a **single TCP client connection**. Before running these utilities, ensure that:
 - The Home Assistant integration is temporarily disabled or stopped.
-- Any mobile apps or other socket connections to the bridge are closed.
+- Any mobile connections or other socket clients connected to the bridge are closed.

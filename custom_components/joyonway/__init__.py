@@ -7,8 +7,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
 from .const import (
-    CONF_HOST, CONF_MODEL, CONF_PORT, DEFAULT_MODEL, DOMAIN,
-    OPT_OZONE_MODE, OZONE_MODE_AUTO, PLATFORMS,
+    CONF_HOST, CONF_MODEL, CONF_PORT, DEFAULT_MODEL, DOMAIN, PLATFORMS,
 )
 from .coordinator import JoyonwayP25B85Coordinator
 
@@ -29,35 +28,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    entry.async_on_unload(entry.add_update_listener(_async_options_updated))
     return True
-
-
-async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Handle options update — sync ozone mode to spa, then reload."""
-    coordinator: JoyonwayP25B85Coordinator = entry.runtime_data
-    new_mode = entry.options.get(OPT_OZONE_MODE, OZONE_MODE_AUTO)
-
-    # Keep the controller mode aligned immediately when the option changes,
-    # then reload so entities/options reflect the new configuration.
-    if new_mode != coordinator.last_detected_ozone_mode:
-
-        def _build_ozone_mode(overrides: dict, data: dict | None) -> bytes | None:
-            return coordinator.adapter.build_ozone_mode_command(overrides["mode"])
-
-        coordinator.intent_queue.submit(
-            group="ozone_mode",
-            overrides={"mode": new_mode},
-            build_fn=_build_ozone_mode,
-            on_failure=lambda: _LOGGER.error(
-                "Ozone mode: failed to send '%s' command", new_mode
-            ),
-            verify_fn=lambda overrides, data: True,
-        )
-        await coordinator.intent_queue.flush()
-        _LOGGER.info("Ozone mode: queue flushed for '%s' before reload", new_mode)
-
-    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

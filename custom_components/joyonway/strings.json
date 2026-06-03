@@ -17,22 +17,7 @@
       "already_configured": "This bridge is already configured."
     }
   },
-  "options": {
-    "step": {
-      "init": {
-        "title": "Spa Options",
-        "description": "Configure spa behaviour.",
-        "data": {
-          "ozone_mode": "Ozone mode",
-          "auto_sync_clock": "Auto-sync spa clock"
-        },
-        "data_description": {
-          "ozone_mode": "Auto: ozone runs on its schedule only. Manual: enables the ozone switch for RS485 control.",
-          "auto_sync_clock": "Automatically sync the spa clock when drift exceeds 30 seconds."
-        }
-      }
-    }
-  },
+
   "entity": {
     "sensor": {
       "water_temperature": { "name": "Water temperature" },
@@ -73,6 +58,9 @@
       "heater": { "name": "Heating" },
       "ozone": { "name": "Ozone" },
       "blower": { "name": "Blower" },
+      "auto_sync_clock": { "name": "Auto-sync clock" },
+      "manual_ozone": { "name": "Manual ozone" },
+      "manual_heating": { "name": "Manual heating" },
       "heat_slot1_enabled": { "name": "Heat slot 1" },
       "heat_slot2_enabled": { "name": "Heat slot 2" },
       "filter_slot1_enabled": { "name": "Filter slot 1" },
@@ -88,12 +76,8 @@
       "filter_slot2_start": { "name": "Filter slot 2 start" },
       "filter_slot2_end": { "name": "Filter slot 2 end" }
     },
-
     "climate": {
       "thermostat": { "name": "Thermostat" }
-    },
-    "button": {
-      "sync_clock": { "name": "Sync clock" }
     }
   }
 }

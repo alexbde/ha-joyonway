@@ -43,4 +43,4 @@ CLOCK_SYNC_DRIFT_THRESHOLD: int = 30  # seconds
 CLOCK_SYNC_COOLDOWN: int = 3600  # seconds between auto syncs
 
 # Loaded platforms
-PLATFORMS: list[str] = ["sensor", "binary_sensor", "switch", "fan", "climate", "time", "button"]
+PLATFORMS: list[str] = ["sensor", "binary_sensor", "switch", "fan", "climate", "time"]

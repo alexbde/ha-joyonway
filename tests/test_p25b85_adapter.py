@@ -115,6 +115,15 @@ def test_parse_status_core_fields(adapter: P25B85Adapter, logical_frame: bytes) 
     assert result["pump_high"] is True
     assert result["pump_low"] is False
     assert result["light"] is True
+    assert result["ozone_mode"] == "manual"
+    assert result["heater_mode"] == "manual"
+
+    # Test auto modes when bits are cleared
+    modified = bytearray(logical_frame)
+    modified[13] = 0x00
+    result_auto = adapter.parse_status(bytes(modified))
+    assert result_auto["ozone_mode"] == "auto"
+    assert result_auto["heater_mode"] == "auto"
 
 
 def test_parse_status_datetime(adapter: P25B85Adapter, logical_frame: bytes) -> None:
@@ -578,6 +587,24 @@ def test_build_ozone_mode_commands(adapter: P25B85Adapter) -> None:
 
     with pytest.raises(ValueError):
         adapter.build_ozone_mode_command("invalid")
+
+
+def test_build_heater_mode_commands(adapter: P25B85Adapter) -> None:
+    """Heater mode switch commands have correct structure."""
+    auto_frame = adapter.build_heater_mode_command("auto")
+    p = _frame_payload(auto_frame)
+    assert p[9] == 0x00  # btn_group
+    assert p[10] == 0x00  # btn_action
+    assert p[11] == 0x40  # modifier (heater mode)
+    assert p[12] == 0x80  # context = auto (manual heating OFF)
+
+    manual_frame = adapter.build_heater_mode_command("manual")
+    p = _frame_payload(manual_frame)
+    assert p[11] == 0x40
+    assert p[12] == 0xC0  # context = manual (manual heating ON)
+
+    with pytest.raises(ValueError):
+        adapter.build_heater_mode_command("invalid")
 
 
 def test_build_ozone_manual_commands(adapter: P25B85Adapter) -> None:

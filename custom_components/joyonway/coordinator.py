@@ -349,8 +349,17 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
 
     @property
     def ozone_mode(self) -> str:
-        """Return the configured ozone mode (auto or manual)."""
-        return self.entry.options.get(OPT_OZONE_MODE, OZONE_MODE_AUTO)
+        """Return the current ozone mode (auto or manual)."""
+        if self.data is None:
+            return OZONE_MODE_AUTO
+        return self.data.get("ozone_mode", OZONE_MODE_AUTO)
+
+    @property
+    def heater_mode(self) -> str:
+        """Return the current heater mode (auto or manual)."""
+        if self.data is None:
+            return "auto"
+        return self.data.get("heater_mode", "auto")
 
     @property
     def auto_sync_clock(self) -> bool:
@@ -459,8 +468,7 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
                     self._disconnect_ts = None
                     self._first_data_event.set()
 
-                    # Ozone mode sync + clock sync (moved from _async_update_data)
-                    self._sync_ozone_mode(result)
+                    # Clock sync (moved from _async_update_data)
                     self._check_clock_drift(result)
 
                     self.async_set_updated_data(result)
@@ -558,27 +566,7 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
             raise UpdateFailed("No data from RS485 bridge")
         return self.data
 
-    # ── Ozone mode sync ──────────────────────────────────────────────
 
-    def _sync_ozone_mode(self, data: dict) -> None:
-        """Sync ozone mode config option with spa's broadcast value."""
-        now_ts = time.monotonic()
-        if now_ts - self._last_ozone_sync_check_ts < 10.0:
-            return
-        self._last_ozone_sync_check_ts = now_ts
-
-        spa_ozone_mode = data.get("ozone_mode")
-        if spa_ozone_mode is not None:
-            self.last_detected_ozone_mode = spa_ozone_mode
-            if spa_ozone_mode != self.ozone_mode:
-                _LOGGER.info(
-                    "Ozone mode: spa reports '%s', updating config (was '%s')",
-                    spa_ozone_mode, self.ozone_mode,
-                )
-                new_options = {**self.entry.options, OPT_OZONE_MODE: spa_ozone_mode}
-                self.hass.config_entries.async_update_entry(
-                    self.entry, options=new_options
-                )
 
     # ── Clock drift check ────────────────────────────────────────────
 
