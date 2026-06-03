@@ -51,7 +51,7 @@ Below is one concrete, fully tested hardware configuration that is confirmed to 
 
 - **Water temperature** monitoring (°C)
 - **Setpoint temperature** monitoring (°C)
-- **Thermostat control** (10°C to 40°C) with debounced slider writes
+- **Thermostat control** (10°C to 40°C) with fast debounced slider writes, supporting HVAC modes (`HEAT`/`OFF`) to enable/disable the heater directly
 - **Jets control** (0% / 50% / 100%) via speed percentage controls
 - **Ozone** manual on/off (available when mode set to Manual in options)
 - **Light** on/off via toggle command
@@ -68,11 +68,6 @@ Below is one concrete, fully tested hardware configuration that is confirmed to 
 - All commands built dynamically via cracked CRC-32 (no static replay tables)
 - Fully local, no cloud, no internet
 - English, French, and German UI translations
-
-### What this integration does NOT do
-
-- ❌ Ozone control not yet live-tested
-- ❌ Light colour mode control (may be panel-local only)
 
 ## Safety Philosophy
 
@@ -137,7 +132,7 @@ After setup, go to **Settings → Devices & Services → Joyonway Spa → Config
 | Water temperature | Current water temp in °C                                                   |
 | Setpoint          | Current target temperature in °C                                           |
 | Status            | off / standby / circulation / heating / ozone (icon changes per state) |
-| Jets (Düsen)      | off / low / high                                                           |
+| Jets     | off / low / high                                                           |
 | Spa clock         | Controller date/time as timestamp sensor (diagnostic, disabled by default) |
 
 ### Diagnostic Sensors (Disabled by default)
@@ -181,7 +176,7 @@ These raw-byte telemetry sensors help troubleshoot connection states and reverse
 
 | Entity     | Description                            |
 |------------|----------------------------------------|
-| Thermostat | Target setpoint control (10°C to 40°C) |
+| Thermostat | Target setpoint control (10°C to 40°C) and heater armed state control via HVAC modes (`HEAT`/`OFF`) |
 
 ### Time
 
