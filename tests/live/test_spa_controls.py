@@ -425,7 +425,9 @@ class DryRunStreamReader:
         if not self.sim.active:
             return b""
         await asyncio.sleep(0.01 if dry_run else 0.5)  # Simulate EW11 delay
-        return self.sim.generate_broadcast()
+        broadcast = self.sim.generate_broadcast()
+        sync = b"\x1a\x01\x20\x08\x3c\xaa\x10\x00\x00\x6b\x73\xe4\xb9\x1d"
+        return broadcast + sync
 
 
 # ── TCP and Helper Methods ───────────────────────────────────────────
@@ -525,19 +527,60 @@ async def wait_for_expected_state(
     return False, last
 
 
+async def sync_and_write(
+    reader: asyncio.StreamReader,
+    writer: asyncio.StreamWriter,
+    cmd: bytes,
+) -> None:
+    if not dry_run:
+        sync_frame = b"\x1a\x01\x20\x08\x3c\xaa\x10\x00\x00\x6b\x73\xe4\xb9\x1d"
+        buf = bytearray()
+        found_sync = False
+        deadline = time.monotonic() + 2.0
+        
+        while time.monotonic() < deadline:
+            try:
+                # Read chunks to react quickly when the sync frame is received
+                chunk = await asyncio.wait_for(reader.read(256), timeout=deadline - time.monotonic())
+                if not chunk:
+                    break
+                buf.extend(chunk)
+                _record_raw("rx", chunk)
+                
+                if sync_frame in buf:
+                    found_sync = True
+                    break
+                
+                if len(buf) > 1024:
+                    buf = buf[-256:]
+            except asyncio.TimeoutError:
+                break
+        
+        if found_sync:
+            # Sync frame received, wait 30ms quiet window before transmitting
+            await asyncio.sleep(0.03)
+        else:
+            print("  [WARNING] Timeout waiting for sync frame before sending command")
+            await drain_stale(reader)
+    else:
+        await drain_stale(reader)
+
+    _record_raw("tx", cmd)
+    writer.write(cmd)
+    await writer.drain()
+
+
 async def send_raw_command(
     reader: asyncio.StreamReader,
     writer: asyncio.StreamWriter,
     cmd: bytes,
     description: str,
 ) -> None:
-    await drain_stale(reader)
     _log_event("command_sent", description=description, wire_hex=cmd.hex())
-    _record_raw("tx", cmd)
-    writer.write(cmd)
-    await writer.drain()
+    await sync_and_write(reader, writer, cmd)
     delay = 0.05 if dry_run else POST_COMMAND_DELAY
     await asyncio.sleep(delay)
+
 
 
 # ── Test Suite 1: Basic Controls ─────────────────────────────────────
@@ -764,7 +807,6 @@ async def test_schedule_matrix(reader: asyncio.StreamReader, writer: asyncio.Str
 
     # Helper method for schedule send
     async def send_sched(sched: str, s1_en: bool, s2_en: bool, w_mode: str, s1_st, s1_ed, s2_st, s2_ed, desc: str) -> int:
-        await drain_stale(reader)
         cmd = adapter.build_schedule_command(
             sched, s1_st, s1_ed, s2_st, s2_ed,
             slot1_enabled=s1_en, slot2_enabled=s2_en, write_mode=w_mode
@@ -772,12 +814,11 @@ async def test_schedule_matrix(reader: asyncio.StreamReader, writer: asyncio.Str
         unesc = pseudo_unescape(cmd[1:-1])
         flags = unesc[7] if len(unesc) > 7 else -1
         _log_event("command_sent", description=desc, schedule_type=sched, write_mode=w_mode, flags=f"0x{flags:02X}", wire_hex=cmd.hex())
-        _record_raw("tx", cmd)
-        writer.write(cmd)
-        await writer.drain()
+        await sync_and_write(reader, writer, cmd)
         delay = 0.05 if dry_run else POST_COMMAND_DELAY
         await asyncio.sleep(delay)
         return flags
+
 
     # Run state and time matrices
     for schedule in ("heat", "filter"):
@@ -1170,7 +1211,7 @@ async def test_set_datetime(reader: asyncio.StreamReader, writer: asyncio.Stream
     return results
 
 
-# ── Test Suite 5: IntentQueue Coalescing & Cooldown ──────────────────
+# ── Test Suite 5: IntentQueue Coalescing & Serialization ──────────────────
 class FakeCoordinator:
     def __init__(self, reader, writer):
         self.data = {"light": False, "jets": "off", "blower": False}
@@ -1181,27 +1222,20 @@ class FakeCoordinator:
         self.reader = reader
         self.writer = writer
         self.sent_frames = []
-        self._last_command_ts = 0.0
         self._on_data_callbacks = []
 
     async def async_send_command(self, frame: bytes) -> bool:
-        now = time.monotonic()
-        elapsed = now - self._last_command_ts
-        cooldown = 0.1 if dry_run else 1.0
-        if elapsed < cooldown:
-            await asyncio.sleep(cooldown - elapsed)
-        
         self.sent_frames.append((time.monotonic(), frame))
-        self._last_command_ts = time.monotonic()
         # Mock actual sending by not writing to physical socket.
         # This prevents leaving the physical spa in a modified state.
         _log_event("mock_command_sent", description="Mock IntentQueue command", wire_hex=frame.hex())
+        # Mock actual write in flight delay (0.05s in dry run, 0.5s in live)
         await asyncio.sleep(0.05 if dry_run else 0.5)
         return True
 
 
 async def test_intent_queue(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> list[tuple[str, bool]]:
-    print("\n--- Running IntentQueue Coalescing & Cooldown Test Suite ---")
+    print("\n--- Running IntentQueue Coalescing & Serialization Test Suite ---")
     results = []
 
     # Initialize a clean mock coordinator and IntentQueue
@@ -1260,8 +1294,8 @@ async def test_intent_queue(reader: asyncio.StreamReader, writer: asyncio.Stream
     print(f"  {'PASS' if ok_coalesce else 'FAIL'}: Coalescing & Auto-Cancel (No-op) verified")
     results.append(("IntentQueue coalescing and no-op", ok_coalesce))
 
-    # 2. Cooldown check: send two commands immediately, verify they are spaced by at least 1.0s COMMAND_COOLDOWN
-    print("  Testing Command Cooldown spacing...")
+    # 2. Serialization check: send two commands immediately, verify they are run sequentially
+    print("  Testing Command Serialization...")
     coord.sent_frames.clear()
     
     iq.submit("light", {"light": True}, build_light, verify_fn=lambda overrides, data: True)
@@ -1278,11 +1312,11 @@ async def test_intent_queue(reader: asyncio.StreamReader, writer: asyncio.Stream
         t1, _ = coord.sent_frames[0]
         t2, _ = coord.sent_frames[1]
         delay = t2 - t1
-        required_delay = 0.09 if dry_run else 0.95
-        print(f"    Measured delay between commands: {delay:.2f}s (required: >= {required_delay:.2f}s)")
-        ok_cooldown = delay >= required_delay  # allowing slight scheduling drift
+        required_delay = 0.04 if dry_run else 0.45
+        print(f"    Measured delay between serialized commands: {delay:.2f}s (required: >= {required_delay:.2f}s)")
+        ok_cooldown = delay >= required_delay  # proving sequential execution rather than overlapping concurrent writes
         
-    print(f"  {'PASS' if ok_cooldown else 'FAIL'}: Command cooldown pacing verified")
+    print(f"  {'PASS' if ok_cooldown else 'FAIL'}: Command serialization pacing verified")
     results.append(("Command cooldown pacing", ok_cooldown))
 
     # Revert changes by submitting revert commands to the queue

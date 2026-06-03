@@ -23,7 +23,6 @@ if str(ROOT) not in sys.path:
 
 from custom_components.joyonway.const import (
     AVAILABILITY_GRACE_SECONDS,
-    COMMAND_COOLDOWN,
     CONF_HOST,
     CONF_PORT,
     OPTIMISTIC_TIMEOUT_SECONDS,
@@ -74,6 +73,7 @@ def entry():
 @pytest.fixture
 def coordinator(hass, entry):
     coord = JoyonwayP25B85Coordinator(hass, "127.0.0.1", 8899, "P25B85", entry)
+    coord._sync_timeout = 0.0
     return coord
 
 
@@ -209,14 +209,12 @@ async def test_send_command_success(coordinator):
     mock_writer.write = MagicMock()
     mock_writer.drain = AsyncMock()
     coordinator._writer = mock_writer
-    coordinator._last_command_ts = 0.0  # no cooldown needed
 
     result = await coordinator.async_send_command(b"\xAB\xCD")
 
     assert result is True
     mock_writer.write.assert_called_once_with(b"\xAB\xCD")
     mock_writer.drain.assert_awaited_once()
-    assert coordinator._last_command_ts > 0
 
 
 @pytest.mark.asyncio
@@ -228,7 +226,6 @@ async def test_send_command_failure_triggers_reconnect(coordinator, hass):
     mock_writer.close = MagicMock()
     mock_writer.wait_closed = AsyncMock()
     coordinator._writer = mock_writer
-    coordinator._last_command_ts = 0.0
     coordinator._schedule_reconnect = MagicMock()
 
     result = await coordinator.async_send_command(b"\x00")
@@ -506,7 +503,56 @@ async def test_pending_timeout_canceled_on_entity_removal():
         switch_mod.OPTIMISTIC_TIMEOUT_SECONDS = original
 
 
+@pytest.mark.asyncio
+async def test_sync_frame_detection(coordinator):
+    """Detecting a sync frame sets the sync_frame_event."""
+    coordinator._sync_frame_event.clear()
+    
+    sync_frame = b"\x1a\x01\x20\x08\x3c\xaa\x10\x00\x00\x6b\x73\xe4\xb9\x1d"
+    result, consumed = coordinator._try_parse_buffer(bytearray(sync_frame))
+    
+    assert result is None
+    assert consumed == len(sync_frame)
+    assert coordinator._sync_frame_event.is_set()
 
 
+@pytest.mark.asyncio
+async def test_send_command_with_sync_success(coordinator):
+    """async_send_command succeeds when sync frame event is set."""
+    mock_writer = MagicMock()
+    mock_writer.write = MagicMock()
+    mock_writer.drain = AsyncMock()
+    coordinator._writer = mock_writer
+    coordinator._sync_timeout = 0.1
+    coordinator._sync_frame_event.clear()
+
+    # Trigger the sync frame event after a brief delay
+    async def trigger_event():
+        await asyncio.sleep(0.01)
+        coordinator._sync_frame_event.set()
+
+    task = asyncio.create_task(trigger_event())
+    
+    result = await coordinator.async_send_command(b"\xAB\xCD")
+    await task
+
+    assert result is True
+    mock_writer.write.assert_called_once_with(b"\xAB\xCD")
+    mock_writer.drain.assert_awaited_once()
 
 
+@pytest.mark.asyncio
+async def test_send_command_with_sync_timeout(coordinator):
+    """async_send_command fails when sync frame event times out."""
+    mock_writer = MagicMock()
+    mock_writer.write = MagicMock()
+    mock_writer.drain = AsyncMock()
+    coordinator._writer = mock_writer
+    coordinator._sync_timeout = 0.01
+    coordinator._sync_frame_event.clear()
+
+    result = await coordinator.async_send_command(b"\xAB\xCD")
+
+    assert result is False
+    mock_writer.write.assert_not_called()
+    mock_writer.drain.assert_not_called()
