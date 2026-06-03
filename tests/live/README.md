@@ -13,7 +13,7 @@ These tests are designed to be run directly against the hardware via the TCP-to-
 - Log files and binary wire frame captures are automatically generated under `artifacts_schedule_matrix/`.
 
 ### Test Suites Included:
-1. **Basic Control Tests:** Verifies toggles and broadcast state confirmation for Lights, Blowers, Jets (pump cycles OFF → LOW → HIGH → OFF), and Temperature Setpoint modifications.
+1. **Basic Control Tests:** Verifies toggles and broadcast state confirmation for Lights, Blowers, Jets (direct transitions: OFF → LOW → OFF → HIGH → OFF), and Temperature Setpoint modifications.
 2. **Complete Schedule Matrix Tests:** Performs a comprehensive 50-case grid test covering all enable state combinations and time adjustments for both Heating and Filtration schedules, verifying correct bitmask flags and convergence before restoring original schedules.
 3. **Ozone Control Tests:** Toggles Ozone modes (Manual vs. Auto) and confirms manual ozone controls, including a lock/behavior verification under Auto mode.
 4. **Clock Drift & Auto-Sync Tests:** Forces a temporary datetime drift (90 seconds into the future) and triggers sync calculations to restore time to match system clock, validating correct year offset transmission.
