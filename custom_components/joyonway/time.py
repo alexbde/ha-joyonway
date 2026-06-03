@@ -16,6 +16,7 @@ from homeassistant.components.time import TimeEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, OPTIMISTIC_TIMEOUT_SECONDS
@@ -55,6 +56,7 @@ class SpaScheduleTime(JoyonwayCoordinatorEntity, TimeEntity):
     """A time entity for a schedule slot start/end time."""
 
     _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(
         self,

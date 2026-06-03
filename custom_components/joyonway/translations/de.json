@@ -67,13 +67,13 @@
       "filter_slot2_enabled": { "name": "Filter-Slot 2" }
     },
     "time": {
-      "heat_slot1_start": { "name": "Heiz-Slot 1 Start" },
+      "heat_slot1_start": { "name": "Heiz-Slot 1 Beginn" },
       "heat_slot1_end": { "name": "Heiz-Slot 1 Ende" },
-      "heat_slot2_start": { "name": "Heiz-Slot 2 Start" },
+      "heat_slot2_start": { "name": "Heiz-Slot 2 Beginn" },
       "heat_slot2_end": { "name": "Heiz-Slot 2 Ende" },
-      "filter_slot1_start": { "name": "Filter-Slot 1 Start" },
+      "filter_slot1_start": { "name": "Filter-Slot 1 Beginn" },
       "filter_slot1_end": { "name": "Filter-Slot 1 Ende" },
-      "filter_slot2_start": { "name": "Filter-Slot 2 Start" },
+      "filter_slot2_start": { "name": "Filter-Slot 2 Beginn" },
       "filter_slot2_end": { "name": "Filter-Slot 2 Ende" }
     },
     "climate": {

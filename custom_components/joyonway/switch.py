@@ -443,6 +443,7 @@ class SpaScheduleSlotSwitch(_SpaTargetStateSwitch):
     """Switch entity to enable/disable a schedule time slot."""
 
     _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(
         self,
