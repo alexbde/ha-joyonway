@@ -26,8 +26,9 @@ from custom_components.joyonway.fan import SpaPumpFan
 
 # Build real command frames
 _adapter = P25B85Adapter()
-CMD_PUMP_OFF_TO_LOW = _adapter.build_pump_command("low")
-CMD_PUMP_HIGH_TO_OFF = _adapter.build_pump_command("off")
+CMD_PUMP_LOW = _adapter.build_pump_command("low")
+CMD_PUMP_HIGH = _adapter.build_pump_command("high")
+CMD_PUMP_OFF = _adapter.build_pump_command("off")
 
 
 class DummyHass:
@@ -46,9 +47,11 @@ class DummyAdapter:
     @staticmethod
     def build_pump_command(target: str) -> bytes | None:
         if target == "low":
-            return CMD_PUMP_OFF_TO_LOW
+            return CMD_PUMP_LOW
+        if target == "high":
+            return CMD_PUMP_HIGH
         if target == "off":
-            return CMD_PUMP_HIGH_TO_OFF
+            return CMD_PUMP_OFF
         return None
 
 
@@ -86,6 +89,7 @@ def test_fan_supported_features_include_power_actions() -> None:
     coordinator = DummyCoordinator(data={"jets": "off"})
     entity = SpaPumpFan(coordinator, _make_entry())
 
+    assert entity.supported_features & FanEntityFeature.SET_SPEED
     assert entity.supported_features & FanEntityFeature.PRESET_MODE
     assert entity.supported_features & FanEntityFeature.TURN_ON
     assert entity.supported_features & FanEntityFeature.TURN_OFF
@@ -101,7 +105,7 @@ async def test_fan_turn_on_and_turn_off_paths() -> None:
     # off -> low via turn_on default path
     await entity.async_turn_on()
     await asyncio.sleep(0)  # let intent queue task execute
-    coordinator.async_send_command.assert_awaited_once_with(CMD_PUMP_OFF_TO_LOW)
+    coordinator.async_send_command.assert_awaited_once_with(CMD_PUMP_LOW)
     assert entity._pending_state == "low"
 
     coordinator.async_send_command.reset_mock()
@@ -113,6 +117,48 @@ async def test_fan_turn_on_and_turn_off_paths() -> None:
     # high -> off via turn_off direct path
     await entity.async_turn_off()
     await asyncio.sleep(0)  # let intent queue task execute
-    coordinator.async_send_command.assert_awaited_once_with(CMD_PUMP_HIGH_TO_OFF)
+    coordinator.async_send_command.assert_awaited_once_with(CMD_PUMP_OFF)
     assert entity._pending_state == "off"
+    entity._cancel_pending_timeout()
+
+
+@pytest.mark.asyncio
+async def test_fan_percentage_paths() -> None:
+    coordinator = DummyCoordinator(data={"jets": "off"})
+    entity = SpaPumpFan(coordinator, _make_entry())
+    entity.hass = DummyHass()
+    entity.async_write_ha_state = lambda: None
+
+    # Initial percentage
+    assert entity.percentage == 0
+
+    # Set percentage to 50 (low)
+    await entity.async_set_percentage(50)
+    await asyncio.sleep(0)
+    coordinator.async_send_command.assert_awaited_once_with(CMD_PUMP_LOW)
+    assert entity._pending_state == "low"
+    assert entity.percentage == 50
+
+    coordinator.async_send_command.reset_mock()
+    entity._pending_state = None
+    coordinator.data = {"jets": "low"}
+
+    # Set percentage to 100 (high)
+    cmd_high = _adapter.build_pump_command("high")
+    await entity.async_set_percentage(100)
+    await asyncio.sleep(0)
+    coordinator.async_send_command.assert_awaited_once_with(cmd_high)
+    assert entity._pending_state == "high"
+    assert entity.percentage == 100
+
+    coordinator.async_send_command.reset_mock()
+    entity._pending_state = None
+    coordinator.data = {"jets": "high"}
+
+    # Set percentage to 0 (off)
+    await entity.async_set_percentage(0)
+    await asyncio.sleep(0)
+    coordinator.async_send_command.assert_awaited_once_with(CMD_PUMP_OFF)
+    assert entity._pending_state == "off"
+    assert entity.percentage == 0
     entity._cancel_pending_timeout()
