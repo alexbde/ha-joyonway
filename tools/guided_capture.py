@@ -276,6 +276,130 @@ def run_heating_sequence(sock: socket.socket, adapter: P25B85Adapter) -> tuple[b
         return raw_buffer, False
 
 
+def run_heater_mode_sequence(sock: socket.socket, adapter: P25B85Adapter) -> tuple[bytearray, bool]:
+    """Guide the user through capturing heater mode settings (auto -> manual -> auto)."""
+    print("\nStarting Heater Mode Transition Runbook:")
+    print("  We will capture the transitions between Auto and Manual heater modes.")
+    print("  Step 1: Ensure heater mode is currently set to MANUAL on the physical touchpad.")
+    print("  Step 2: Change heater mode to AUTO.")
+    print("  Step 3: Change heater mode back to MANUAL.")
+    
+    print("\nPress ENTER when the spa is in MANUAL mode and you are ready to start.")
+    input()
+    
+    raw_buffer = bytearray()
+    stream_buffer = bytearray()
+    
+    try:
+        # Step 1: Capture baseline MANUAL mode for 5 seconds
+        print("\n[STEP 1/3] Capturing baseline MANUAL mode for 5 seconds...")
+        start_time = time.monotonic()
+        last_read_time = time.monotonic()
+        while time.monotonic() - start_time < 5.0:
+            try:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    print("\nConnection closed by bridge.")
+                    return raw_buffer, False
+                raw_buffer.extend(chunk)
+                stream_buffer.extend(chunk)
+                last_read_time = time.monotonic()
+            except BlockingIOError:
+                if time.monotonic() - last_read_time > 15.0:
+                    print("\nWarning: No data received from bridge for 15 seconds.")
+                    last_read_time = time.monotonic()
+                time.sleep(0.05)
+            
+            # Display status on screen so the user sees it is alive
+            frames = find_frames(bytes(stream_buffer))
+            if frames:
+                last_frame = frames[-1]
+                idx = stream_buffer.rfind(last_frame)
+                if idx != -1:
+                    del stream_buffer[: idx + len(last_frame)]
+                broadcasts = [f for f in frames if is_broadcast(f)]
+                if broadcasts:
+                    logical = unescape_frame(broadcasts[-1])
+                    parsed = adapter.parse_status(logical)
+                    if parsed:
+                        print_status(parsed)
+            time.sleep(0.01)
+
+        print("\n\n[STEP 2/3] Action: Please change the heater mode to AUTO on the touchpad.")
+        print("Press ENTER immediately AFTER you have changed it to AUTO.")
+        input()
+        
+        # Capture AUTO mode for 5 seconds
+        print("\nCapturing AUTO mode for 5 seconds...")
+        start_time = time.monotonic()
+        last_read_time = time.monotonic()
+        while time.monotonic() - start_time < 5.0:
+            try:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    print("\nConnection closed by bridge.")
+                    return raw_buffer, False
+                raw_buffer.extend(chunk)
+                stream_buffer.extend(chunk)
+                last_read_time = time.monotonic()
+            except BlockingIOError:
+                time.sleep(0.05)
+            
+            frames = find_frames(bytes(stream_buffer))
+            if frames:
+                last_frame = frames[-1]
+                idx = stream_buffer.rfind(last_frame)
+                if idx != -1:
+                    del stream_buffer[: idx + len(last_frame)]
+                broadcasts = [f for f in frames if is_broadcast(f)]
+                if broadcasts:
+                    logical = unescape_frame(broadcasts[-1])
+                    parsed = adapter.parse_status(logical)
+                    if parsed:
+                        print_status(parsed)
+            time.sleep(0.01)
+
+        print("\n\n[STEP 3/3] Action: Please change the heater mode back to MANUAL on the touchpad.")
+        print("Press ENTER immediately AFTER you have changed it back to MANUAL.")
+        input()
+        
+        # Capture MANUAL mode for 5 seconds
+        print("\nCapturing MANUAL mode for 5 seconds...")
+        start_time = time.monotonic()
+        last_read_time = time.monotonic()
+        while time.monotonic() - start_time < 5.0:
+            try:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    print("\nConnection closed by bridge.")
+                    return raw_buffer, False
+                raw_buffer.extend(chunk)
+                stream_buffer.extend(chunk)
+                last_read_time = time.monotonic()
+            except BlockingIOError:
+                time.sleep(0.05)
+            
+            frames = find_frames(bytes(stream_buffer))
+            if frames:
+                last_frame = frames[-1]
+                idx = stream_buffer.rfind(last_frame)
+                if idx != -1:
+                    del stream_buffer[: idx + len(last_frame)]
+                broadcasts = [f for f in frames if is_broadcast(f)]
+                if broadcasts:
+                    logical = unescape_frame(broadcasts[-1])
+                    parsed = adapter.parse_status(logical)
+                    if parsed:
+                        print_status(parsed)
+            time.sleep(0.01)
+
+        print("\n\nHeater mode transition runbook completed successfully!")
+        return raw_buffer, True
+    except KeyboardInterrupt:
+        print("\nHeater mode runbook interrupted by user.")
+        return raw_buffer, False
+
+
 def run_monitor(sock: socket.socket, adapter: P25B85Adapter) -> None:
     """Monitor broadcast frames continuously (no file logging)."""
     print("\nMonitoring broadcasts in real-time. Press Ctrl+C to stop.\n")
@@ -283,6 +407,14 @@ def run_monitor(sock: socket.socket, adapter: P25B85Adapter) -> None:
     last_read_time = time.monotonic()
     
     try:
+        # Clear any initial buffer buildup
+        sock.setblocking(False)
+        try:
+            while sock.recv(4096):
+                pass
+        except BlockingIOError:
+            pass
+
         while True:
             try:
                 chunk = sock.recv(4096)
@@ -341,27 +473,38 @@ def main() -> int:
         print("\nSelect a mode:")
         print("  1) Capture Jets Transitions Runbook (OFF -> LOW -> HIGH -> LOW -> OFF -> HIGH -> OFF)")
         print("  2) Capture Heating & Circulation Sequence Runbook (Original)")
-        print("  3) Monitor broadcasts in real-time (no logging)")
-        print("  4) Exit")
+        print("  3) Capture Heater Mode Runbook (MANUAL -> AUTO -> MANUAL)")
+        print("  4) Monitor broadcasts in real-time (no logging)")
+        print("  0) Exit")
         
-        choice = input("Option [1-4]: ").strip()
-        if choice == "4":
+        choice = input("Option [0-4]: ").strip()
+        if choice == "0":
             sock.close()
             print("Exiting.")
             return 0
-        elif choice == "3":
+        elif choice == "4":
             run_monitor(sock, adapter)
-        elif choice in ("1", "2"):
+        elif choice in ("1", "2", "3"):
             ok = False
             raw_buffer = bytearray()
             seq_name = ""
             
+            # Clear any initial buffer buildup before starting capture
+            try:
+                while sock.recv(4096):
+                    pass
+            except BlockingIOError:
+                pass
+
             if choice == "1":
                 raw_buffer, ok = run_jets_sequence(sock, adapter)
                 seq_name = "jets"
-            else:
+            elif choice == "2":
                 raw_buffer, ok = run_heating_sequence(sock, adapter)
                 seq_name = "heating"
+            else:
+                raw_buffer, ok = run_heater_mode_sequence(sock, adapter)
+                seq_name = "heater_mode"
                 
             if ok and len(raw_buffer) > 0:
                 timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
