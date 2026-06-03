@@ -46,7 +46,8 @@ class SpaPumpFan(JoyonwayCoordinatorEntity, FanEntity):
     _attr_icon = "mdi:weather-windy"
     _attr_preset_modes = PRESET_MODES
     _attr_supported_features = (
-        FanEntityFeature.PRESET_MODE
+        FanEntityFeature.SET_SPEED
+        | FanEntityFeature.PRESET_MODE
         | FanEntityFeature.TURN_ON
         | FanEntityFeature.TURN_OFF
     )
@@ -132,16 +133,39 @@ class SpaPumpFan(JoyonwayCoordinatorEntity, FanEntity):
             return PRESET_LOW
         return None
 
+    @property
+    def percentage(self) -> int | None:
+        """Return the current speed percentage."""
+        state = self._get_jets_state()
+        if state == "high":
+            return 100
+        if state == "low":
+            return 50
+        return 0
+
+    async def async_set_percentage(self, percentage: int) -> None:
+        """Set the speed percentage of the fan."""
+        if percentage == 0:
+            await self.async_turn_off()
+            return
+        target = PRESET_LOW if percentage <= 50 else PRESET_HIGH
+        self._submit_pump_intent(target)
+
     async def async_turn_on(
         self,
         percentage: int | None = None,
         preset_mode: str | None = None,
         **kwargs: Any,
     ) -> None:
-        """Turn pump on. Default to low if no preset specified."""
-        del percentage, kwargs
-        target = preset_mode or PRESET_LOW
-        self._submit_pump_intent(target)
+        """Turn pump on."""
+        del kwargs
+        if preset_mode is not None:
+            await self.async_set_preset_mode(preset_mode)
+            return
+        if percentage is not None:
+            await self.async_set_percentage(percentage)
+            return
+        self._submit_pump_intent(PRESET_LOW)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn pump off."""
