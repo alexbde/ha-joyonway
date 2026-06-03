@@ -343,11 +343,16 @@ class DryRunSimulator:
 
                 # Jets
                 if (pump_b7, pump_b8) == (0x02, 0x02):
-                    self.jets = "low"
+                    if self.jets == "high":
+                        self.jets = "off"
+                    else:
+                        self.jets = "low"
                 elif (pump_b7, pump_b8) == (0x06, 0x04):
                     self.jets = "high"
                 elif (pump_b7, pump_b8) == (0x04, 0x00):
-                    self.jets = "off"
+                    if self.jets == "high":
+                        self.jets = "off"
+                    # If low, ignored by hardware
 
                 # Light toggle
                 elif btn_group == 0x40 and btn_action == 0x40:
@@ -581,53 +586,96 @@ async def test_basic_controls(reader: asyncio.StreamReader, writer: asyncio.Stre
         await send_raw_command(reader, writer, restore_cmd, f"Restore Blower (target: {orig_blower})")
         await wait_for_expected_state(reader, lambda st: st.get("blower") == orig_blower)
 
-    # 3. Jets Direct Transitions (off -> low -> off -> high -> off)
-    print("  Testing Jets Pump (off -> low -> off -> high -> off)...")
+    # 3. Jets Transitions (off -> low -> high -> low -> off -> high -> off)
+    print("  Testing Jets Pump (off -> low -> high -> low -> off -> high -> off)...")
     orig_jets = state.get("jets", "off")
     jets_settle = 0.5 if dry_run else 12.0
-    
-    # 3a. Off -> Low
-    cmd_low = adapter.build_pump_command("low")
+
+    # Ensure starting state is off
+    if orig_jets != "off":
+        cmd_off = adapter.build_jets_command("off")
+        # If in low, go through high first
+        if orig_jets == "low":
+            cmd_high = adapter.build_jets_command("high")
+            await send_raw_command(reader, writer, cmd_high, "Settle jets: LOW -> HIGH")
+            await wait_for_expected_state(reader, lambda st: st.get("jets") == "high")
+            await asyncio.sleep(jets_settle)
+        await send_raw_command(reader, writer, cmd_off, "Settle jets -> OFF")
+        await wait_for_expected_state(reader, lambda st: st.get("jets") == "off")
+        await asyncio.sleep(jets_settle)
+
+    # 3a. Off -> Low (Permutation 1)
+    cmd_low = adapter.build_jets_command("low")
     await send_raw_command(reader, writer, cmd_low, "Set jets LOW")
-    ok_low, new_state = await wait_for_expected_state(reader, lambda st: st.get("jets") == "low")
-    print(f"  {'PASS' if ok_low else 'FAIL'}: Jets set to LOW")
-    results.append(("Jets LOW command", ok_low))
-    if new_state:
-        state = new_state
-    await asyncio.sleep(jets_settle)
-        
-    # 3b. Low -> Off
-    cmd_off = adapter.build_pump_command("off")
-    await send_raw_command(reader, writer, cmd_off, "Set jets OFF")
-    ok_off, new_state = await wait_for_expected_state(reader, lambda st: st.get("jets") == "off")
-    print(f"  {'PASS' if ok_off else 'FAIL'}: Jets set to OFF")
-    results.append(("Jets OFF command", ok_off))
+    ok_off_low, new_state = await wait_for_expected_state(reader, lambda st: st.get("jets") == "low")
+    print(f"  {'PASS' if ok_off_low else 'FAIL'}: Jets transition OFF -> LOW")
+    results.append(("Jets OFF -> LOW", ok_off_low))
     if new_state:
         state = new_state
     await asyncio.sleep(jets_settle)
 
-    # 3c. Off -> High
-    cmd_high = adapter.build_pump_command("high")
+    # 3b. Low -> High (Permutation 2)
+    cmd_high = adapter.build_jets_command("high")
     await send_raw_command(reader, writer, cmd_high, "Set jets HIGH")
-    ok_high, new_state = await wait_for_expected_state(reader, lambda st: st.get("jets") == "high")
-    print(f"  {'PASS' if ok_high else 'FAIL'}: Jets set to HIGH")
-    results.append(("Jets HIGH command", ok_high))
+    ok_low_high, new_state = await wait_for_expected_state(reader, lambda st: st.get("jets") == "high")
+    print(f"  {'PASS' if ok_low_high else 'FAIL'}: Jets transition LOW -> HIGH")
+    results.append(("Jets LOW -> HIGH", ok_low_high))
     if new_state:
         state = new_state
     await asyncio.sleep(jets_settle)
 
-    # 3d. High -> Off
+    # 3c. High -> Low (Permutation 5 - multi-step: high -> off -> low)
+    cmd_off = adapter.build_jets_command("off")
+    await send_raw_command(reader, writer, cmd_off, "Set jets OFF (intermediate for HIGH -> LOW)")
+    ok_high_off_int, new_state = await wait_for_expected_state(reader, lambda st: st.get("jets") == "off")
+    if new_state:
+        state = new_state
+    await asyncio.sleep(jets_settle)
+    
+    await send_raw_command(reader, writer, cmd_low, "Set jets LOW (target for HIGH -> LOW)")
+    ok_high_low, new_state = await wait_for_expected_state(reader, lambda st: st.get("jets") == "low")
+    print(f"  {'PASS' if (ok_high_off_int and ok_high_low) else 'FAIL'}: Jets transition HIGH -> LOW")
+    results.append(("Jets HIGH -> LOW", ok_high_off_int and ok_high_low))
+    if new_state:
+        state = new_state
+    await asyncio.sleep(jets_settle)
+
+    # 3d. Low -> Off (Permutation 6 - multi-step: low -> high -> off)
+    await send_raw_command(reader, writer, cmd_high, "Set jets HIGH (intermediate for LOW -> OFF)")
+    ok_low_high_int, new_state = await wait_for_expected_state(reader, lambda st: st.get("jets") == "high")
+    if new_state:
+        state = new_state
+    await asyncio.sleep(jets_settle)
+
+    await send_raw_command(reader, writer, cmd_off, "Set jets OFF (target for LOW -> OFF)")
+    ok_low_off, new_state = await wait_for_expected_state(reader, lambda st: st.get("jets") == "off")
+    print(f"  {'PASS' if (ok_low_high_int and ok_low_off) else 'FAIL'}: Jets transition LOW -> OFF")
+    results.append(("Jets LOW -> OFF", ok_low_high_int and ok_low_off))
+    if new_state:
+        state = new_state
+    await asyncio.sleep(jets_settle)
+
+    # 3e. Off -> High (Permutation 4)
+    await send_raw_command(reader, writer, cmd_high, "Set jets HIGH")
+    ok_off_high, new_state = await wait_for_expected_state(reader, lambda st: st.get("jets") == "high")
+    print(f"  {'PASS' if ok_off_high else 'FAIL'}: Jets transition OFF -> HIGH")
+    results.append(("Jets OFF -> HIGH", ok_off_high))
+    if new_state:
+        state = new_state
+    await asyncio.sleep(jets_settle)
+
+    # 3f. High -> Off (Permutation 3)
     await send_raw_command(reader, writer, cmd_off, "Set jets OFF (from High)")
-    ok_off_final, new_state = await wait_for_expected_state(reader, lambda st: st.get("jets") == "off")
-    print(f"  {'PASS' if ok_off_final else 'FAIL'}: Jets set to OFF (from High)")
-    results.append(("Jets OFF from HIGH command", ok_off_final))
+    ok_high_off, new_state = await wait_for_expected_state(reader, lambda st: st.get("jets") == "off")
+    print(f"  {'PASS' if ok_high_off else 'FAIL'}: Jets transition HIGH -> OFF")
+    results.append(("Jets HIGH -> OFF", ok_high_off))
     if new_state:
         state = new_state
     await asyncio.sleep(jets_settle)
 
     # Restore Jets to baseline if they were not off originally
     if state.get("jets") != orig_jets:
-        cmd_restore = adapter.build_pump_command(orig_jets)
+        cmd_restore = adapter.build_jets_command(orig_jets)
         await send_raw_command(reader, writer, cmd_restore, f"Restore jets (target: {orig_jets})")
         await wait_for_expected_state(reader, lambda st: st.get("jets") == orig_jets)
         await asyncio.sleep(jets_settle)
@@ -1177,7 +1225,7 @@ async def test_intent_queue(reader: asyncio.StreamReader, writer: asyncio.Stream
         print(f"      build_jets: target={target}, current={current}")
         if target == current:
             return None
-        return adapter.build_pump_command(target)
+        return adapter.build_jets_command(target)
 
     def is_jets_command(f: bytes) -> bool:
         try:
@@ -1457,7 +1505,7 @@ async def run_suite(option: int) -> None:
                     # 3. Restore Jets
                     if current.get("jets") != initial_state.get("jets"):
                         print(f"    Restoring Jets to {initial_state.get('jets')}...")
-                        await send_raw_command(restoration_reader, restoration_writer, adapter.build_pump_command(initial_state.get("jets")), "Restore Jets")
+                        await send_raw_command(restoration_reader, restoration_writer, adapter.build_jets_command(initial_state.get("jets")), "Restore Jets")
                         await asyncio.sleep(1.0 if dry_run else 12.0)
 
                     # 4. Restore Setpoint

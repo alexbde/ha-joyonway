@@ -34,7 +34,7 @@ from custom_components.joyonway.binary_sensor import (
 )
 from custom_components.joyonway.climate import SpaClimate
 from custom_components.joyonway.const import CONF_HOST
-from custom_components.joyonway.fan import SpaPumpFan
+from custom_components.joyonway.fan import SpaJetsFan
 from custom_components.joyonway.sensor import JoyonwaySensor
 from custom_components.joyonway.switch import (
     SpaBlowerSwitch,
@@ -51,9 +51,9 @@ CMD_HEATER_ON = _adapter.build_heater_command(on=True)
 CMD_HEATER_OFF = _adapter.build_heater_command(on=False)
 CMD_BLOWER_ON = _adapter.build_blower_command(on=True)
 CMD_BLOWER_OFF = _adapter.build_blower_command(on=False)
-CMD_PUMP_LOW = _adapter.build_pump_command("low")
-CMD_PUMP_HIGH = _adapter.build_pump_command("high")
-CMD_PUMP_OFF = _adapter.build_pump_command("off")
+CMD_JETS_LOW = _adapter.build_jets_command("low")
+CMD_JETS_HIGH = _adapter.build_jets_command("high")
+CMD_JETS_OFF = _adapter.build_jets_command("off")
 
 
 class DummyAdapter:
@@ -80,13 +80,13 @@ class DummyAdapter:
         return CMD_BLOWER_ON if on else CMD_BLOWER_OFF
 
     @staticmethod
-    def build_pump_command(target: str) -> bytes | None:
+    def build_jets_command(target: str) -> bytes | None:
         if target == "low":
-            return CMD_PUMP_LOW
+            return CMD_JETS_LOW
         if target == "high":
-            return CMD_PUMP_HIGH
+            return CMD_JETS_HIGH
         if target == "off":
-            return CMD_PUMP_OFF
+            return CMD_JETS_OFF
         return None
 
 
@@ -219,9 +219,9 @@ async def test_heater_and_blower_switch_commands(entry: SimpleNamespace) -> None
 
 def test_fan_reports_power_features(entry: SimpleNamespace) -> None:
     coordinator = DummyCoordinator(data={"jets": "off"})
-    fan = SpaPumpFan(coordinator, entry)
+    fan = SpaJetsFan(coordinator, entry)
 
-    assert fan.supported_features & FanEntityFeature.PRESET_MODE
+    assert fan.supported_features & FanEntityFeature.SET_SPEED
     assert fan.supported_features & FanEntityFeature.TURN_ON
     assert fan.supported_features & FanEntityFeature.TURN_OFF
 
@@ -304,10 +304,10 @@ async def test_heater_optimistic_state(entry: SimpleNamespace) -> None:
 
 
 @pytest.mark.asyncio
-async def test_fan_optimistic_preset_mode(entry: SimpleNamespace) -> None:
-    """Fan shows optimistic preset_mode immediately after command send."""
+async def test_fan_optimistic_percentage(entry: SimpleNamespace) -> None:
+    """Fan shows optimistic percentage immediately after command send."""
     coordinator = DummyCoordinator(data={"jets": "off"})
-    fan = SpaPumpFan(coordinator, entry)
+    fan = SpaJetsFan(coordinator, entry)
     fan.hass = DummyHass()
     fan.async_write_ha_state = lambda: None
 
@@ -315,7 +315,7 @@ async def test_fan_optimistic_preset_mode(entry: SimpleNamespace) -> None:
 
     assert fan._pending_state == "low"
     assert fan.is_on is True
-    assert fan.preset_mode == "low"
+    assert fan.percentage == 50
     fan._cancel_pending_timeout()
 
 

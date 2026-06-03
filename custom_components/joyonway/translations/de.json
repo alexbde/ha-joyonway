@@ -52,8 +52,8 @@
         "name": "Düsen",
         "state": {
           "off": "Aus",
-          "low": "Leicht",
-          "high": "Stark"
+          "low": "Niedrig",
+          "high": "Hoch"
         }
       },
       "spa_datetime": { "name": "Datum & Uhrzeit" },
@@ -88,19 +88,7 @@
       "filter_slot2_start": { "name": "Filter-Slot 2 Start" },
       "filter_slot2_end": { "name": "Filter-Slot 2 Ende" }
     },
-    "fan": {
-      "jets": {
-        "name": "Düsen",
-        "state_attributes": {
-          "preset_mode": {
-            "state": {
-              "low": "Leicht",
-              "high": "Stark"
-            }
-          }
-        }
-      }
-    },
+
     "climate": {
       "thermostat": { "name": "Thermostat" }
     },

@@ -380,11 +380,12 @@ class P25B85Adapter:
         """Build a light toggle command."""
         return self._build_button_command(btn_group=0x40, btn_action=0x40)
 
-    def build_pump_command(self, target: str) -> bytes | None:
-        """Build a pump command for the desired target state.
+    def build_jets_command(self, target: str) -> bytes | None:
+        """Build a jets command for the desired target state.
 
-        The controller accepts the target state directly — no transition
-        logic needed. Returns None if target is not a valid pump state.
+        Note: the physical controller accepts these transition bytes based on
+        its current state. Multi-step transitions must be handled at the entity level.
+        Returns None if target is not a valid jets state.
         """
         if target not in _PUMP_TARGET_BYTES:
             return None

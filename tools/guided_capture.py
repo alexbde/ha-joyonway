@@ -25,7 +25,9 @@ try:
     from custom_components.joyonway.adapters.p25b85 import P25B85Adapter
 except ImportError:
     print("Error: Could not import custom component. Make sure you run this script from the repository root.")
-    sys.exit(1)
+    sys.path.insert(0, str(ROOT / "custom_components"))
+    from joyonway.protocol import find_frames, unescape_frame, is_broadcast
+    from joyonway.adapters.p25b85 import P25B85Adapter
 
 # Load .env if present
 def _load_dotenv():
@@ -58,6 +60,261 @@ def print_status(data: dict) -> None:
     print(f"\r  [Current State] Temp: {water}°C/{setp}°C | Jets: {jets:<4} | Heater: {heater_enabled:<3} | Status: {status:<12} (h=0x{h_byte:02X}, p=0x{p_byte:02X}, l=0x{l_byte:02X})", end="", flush=True)
 
 
+def run_jets_sequence(sock: socket.socket, adapter: P25B85Adapter) -> tuple[bytearray, bool]:
+    """Guide the user through all jets transitions (off->low->high->low->off->high->off)."""
+    print("\nStarting Jets Transition Runbook:")
+    print("  Step 1: Ensure jets are initially OFF.")
+    print("  Step 2: Turn jets LOW (press button once).")
+    print("  Step 3: Turn jets HIGH (press button once).")
+    print("  Step 4: Turn jets LOW (press button twice: high -> off -> low).")
+    print("  Step 5: Turn jets OFF (press button twice: low -> high -> off).")
+    print("  Step 6: Turn jets HIGH (press button twice: off -> low -> high).")
+    print("  Step 7: Turn jets OFF (press button once: high -> off).")
+    print("\nPress ENTER when you are ready to start.")
+    input()
+    
+    raw_buffer = bytearray()
+    stream_buffer = bytearray()
+    
+    current_step = 1
+    last_read_time = time.monotonic()
+    
+    # Runbook Step descriptions and trigger criteria
+    def check_step_transition(step: int, data: dict) -> tuple[bool, str | None]:
+        jets = data.get("jets")
+        p_raw = data.get("pump_byte_raw", 0)
+        
+        if step == 1:
+            if jets == "off" or p_raw == 0x00:
+                return True, "Jets are confirmed OFF! Step 2: Turn the jets LOW (press button once)."
+        elif step == 2:
+            if jets == "low" or p_raw == 0x02:
+                print("\n  --> Jets LOW detected. Capturing steady state for 3 seconds...")
+                time.sleep(3.0)
+                return True, "Step 3: Turn the jets HIGH (press button once)."
+        elif step == 3:
+            if jets == "high" or p_raw == 0x04:
+                print("\n  --> Jets HIGH detected. Capturing steady state for 3 seconds...")
+                time.sleep(3.0)
+                return True, "Step 4: Turn the jets LOW (press button twice: high -> off -> low)."
+        elif step == 4:
+            if jets == "low" or p_raw == 0x02:
+                print("\n  --> Jets LOW detected. Capturing steady state for 3 seconds...")
+                time.sleep(3.0)
+                return True, "Step 5: Turn the jets OFF (press button twice: low -> high -> off)."
+        elif step == 5:
+            if jets == "off" or p_raw == 0x00:
+                print("\n  --> Jets OFF detected. Capturing steady state for 3 seconds...")
+                time.sleep(3.0)
+                return True, "Step 6: Turn the jets HIGH (press button twice: off -> low -> high)."
+        elif step == 6:
+            if jets == "high" or p_raw == 0x04:
+                print("\n  --> Jets HIGH detected. Capturing steady state for 3 seconds...")
+                time.sleep(3.0)
+                return True, "Step 7: Turn the jets OFF (press button once: high -> off)."
+        elif step == 7:
+            if jets == "off" or p_raw == 0x00:
+                return True, "Jets are confirmed OFF! Sequence complete."
+                
+        return False, None
+
+    print(f"\n[STEP 1/7] Waiting for jets to be OFF...")
+    
+    try:
+        while True:
+            try:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    print("\nConnection closed by bridge.")
+                    return raw_buffer, False
+                raw_buffer.extend(chunk)
+                stream_buffer.extend(chunk)
+                last_read_time = time.monotonic()
+            except BlockingIOError:
+                if time.monotonic() - last_read_time > 15.0:
+                    print("\nWarning: No data received from bridge for 15 seconds.")
+                    last_read_time = time.monotonic()
+                time.sleep(0.05)
+                
+            frames = find_frames(bytes(stream_buffer))
+            if frames:
+                last_frame = frames[-1]
+                idx = stream_buffer.rfind(last_frame)
+                if idx != -1:
+                    del stream_buffer[: idx + len(last_frame)]
+                    
+                broadcasts = [f for f in frames if is_broadcast(f)]
+                if broadcasts:
+                    logical = unescape_frame(broadcasts[-1])
+                    parsed = adapter.parse_status(logical)
+                    if parsed:
+                        print_status(parsed)
+                        success, next_inst = check_step_transition(current_step, parsed)
+                        if success:
+                            current_step += 1
+                            if current_step <= 7:
+                                print(f"\n\n[STEP {current_step}/7] {next_inst}")
+                            else:
+                                print(f"\n\nJets transition runbook completed successfully!")
+                                return raw_buffer, True
+            time.sleep(0.01)
+    except KeyboardInterrupt:
+        print("\nJets runbook interrupted by user.")
+        return raw_buffer, False
+
+
+def run_heating_sequence(sock: socket.socket, adapter: P25B85Adapter) -> tuple[bytearray, bool]:
+    """Original runbook: guide user through heating & circulation states."""
+    print("\nStarting Heating & Circulation Runbook:")
+    print("  1. Enable the heater.")
+    print("  2. Wait for circulation to start.")
+    print("  3. Set jets to LOW (wait 5s).")
+    print("  4. Set jets to HIGH (wait 5s).")
+    print("  5. Set jets to LOW (wait 5s).")
+    print("  6. Wait for the heater to start (heating).")
+    print("  7. Stop the heating (disable heater).")
+    print("  8. Wait for circulation to show up again (postheating).")
+    print("  9. Stop the jets.")
+    print("\nPress ENTER when you are ready to start.")
+    input()
+    
+    raw_buffer = bytearray()
+    stream_buffer = bytearray()
+    
+    current_step = 1
+    last_read_time = time.monotonic()
+    
+    def check_step_transition(step: int, data: dict) -> tuple[bool, str | None]:
+        jets = data.get("jets")
+        status = data.get("status")
+        heater_enabled = data.get("heater_enabled", False)
+        h_raw = data.get("heater_byte_raw", 0)
+        p_raw = data.get("pump_byte_raw", 0)
+        l_raw = data.get("light_cycle_byte_raw", 0)
+        
+        heater_base = h_raw & ~0x08
+        heating_cycle_active = bool(l_raw & 0x80)
+
+        if step == 1:
+            if heater_enabled:
+                return True, "Heater enabled detected! Next step: Wait for the circulation to start."
+        elif step == 2:
+            if status == "circulation" or heater_base == 0x51:
+                return True, "Circulation started detected! Next step: Set the jets to LOW speed on the panel."
+        elif step == 3:
+            if jets == "low" or p_raw == 0x02:
+                print("\n  --> Jets are LOW. Capturing steady state for 5 seconds...")
+                time.sleep(5.0)
+                return True, "Next step: Set the jets to HIGH speed on the panel."
+        elif step == 4:
+            if jets == "high" or p_raw == 0x04:
+                print("\n  --> Jets are HIGH. Capturing steady state for 5 seconds...")
+                time.sleep(5.0)
+                return True, "Next step: Set the jets back to LOW speed on the panel."
+        elif step == 5:
+            if jets == "low" or p_raw == 0x02:
+                print("\n  --> Jets are LOW again. Capturing steady state for 5 seconds...")
+                time.sleep(5.0)
+                return True, "Next step: Wait for the heater to start (heating mode)."
+        elif step == 6:
+            if status == "heating" or heater_base in (0x55, 0x54):
+                return True, "Heater is now actively heating! Next step: Stop the heating (disable the heater)."
+        elif step == 7:
+            if not heater_enabled:
+                return True, "Heater disabled detected! Next step: Wait for the post-heating circulation to show up (circle icon)."
+        elif step == 8:
+            if status == "circulation" and heater_base == 0x40 and heating_cycle_active:
+                return True, "Post-heating circulation detected! Next step: Stop the jets (turn them off)."
+        elif step == 9:
+            if jets == "off" or p_raw == 0x00:
+                return True, "Jets are turned off! Capture complete."
+                
+        return False, None
+
+    print(f"\n[STEP 1/9] Please enable the heater on the touchpad or Home Assistant.")
+    
+    try:
+        while True:
+            try:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    print("\nConnection closed by bridge.")
+                    return raw_buffer, False
+                raw_buffer.extend(chunk)
+                stream_buffer.extend(chunk)
+                last_read_time = time.monotonic()
+            except BlockingIOError:
+                if time.monotonic() - last_read_time > 15.0:
+                    print("\nWarning: No data received from bridge for 15 seconds.")
+                    last_read_time = time.monotonic()
+                time.sleep(0.05)
+                
+            frames = find_frames(bytes(stream_buffer))
+            if frames:
+                last_frame = frames[-1]
+                idx = stream_buffer.rfind(last_frame)
+                if idx != -1:
+                    del stream_buffer[: idx + len(last_frame)]
+                    
+                broadcasts = [f for f in frames if is_broadcast(f)]
+                if broadcasts:
+                    logical = unescape_frame(broadcasts[-1])
+                    parsed = adapter.parse_status(logical)
+                    if parsed:
+                        print_status(parsed)
+                        success, next_inst = check_step_transition(current_step, parsed)
+                        if success:
+                            current_step += 1
+                            if current_step <= 9:
+                                print(f"\n\n[STEP {current_step}/9] {next_inst}")
+                            else:
+                                print(f"\n\nRunbook completed successfully!")
+                                return raw_buffer, True
+            time.sleep(0.01)
+    except KeyboardInterrupt:
+        print("\nHeating runbook interrupted by user.")
+        return raw_buffer, False
+
+
+def run_monitor(sock: socket.socket, adapter: P25B85Adapter) -> None:
+    """Monitor broadcast frames continuously (no file logging)."""
+    print("\nMonitoring broadcasts in real-time. Press Ctrl+C to stop.\n")
+    stream_buffer = bytearray()
+    last_read_time = time.monotonic()
+    
+    try:
+        while True:
+            try:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    print("\nConnection closed by bridge.")
+                    break
+                stream_buffer.extend(chunk)
+                last_read_time = time.monotonic()
+            except BlockingIOError:
+                if time.monotonic() - last_read_time > 15.0:
+                    print("\nWarning: No data received for 15 seconds.")
+                    last_read_time = time.monotonic()
+                time.sleep(0.05)
+                
+            frames = find_frames(bytes(stream_buffer))
+            if frames:
+                last_frame = frames[-1]
+                idx = stream_buffer.rfind(last_frame)
+                if idx != -1:
+                    del stream_buffer[: idx + len(last_frame)]
+                    
+                broadcasts = [f for f in frames if is_broadcast(f)]
+                if broadcasts:
+                    logical = unescape_frame(broadcasts[-1])
+                    parsed = adapter.parse_status(logical)
+                    if parsed:
+                        print_status(parsed)
+            time.sleep(0.01)
+    except KeyboardInterrupt:
+        print("\nMonitoring stopped.")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Interactive guided capture tool.")
     parser.add_argument("--host", default=DEFAULT_HOST, help=f"Bridge host (default: {DEFAULT_HOST})")
@@ -79,159 +336,52 @@ def main() -> int:
         
     sock.setblocking(False)
     print("Connected successfully!")
-    print("\nRunbook steps:")
-    print("  1. Enable the heater.")
-    print("  2. Wait for circulation to start.")
-    print("  3. Set jets to LOW (wait 5s).")
-    print("  4. Set jets to HIGH (wait 5s).")
-    print("  5. Set jets to LOW (wait 5s).")
-    print("  6. Wait for the heater to start (heating).")
-    print("  7. Stop the heating (disable heater).")
-    print("  8. Wait for circulation to show up again (postheating).")
-    print("  9. Stop the jets.")
-    print("\nPress ENTER when you are ready to start the capture.")
-    input()
     
-    print("Capture started. Logging raw bytes...")
-    
-    raw_buffer = bytearray()
-    stream_buffer = bytearray()
-    
-    current_step = 1
-    step_start_time = time.monotonic()
-    
-    # State tracking
-    last_status = None
-    
-    # Runbook Step descriptions and trigger criteria
-    # Returns (success_bool, next_step_instructions)
-    def check_step_transition(step: int, data: dict) -> tuple[bool, str | None]:
-        jets = data.get("jets")
-        status = data.get("status")
-        heater_enabled = data.get("heater_enabled", False)
-        h_raw = data.get("heater_byte_raw", 0)
-        p_raw = data.get("pump_byte_raw", 0)
-        l_raw = data.get("light_cycle_byte_raw", 0)
+    while True:
+        print("\nSelect a mode:")
+        print("  1) Capture Jets Transitions Runbook (OFF -> LOW -> HIGH -> LOW -> OFF -> HIGH -> OFF)")
+        print("  2) Capture Heating & Circulation Sequence Runbook (Original)")
+        print("  3) Monitor broadcasts in real-time (no logging)")
+        print("  4) Exit")
         
-        heater_base = h_raw & ~0x08
-        heating_cycle_active = bool(l_raw & 0x80)
-
-        if step == 1:
-            # Enable the heater
-            if heater_enabled:
-                return True, "Heater enabled detected! Next step: Wait for the circulation to start."
-        elif step == 2:
-            # Wait for circulation to start (0x51 in heater state)
-            if status == "circulation" or heater_base == 0x51:
-                return True, "Circulation started detected! Next step: Set the jets to LOW speed on the panel."
-        elif step == 3:
-            # Set the jets to low
-            if jets == "low" or p_raw == 0x02:
-                print("\n  --> Jets are LOW. Capturing steady state for 5 seconds...")
-                time.sleep(5.0)
-                return True, "Next step: Set the jets to HIGH speed on the panel."
-        elif step == 4:
-            # Set the jets to high
-            if jets == "high" or p_raw == 0x04:
-                print("\n  --> Jets are HIGH. Capturing steady state for 5 seconds...")
-                time.sleep(5.0)
-                return True, "Next step: Set the jets back to LOW speed on the panel."
-        elif step == 5:
-            # Set the jets to low
-            if jets == "low" or p_raw == 0x02:
-                print("\n  --> Jets are LOW again. Capturing steady state for 5 seconds...")
-                time.sleep(5.0)
-                return True, "Next step: Wait for the heater to start (heating mode)."
-        elif step == 6:
-            # Wait for the heater to start (heating status / 0x55 or 0x54)
-            if status == "heating" or heater_base in (0x55, 0x54):
-                return True, "Heater is now actively heating! Next step: Stop the heating (disable the heater)."
-        elif step == 7:
-            # Stop the heating
-            if not heater_enabled:
-                return True, "Heater disabled detected! Next step: Wait for the post-heating circulation to show up (circle icon)."
-        elif step == 8:
-            # Wait for circulation (postheating: base is 0x40 but heating cycle flag is active)
-            if status == "circulation" and heater_base == 0x40 and heating_cycle_active:
-                return True, "Post-heating circulation detected! Next step: Stop the jets (turn them off)."
-        elif step == 9:
-            # Stop the jets
-            if jets == "off" or p_raw == 0x00:
-                return True, "Jets are turned off! Capture complete."
-                
-        return False, None
-
-    print(f"\n[STEP 1/9] Please enable the heater on the touchpad or Home Assistant.")
-    
-    last_read_time = time.monotonic()
-    
-    try:
-        while True:
-            try:
-                chunk = sock.recv(4096)
-                if not chunk:
-                    print("\nConnection closed by bridge.")
-                    break
-                raw_buffer.extend(chunk)
-                stream_buffer.extend(chunk)
-                last_read_time = time.monotonic()
-            except BlockingIOError:
-                # No data ready right now
-                if time.monotonic() - last_read_time > 15.0:
-                    print("\nWarning: No data received from bridge for 15 seconds. Is the spa broadcasting?")
-                    last_read_time = time.monotonic()
-                time.sleep(0.05)
-                
-            # Process frames in stream buffer
-            frames = find_frames(bytes(stream_buffer))
-            if frames:
-                # Clear from stream buffer whatever we parsed
-                # (keep remaining partial frame bytes)
-                last_frame = frames[-1]
-                idx = stream_buffer.rfind(last_frame)
-                if idx != -1:
-                    del stream_buffer[: idx + len(last_frame)]
-                    
-                # Look at the latest broadcast frame
-                broadcasts = [f for f in frames if is_broadcast(f)]
-                if broadcasts:
-                    logical = unescape_frame(broadcasts[-1])
-                    parsed = adapter.parse_status(logical)
-                    if parsed:
-                        print_status(parsed)
-                        
-                        # Check step transition
-                        success, next_inst = check_step_transition(current_step, parsed)
-                        if success:
-                            current_step += 1
-                            if current_step <= 9:
-                                print(f"\n\n[STEP {current_step}/9] {next_inst}")
-                            else:
-                                print(f"\n\nRunbook completed successfully!")
-                                break
-                                
-            time.sleep(0.01)
+        choice = input("Option [1-4]: ").strip()
+        if choice == "4":
+            sock.close()
+            print("Exiting.")
+            return 0
+        elif choice == "3":
+            run_monitor(sock, adapter)
+        elif choice in ("1", "2"):
+            ok = False
+            raw_buffer = bytearray()
+            seq_name = ""
             
-    except KeyboardInterrupt:
-        print("\nCapture interrupted by user.")
-    finally:
-        sock.close()
-        
-    # Write to file
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"combined_jets_circulation_{timestamp}.bin"
-    output_dir = ROOT / "tools" / "captures" / "heating"
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / filename
-    
-    try:
-        with open(output_path, "wb") as f:
-            f.write(raw_buffer)
-        print(f"\nSuccessfully wrote {len(raw_buffer)} raw bytes to:")
-        print(f"  {output_path.absolute()}")
-    except Exception as e:
-        print(f"Error writing file: {e}")
-        
+            if choice == "1":
+                raw_buffer, ok = run_jets_sequence(sock, adapter)
+                seq_name = "jets"
+            else:
+                raw_buffer, ok = run_heating_sequence(sock, adapter)
+                seq_name = "heating"
+                
+            if ok and len(raw_buffer) > 0:
+                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"{seq_name}_transitions_{timestamp}.bin"
+                output_dir = ROOT / "tools" / "captures" / seq_name
+                output_dir.mkdir(parents=True, exist_ok=True)
+                output_path = output_dir / filename
+                
+                try:
+                    with open(output_path, "wb") as f:
+                        f.write(raw_buffer)
+                    print(f"\nSuccessfully wrote {len(raw_buffer)} raw bytes to:")
+                    print(f"  {output_path.absolute()}")
+                except Exception as e:
+                    print(f"Error writing file: {e}")
+            else:
+                print("\nNo capture file written (sequence incomplete or aborted).")
+        else:
+            print("Invalid option.")
+            
     return 0
 
 if __name__ == "__main__":
