@@ -28,7 +28,6 @@ from .const import (
     AVAILABILITY_GRACE_SECONDS,
     CLOCK_SYNC_COOLDOWN,
     CLOCK_SYNC_DRIFT_THRESHOLD,
-    COMMAND_COOLDOWN,
     DOMAIN,
     INTENT_COALESCE_SECONDS,
     INTENT_RETRY_COUNT,
@@ -315,8 +314,9 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
         self._disconnect_ts: float | None = None
         self._first_data_event = asyncio.Event()
 
-        # Command pacing
-        self._last_command_ts: float = 0.0
+        # Command pacing & synchronization
+        self._sync_frame_event = asyncio.Event()
+        self._sync_timeout = 2.0
 
         # Intent queue for coalescing and serializing user actions
         self.intent_queue = IntentQueue(self)
@@ -489,6 +489,11 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
 
     # ── Buffer parsing ───────────────────────────────────────────────
 
+    def _handle_sync_frame(self) -> None:
+        """Handle a synchronization frame received on the bus."""
+        _LOGGER.debug("RS485 sync frame received")
+        self._sync_frame_event.set()
+
     def _try_parse_buffer(self, buf: bytes) -> tuple[dict | None, int]:
         """Return (parsed_data, consumed_bytes)."""
         frames = find_frames_with_indices(bytes(buf))
@@ -500,6 +505,10 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
 
         latest_data: dict | None = None
         for raw_frame, _ in frames:
+            if raw_frame == b"\x1a\x01\x20\x08\x3c\xaa\x10\x00\x00\x6b\x73\xe4\xb9\x1d":
+                self._handle_sync_frame()
+                continue
+
             if not validate_frame(raw_frame):
                 continue
             if not is_broadcast(raw_frame):
@@ -520,21 +529,31 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
     # ── Command sending ──────────────────────────────────────────────
 
     async def async_send_command(self, frame: bytes) -> bool:
-        """Send a command frame on the persistent connection."""
+        """Send a command frame on the persistent connection aligned with the quiet bus window."""
         if self._writer is None:
             _LOGGER.error("Cannot send command: not connected")
             self._schedule_reconnect()
             return False
 
         async with self._write_lock:
-            elapsed = time.monotonic() - self._last_command_ts
-            if elapsed < COMMAND_COOLDOWN:
-                await asyncio.sleep(COMMAND_COOLDOWN - elapsed)
+            if self._sync_timeout > 0.0:
+                self._sync_frame_event.clear()
+                try:
+                    # Wait for a synchronization frame to align with the quiet window
+                    await asyncio.wait_for(self._sync_frame_event.wait(), timeout=self._sync_timeout)
+                    # Small delay required by the protocol to let the controller finish processing
+                    await asyncio.sleep(0.03)
+                    _LOGGER.debug("Sync frame received, sending command aligned with quiet window")
+                except asyncio.TimeoutError:
+                    _LOGGER.error(
+                        "Timeout waiting for sync frame (%.1fs), aborting command send",
+                        self._sync_timeout,
+                    )
+                    return False
 
             try:
                 self._writer.write(frame)
                 await self._writer.drain()
-                self._last_command_ts = time.monotonic()
                 _LOGGER.debug("Sent command: %s", frame.hex())
                 return True
             except (OSError, asyncio.TimeoutError) as err:

@@ -24,7 +24,6 @@ DEFAULT_NAME: str = "Joyonway Spa"
 
 # RS485 behaviour
 TCP_TIMEOUT: float = 5.0
-COMMAND_COOLDOWN: float = 1.0  # minimum seconds between commands
 
 # Intent queue
 INTENT_COALESCE_SECONDS: float = 0.3  # coalesce window for rapid intents
