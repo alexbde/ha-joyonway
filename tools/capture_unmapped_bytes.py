@@ -72,6 +72,8 @@ _MAPPED_INDEXES = {
     58,  # datetime
 }
 
+_TRAILER_LEN = 5  # CRC32 (4) + frame end delimiter (1)
+
 
 async def main():
     parser = argparse.ArgumentParser(
@@ -142,7 +144,6 @@ async def main():
     # Track seen values for each unmapped index
     unmapped_values = defaultdict(set)
     first_frame = captured_frames[0]
-    _TRAILER_LEN = 5
     payload_end = max(0, len(first_frame) - _TRAILER_LEN)
     unmapped_indices = [i for i in range(payload_end) if i not in _MAPPED_INDEXES]
 
