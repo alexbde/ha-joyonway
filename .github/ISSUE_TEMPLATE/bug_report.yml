@@ -1,0 +1,77 @@
+name: 🐛 Bug Report
+description: Report a problem with the Joyonway Spa integration
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please fill in as much detail as possible.
+        For **support questions** or general discussion, please use the [Community Thread](https://community.home-assistant.io/t/joyonway-spa-control/582344) instead.
+
+  - type: input
+    id: ha_version
+    attributes:
+      label: Home Assistant version
+      placeholder: "e.g. 2026.6.0"
+    validations:
+      required: true
+
+  - type: input
+    id: integration_version
+    attributes:
+      label: Integration version
+      placeholder: "e.g. 1.0.0"
+    validations:
+      required: true
+
+  - type: input
+    id: controller_model
+    attributes:
+      label: Spa controller model
+      placeholder: "e.g. Joyonway P25B85"
+    validations:
+      required: true
+
+  - type: input
+    id: touchpad_model
+    attributes:
+      label: Touchpad model (if known)
+      placeholder: "e.g. PB554"
+
+  - type: input
+    id: bridge_model
+    attributes:
+      label: RS485 bridge hardware
+      placeholder: "e.g. Elfin EW11"
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Go to ...
+        2. Click on ...
+        3. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: Enable debug logging for `custom_components.joyonway` and paste the relevant lines here.
+      render: text

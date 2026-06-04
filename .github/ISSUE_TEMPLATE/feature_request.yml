@@ -1,0 +1,42 @@
+name: 💡 Feature Request
+description: Suggest a new feature or improvement
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting an improvement! Please describe your idea clearly.
+        For general discussion, please use the [Community Thread](https://community.home-assistant.io/t/joyonway-spa-control/582344) first.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Is your feature request related to a problem?
+      placeholder: "e.g. I have a P23B32 controller that isn't supported..."
+    validations:
+      required: false
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Describe the solution you'd like
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Have you tried any workarounds or alternative approaches?
+
+  - type: input
+    id: controller_model
+    attributes:
+      label: Controller model (if hardware-specific)
+      placeholder: "e.g. Joyonway P23B32"
+
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: Additional context
+      description: Links, screenshots, protocol captures, or anything else that might help.

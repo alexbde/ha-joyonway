@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 Community Discussion Thread
+    url: https://community.home-assistant.io/t/joyonway-spa-control/582344
+    about: For setup help, general questions, and sharing your findings — use the HA community thread.
+  - name: 📖 README
+    url: https://github.com/alexbde/ha-joyonway#readme
+    about: Installation and configuration guide.
