@@ -7,6 +7,7 @@ Reconnects automatically with exponential backoff on any error.
 Includes an IntentQueue that coalesces rapid user actions, prevents bus
 contention, and automatically cancels reverted intents.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -30,15 +31,18 @@ from .const import (
     CLOCK_SYNC_DRIFT_THRESHOLD,
     DOMAIN,
     INTENT_COALESCE_SECONDS,
-    INTENT_RETRY_COUNT,
     OPT_AUTO_SYNC_CLOCK,
-    OPT_OZONE_MODE,
     OZONE_MODE_AUTO,
     RX_STALE_SECONDS,
     SCAN_INTERVAL,
     TCP_TIMEOUT,
 )
-from .protocol import find_frames, find_frames_with_indices, unescape_frame, is_broadcast, validate_frame
+from .protocol import (
+    find_frames_with_indices,
+    unescape_frame,
+    is_broadcast,
+    validate_frame,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -95,7 +99,8 @@ class IntentQueue:
         overrides: dict[str, Any],
         build_fn: Callable[[dict[str, Any], dict[str, Any] | None], bytes | None],
         on_failure: Callable[[], None] | None = None,
-        verify_fn: Callable[[dict[str, Any], dict[str, Any] | None], bool] | None = None,
+        verify_fn: Callable[[dict[str, Any], dict[str, Any] | None], bool]
+        | None = None,
     ) -> None:
         """Submit an intent for coalescing and eventual execution.
 
@@ -165,9 +170,7 @@ class IntentQueue:
 
         if frame is None:
             # No-op: merged intent matches current state (e.g., toggled ON then OFF)
-            _LOGGER.debug(
-                "Intent queue [%s]: no-op detected, skipping", group_key
-            )
+            _LOGGER.debug("Intent queue [%s]: no-op detected, skipping", group_key)
             return
 
         # Use custom verify function or default key-matching check
@@ -197,7 +200,8 @@ class IntentQueue:
                 if not success:
                     _LOGGER.warning(
                         "Intent queue [%s]: send failed on attempt %d",
-                        group_key, attempt + 1
+                        group_key,
+                        attempt + 1,
                     )
                     if attempt < max_attempts - 1:
                         await asyncio.sleep(1.0)
@@ -223,21 +227,25 @@ class IntentQueue:
                     except asyncio.TimeoutError:
                         _LOGGER.warning(
                             "Intent queue [%s]: timed out waiting for broadcast updates on attempt %d",
-                            group_key, attempt + 1
+                            group_key,
+                            attempt + 1,
                         )
                         break
 
                 if converged:
                     _LOGGER.debug(
                         "Intent queue [%s]: converged to target state on attempt %d",
-                        group_key, attempt + 1
+                        group_key,
+                        attempt + 1,
                     )
                     break
 
                 if attempt < max_attempts - 1:
                     _LOGGER.warning(
                         "Intent queue [%s]: not converged after %d broadcasts on attempt %d, retrying in 0.5s...",
-                        group_key, broadcast_count, attempt + 1
+                        group_key,
+                        broadcast_count,
+                        attempt + 1,
                     )
                     await asyncio.sleep(0.5)
         finally:
@@ -247,7 +255,8 @@ class IntentQueue:
         if not converged:
             _LOGGER.error(
                 "Intent queue [%s]: failed to converge to target state after %d attempts",
-                group_key, max_attempts
+                group_key,
+                max_attempts,
             )
             self._run_failure_callbacks(group_key, group)
 
@@ -258,7 +267,9 @@ class IntentQueue:
             try:
                 cb()
             except Exception:
-                _LOGGER.exception("Intent queue [%s]: on_failure callback error", group_key)
+                _LOGGER.exception(
+                    "Intent queue [%s]: on_failure callback error", group_key
+                )
 
     async def shutdown(self) -> None:
         """Cancel pending flush task on shutdown."""
@@ -425,7 +436,10 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
             with contextlib.suppress(Exception):
                 await writer.wait_closed()
         self._reader = None
-        if self._reader_task is not None and self._reader_task is not asyncio.current_task():
+        if (
+            self._reader_task is not None
+            and self._reader_task is not asyncio.current_task()
+        ):
             self._reader_task.cancel()
             self._reader_task = None
 
@@ -494,7 +508,7 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
         _LOGGER.debug("RS485 sync frame received")
         self._sync_frame_event.set()
 
-    def _try_parse_buffer(self, buf: bytes) -> tuple[dict | None, int]:
+    def _try_parse_buffer(self, buf: bytes | bytearray) -> tuple[dict | None, int]:
         """Return (parsed_data, consumed_bytes)."""
         frames = find_frames_with_indices(bytes(buf))
         if not frames:
@@ -540,10 +554,14 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
                 self._sync_frame_event.clear()
                 try:
                     # Wait for a synchronization frame to align with the quiet window
-                    await asyncio.wait_for(self._sync_frame_event.wait(), timeout=self._sync_timeout)
+                    await asyncio.wait_for(
+                        self._sync_frame_event.wait(), timeout=self._sync_timeout
+                    )
                     # Small delay required by the protocol to let the controller finish processing
                     await asyncio.sleep(0.03)
-                    _LOGGER.debug("Sync frame received, sending command aligned with quiet window")
+                    _LOGGER.debug(
+                        "Sync frame received, sending command aligned with quiet window"
+                    )
                 except asyncio.TimeoutError:
                     _LOGGER.error(
                         "Timeout waiting for sync frame (%.1fs), aborting command send",
@@ -585,8 +603,6 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
             raise UpdateFailed("No data from RS485 bridge")
         return self.data
 
-
-
     # ── Clock drift check ────────────────────────────────────────────
 
     def _check_clock_drift(self, data: dict) -> None:
@@ -599,7 +615,9 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
             return
 
         now_ts = time.monotonic()
-        last_sync_event_ts = max(self._last_clock_sync_ts, self._last_clock_sync_attempt_ts)
+        last_sync_event_ts = max(
+            self._last_clock_sync_ts, self._last_clock_sync_attempt_ts
+        )
         if now_ts - last_sync_event_ts < CLOCK_SYNC_COOLDOWN:
             return
 
@@ -621,7 +639,9 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
             self._last_clock_sync_ts = now_ts  # optimistic; failure logged via callback
             _LOGGER.info("Spa clock drift is %.0fs, syncing to HA time", drift)
 
-            def _build_time_sync(overrides: dict[str, Any], _data: dict | None) -> bytes:
+            def _build_time_sync(
+                overrides: dict[str, Any], _data: dict | None
+            ) -> bytes:
                 return self._adapter.build_time_command(
                     year=overrides["year"],
                     month=overrides["month"],
@@ -631,7 +651,9 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
                     second=overrides["second"],
                 )
 
-            def _build_date_sync(overrides: dict[str, Any], _data: dict | None) -> bytes:
+            def _build_date_sync(
+                overrides: dict[str, Any], _data: dict | None
+            ) -> bytes:
                 return self._adapter.build_date_command(
                     year=overrides["year"],
                     month=overrides["month"],
@@ -675,4 +697,3 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
                 on_failure=_on_clock_failure,
                 verify_fn=lambda overrides, data: True,
             )
-

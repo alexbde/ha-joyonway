@@ -1,4 +1,5 @@
 """Base model adapter interface for Joyonway spa controllers."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -47,3 +48,91 @@ class ModelAdapter(Protocol):
         """Return the list of entities this model exposes."""
         ...
 
+    def get_jets_state(self, data: dict) -> str:
+        """Return current jets state as 'off', 'low', or 'high'."""
+        ...
+
+    def build_light_toggle_command(self) -> bytes:
+        """Build a light toggle command."""
+        ...
+
+    def build_jets_command(self, target: str) -> bytes | None:
+        """Build a jets command for the desired target state."""
+        ...
+
+    def build_heater_command(self, on: bool) -> bytes:
+        """Build a heater ON or OFF command."""
+        ...
+
+    def build_blower_command(self, on: bool) -> bytes:
+        """Build a blower ON or OFF command."""
+        ...
+
+    def build_temp_command(self, target_celsius: int) -> bytes | None:
+        """Build a temperature setpoint command."""
+        ...
+
+    def build_ozone_mode_command(self, mode: str, setpoint_f: int = 0x62) -> bytes:
+        """Build an ozone mode switch command."""
+        ...
+
+    def build_heater_mode_command(self, mode: str, setpoint_f: int = 0x62) -> bytes:
+        """Build a heater mode switch command."""
+        ...
+
+    def build_ozone_manual_command(self, on: bool, setpoint_f: int = 0x62) -> bytes:
+        """Build an ozone manual ON/OFF command."""
+        ...
+
+    def build_schedule_command(
+        self,
+        schedule_type: str,
+        slot1_start: tuple[int, int],
+        slot1_end: tuple[int, int],
+        slot2_start: tuple[int, int],
+        slot2_end: tuple[int, int],
+        slot1_enabled: bool = True,
+        slot2_enabled: bool = True,
+        *,
+        write_mode: str = "state",
+    ) -> bytes:
+        """Build a schedule command frame."""
+        ...
+
+    def build_datetime_command(
+        self,
+        year: int,
+        month: int,
+        day: int,
+        hour: int,
+        minute: int,
+        second: int,
+        *,
+        set_date: bool = True,
+    ) -> bytes:
+        """Build a DateTime set command."""
+        ...
+
+    def build_time_command(
+        self,
+        hour: int,
+        minute: int,
+        second: int,
+        year: int = 2000,
+        month: int = 1,
+        day: int = 1,
+    ) -> bytes:
+        """Build a Time-only set command."""
+        ...
+
+    def build_date_command(
+        self,
+        year: int,
+        month: int,
+        day: int,
+        hour: int,
+        minute: int,
+        second: int,
+    ) -> bytes:
+        """Build a Date-only / Date & Time set command."""
+        ...

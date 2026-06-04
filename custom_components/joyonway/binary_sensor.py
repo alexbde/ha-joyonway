@@ -3,6 +3,7 @@
 Entities are driven by the model adapter's entity_descriptions().
 Includes a bridge connectivity sensor.
 """
+
 from __future__ import annotations
 
 from homeassistant.components.binary_sensor import (
@@ -15,7 +16,6 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .adapters.base import SpaEntityDescription
-from .const import DOMAIN
 from .coordinator import JoyonwayP25B85Coordinator
 from .entity import JoyonwayCoordinatorEntity, device_info
 
@@ -100,4 +100,3 @@ class JoyonwayBridgeConnectivity(JoyonwayCoordinatorEntity, BinarySensorEntity):
     def is_on(self) -> bool:
         """Return True if bridge is reachable."""
         return getattr(self.coordinator, "is_connected", self.coordinator.available)
-

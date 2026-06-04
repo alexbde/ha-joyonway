@@ -5,6 +5,7 @@ Exposed as a fan entity with speed percentage control.
 Uses optimistic state with snap-back on the next broadcast mismatch.
 Commands are submitted to the coordinator's intent queue.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -16,12 +17,11 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, OPTIMISTIC_TIMEOUT_SECONDS
+from .const import OPTIMISTIC_TIMEOUT_SECONDS
 from .coordinator import JoyonwayP25B85Coordinator
 from .entity import JoyonwayCoordinatorEntity, device_info
 
 _LOGGER = logging.getLogger(__name__)
-
 
 
 async def async_setup_entry(
@@ -71,8 +71,9 @@ class SpaJetsFan(JoyonwayCoordinatorEntity, FanEntity):
             else:
                 # If we are in an intermediate state of a multi-step transition,
                 # trigger the next transition step.
-                if (current == "high" and self._pending_state == "off") or \
-                   (current == "off" and self._pending_state == "low"):
+                if (current == "high" and self._pending_state == "off") or (
+                    current == "off" and self._pending_state == "low"
+                ):
                     self._submit_next_jets_step(current, self._pending_state)
         else:
             self._cancel_pending_timeout()
@@ -206,7 +207,11 @@ class SpaJetsFan(JoyonwayCoordinatorEntity, FanEntity):
             self._cancel_pending_timeout()
             self.async_write_ha_state()
 
-        _LOGGER.debug("Jets: sending step command '%s' (target: %s)", next_step, self._pending_state)
+        _LOGGER.debug(
+            "Jets: sending step command '%s' (target: %s)",
+            next_step,
+            self._pending_state,
+        )
         self._arm_pending_timeout()
         coordinator.intent_queue.submit(
             group="jets",

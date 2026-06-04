@@ -1,4 +1,5 @@
 """Config flow for Joyonway P25B85."""
+
 from __future__ import annotations
 
 import asyncio
@@ -8,7 +9,6 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant.config_entries import (
-    ConfigEntry,
     ConfigFlow,
     ConfigFlowResult,
 )
@@ -51,8 +51,6 @@ class JoyonwayP25B85ConfigFlow(ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
-
-
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -82,6 +80,3 @@ class JoyonwayP25B85ConfigFlow(ConfigFlow, domain=DOMAIN):
             data_schema=STEP_USER_DATA_SCHEMA,
             errors=errors,
         )
-
-
-

@@ -2,6 +2,7 @@
 
 Entities are driven by the model adapter's entity_descriptions().
 """
+
 from __future__ import annotations
 
 from homeassistant.components.sensor import (
@@ -16,7 +17,6 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .adapters.base import SpaEntityDescription
-from .const import DOMAIN
 from .coordinator import JoyonwayP25B85Coordinator
 from .entity import JoyonwayCoordinatorEntity, device_info
 
@@ -104,5 +104,3 @@ class JoyonwaySensor(JoyonwayCoordinatorEntity, SensorEntity):
                 return f"0x{value:02X}"
             return value
         return None
-
-

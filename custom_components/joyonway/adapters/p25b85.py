@@ -22,6 +22,7 @@ Capture validation summary:
   - Byte 13: static in local captures, not pump data
   - Byte 15: static in local captures, not heater state
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -39,12 +40,12 @@ from .base import SpaEntityDescription
 P25B85_SIGNATURE = bytes([0x1A, 0xFF, 0x01, 0x3C, 0xD2, 0xB4, 0xFF, 0x08, 0x03])
 
 # Byte positions in the logical (unescaped) broadcast frame (0-based)
-IDX_WATER_TEMP = 9   # Fahrenheit
-IDX_PUMP_BYTE = 12   # ✅ confirmed: 0x02=low, 0x04=high (KDy "byte 13")
+IDX_WATER_TEMP = 9  # Fahrenheit
+IDX_PUMP_BYTE = 12  # ✅ confirmed: 0x02=low, 0x04=high (KDy "byte 13")
 IDX_OZONE_MODE = 13  # ✅ bit 7: 0=Auto, 1=Manual (confirmed from phase 6 captures)
 IDX_HEATER_STATE = 14  # ✅ confirmed (KDy "byte 15")
-IDX_SETPOINT = 16    # Fahrenheit
-IDX_LIGHT_FLAGS = 17   # ✅ confirmed (KDy "byte 18")
+IDX_SETPOINT = 16  # Fahrenheit
+IDX_LIGHT_FLAGS = 17  # ✅ confirmed (KDy "byte 18")
 IDX_ACTIVITY_FLAG = 28  # ✅ confirmed (KDy "byte 29"); set during heating and UV/ozone
 
 # Ozone mode mask (byte 13)
@@ -56,28 +57,28 @@ IDX_DATETIME_START = 53  # bytes 53-58: year, month, day, hour, minute, second
 # Layout per schedule: [s1_start_h] [s1_start_m] [s1_end_h] [s1_end_m]
 #                      [s2_start_h] [s2_start_m] [s2_end_h] [s2_end_m]
 # Start-hour bytes encode: hour | 0x40 when slot is enabled, plain hour when disabled
-MASK_SLOT_ENABLED = 0x40   # bit 6 on start-hour byte = slot enabled
-MASK_SLOT_HOUR = 0x3F      # lower 6 bits = hour value (0-23)
+MASK_SLOT_ENABLED = 0x40  # bit 6 on start-hour byte = slot enabled
+MASK_SLOT_HOUR = 0x3F  # lower 6 bits = hour value (0-23)
 
 # Heat schedule: broadcast bytes 19-26
-IDX_HEAT_SLOT1_START_H = 19   # Heat slot 1 start hour (+ enable flag)
-IDX_HEAT_SLOT1_START_M = 20   # Heat slot 1 start minute
-IDX_HEAT_SLOT1_END_H = 21     # Heat slot 1 end hour
-IDX_HEAT_SLOT1_END_M = 22     # Heat slot 1 end minute
-IDX_HEAT_SLOT2_START_H = 23   # Heat slot 2 start hour (+ enable flag)
-IDX_HEAT_SLOT2_START_M = 24   # Heat slot 2 start minute
-IDX_HEAT_SLOT2_END_H = 25     # Heat slot 2 end hour
-IDX_HEAT_SLOT2_END_M = 26     # Heat slot 2 end minute
+IDX_HEAT_SLOT1_START_H = 19  # Heat slot 1 start hour (+ enable flag)
+IDX_HEAT_SLOT1_START_M = 20  # Heat slot 1 start minute
+IDX_HEAT_SLOT1_END_H = 21  # Heat slot 1 end hour
+IDX_HEAT_SLOT1_END_M = 22  # Heat slot 1 end minute
+IDX_HEAT_SLOT2_START_H = 23  # Heat slot 2 start hour (+ enable flag)
+IDX_HEAT_SLOT2_START_M = 24  # Heat slot 2 start minute
+IDX_HEAT_SLOT2_END_H = 25  # Heat slot 2 end hour
+IDX_HEAT_SLOT2_END_M = 26  # Heat slot 2 end minute
 
 # Filter schedule: broadcast bytes 29-36
 IDX_FILTER_SLOT1_START_H = 29  # Filter slot 1 start hour (+ enable flag)
 IDX_FILTER_SLOT1_START_M = 30  # Filter slot 1 start minute
-IDX_FILTER_SLOT1_END_H = 31   # Filter slot 1 end hour
-IDX_FILTER_SLOT1_END_M = 32   # Filter slot 1 end minute
+IDX_FILTER_SLOT1_END_H = 31  # Filter slot 1 end hour
+IDX_FILTER_SLOT1_END_M = 32  # Filter slot 1 end minute
 IDX_FILTER_SLOT2_START_H = 33  # Filter slot 2 start hour (+ enable flag)
 IDX_FILTER_SLOT2_START_M = 34  # Filter slot 2 start minute
-IDX_FILTER_SLOT2_END_H = 35   # Filter slot 2 end hour
-IDX_FILTER_SLOT2_END_M = 36   # Filter slot 2 end minute
+IDX_FILTER_SLOT2_END_H = 35  # Filter slot 2 end hour
+IDX_FILTER_SLOT2_END_M = 36  # Filter slot 2 end minute
 
 # Schedule flags for pure enable-state commands.
 SCHED_FLAGS_STATE_TABLE: dict[tuple[bool, bool], int] = {
@@ -100,7 +101,7 @@ SCHED_FLAGS_TIME_WRITE_TABLE: dict[tuple[bool, bool], int] = {
 }
 
 # Pump masks
-MASK_PUMP_LOW = 0x02   # filtration / circulation ✅
+MASK_PUMP_LOW = 0x02  # filtration / circulation ✅
 MASK_PUMP_HIGH = 0x04  # massage jets ✅
 
 # Light
@@ -128,31 +129,63 @@ MASK_BLOWER = 0x08
 # works correctly regardless of blower state.
 MASK_HEATER_BLOWER = 0x08  # bit 3 on heater byte = blower running
 
-HEATER_OFF = 0x40    # Idle/off (KDy called this "cooldown") ✅ confirmed
-HEATER_STANDBY = 0x50      # Heater enabled/armed — waiting for temp drop ✅ confirmed
+HEATER_OFF = 0x40  # Idle/off (KDy called this "cooldown") ✅ confirmed
+HEATER_STANDBY = 0x50  # Heater enabled/armed — waiting for temp drop ✅ confirmed
 HEATER_CIRCULATION = 0x51  # Pre/post-heat circulation (circle icon on panel) — needs full capture confirmation
-HEATER_HEATING = 0x55     # Actively heating (flame icon) ✅ confirmed
+HEATER_HEATING = 0x55  # Actively heating (flame icon) ✅ confirmed
 HEATER_HEATING_ALT = 0x54  # Actively heating (KDy's value, differs by bit 0)
-HEATER_OZONE = 0x41          # Ozone cycle — scheduled (our capture) ✅ confirmed
-HEATER_OZONE_ALT = 0xC1     # Ozone cycle — manual / KDy variant ✅ Phase 6
+HEATER_OZONE = 0x41  # Ozone cycle — scheduled (our capture) ✅ confirmed
+HEATER_OZONE_ALT = 0xC1  # Ozone cycle — manual / KDy variant ✅ Phase 6
 
 HEATER_STATE_MAP: dict[int, str] = {
     HEATER_OFF: "off",
-    HEATER_STANDBY: "standby",             # heater armed, waiting for temp drop
+    HEATER_STANDBY: "standby",  # heater armed, waiting for temp drop
     HEATER_CIRCULATION: "circulation",  # pump running pre/post heat (circle icon)
     HEATER_HEATING: "heating",
-    HEATER_HEATING_ALT: "heating",      # KDy variant
+    HEATER_HEATING_ALT: "heating",  # KDy variant
     HEATER_OZONE: "ozone",
-    HEATER_OZONE_ALT: "ozone",         # KDy variant / manual ozone
+    HEATER_OZONE_ALT: "ozone",  # KDy variant / manual ozone
 }
 
 _MAPPED_INDEXES = {
-    0, 1, 2, 3, 4, 5, 6, 7, 8,  # signature
-    9,                          # water temp
-    12, 13, 14, 16, 17, 28,     # pump, ozone, heater, setpoint, light, activity
-    19, 20, 21, 22, 23, 24, 25, 26,  # heat schedule
-    29, 30, 31, 32, 33, 34, 35, 36,  # filter schedule
-    53, 54, 55, 56, 57, 58,     # datetime
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,  # signature
+    9,  # water temp
+    12,
+    13,
+    14,
+    16,
+    17,
+    28,  # pump, ozone, heater, setpoint, light, activity
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,  # heat schedule
+    29,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36,  # filter schedule
+    53,
+    54,
+    55,
+    56,
+    57,
+    58,  # datetime
 }
 
 # ──────────────────────────────────────────────────────────────
@@ -169,8 +202,8 @@ _MAPPED_INDEXES = {
 # state. Bytes 7-8 encode the desired pump state, not a transition.
 # Live confirmed: off→low ✅, off→high ✅, low→off ✅, high→off ✅ (sessions 2+5).
 _PUMP_TARGET_BYTES: dict[str, tuple[int, int]] = {
-    "off":  (0x04, 0x00),
-    "low":  (0x02, 0x02),
+    "off": (0x04, 0x00),
+    "low": (0x02, 0x02),
     "high": (0x06, 0x04),
 }
 
@@ -239,7 +272,6 @@ class P25B85Adapter:
         if status == "off" and heating_cycle_active:
             status = "circulation"
 
-
         # Derive jets state string
         if pump_byte & MASK_PUMP_HIGH:
             jets = "high"
@@ -302,22 +334,46 @@ class P25B85Adapter:
         if len(frame) > IDX_HEAT_SLOT2_END_M:
             raw_s1 = frame[IDX_HEAT_SLOT1_START_H]
             raw_s2 = frame[IDX_HEAT_SLOT2_START_H]
-            result["heat_slot1_start"] = (raw_s1 & MASK_SLOT_HOUR, frame[IDX_HEAT_SLOT1_START_M])
-            result["heat_slot1_end"] = (frame[IDX_HEAT_SLOT1_END_H], frame[IDX_HEAT_SLOT1_END_M])
+            result["heat_slot1_start"] = (
+                raw_s1 & MASK_SLOT_HOUR,
+                frame[IDX_HEAT_SLOT1_START_M],
+            )
+            result["heat_slot1_end"] = (
+                frame[IDX_HEAT_SLOT1_END_H],
+                frame[IDX_HEAT_SLOT1_END_M],
+            )
             result["heat_slot1_enabled"] = bool(raw_s1 & MASK_SLOT_ENABLED)
-            result["heat_slot2_start"] = (raw_s2 & MASK_SLOT_HOUR, frame[IDX_HEAT_SLOT2_START_M])
-            result["heat_slot2_end"] = (frame[IDX_HEAT_SLOT2_END_H], frame[IDX_HEAT_SLOT2_END_M])
+            result["heat_slot2_start"] = (
+                raw_s2 & MASK_SLOT_HOUR,
+                frame[IDX_HEAT_SLOT2_START_M],
+            )
+            result["heat_slot2_end"] = (
+                frame[IDX_HEAT_SLOT2_END_H],
+                frame[IDX_HEAT_SLOT2_END_M],
+            )
             result["heat_slot2_enabled"] = bool(raw_s2 & MASK_SLOT_ENABLED)
 
         # Parse filter schedule from broadcast (bytes 29-36)
         if len(frame) > IDX_FILTER_SLOT2_END_M:
             raw_s1 = frame[IDX_FILTER_SLOT1_START_H]
             raw_s2 = frame[IDX_FILTER_SLOT2_START_H]
-            result["filter_slot1_start"] = (raw_s1 & MASK_SLOT_HOUR, frame[IDX_FILTER_SLOT1_START_M])
-            result["filter_slot1_end"] = (frame[IDX_FILTER_SLOT1_END_H], frame[IDX_FILTER_SLOT1_END_M])
+            result["filter_slot1_start"] = (
+                raw_s1 & MASK_SLOT_HOUR,
+                frame[IDX_FILTER_SLOT1_START_M],
+            )
+            result["filter_slot1_end"] = (
+                frame[IDX_FILTER_SLOT1_END_H],
+                frame[IDX_FILTER_SLOT1_END_M],
+            )
             result["filter_slot1_enabled"] = bool(raw_s1 & MASK_SLOT_ENABLED)
-            result["filter_slot2_start"] = (raw_s2 & MASK_SLOT_HOUR, frame[IDX_FILTER_SLOT2_START_M])
-            result["filter_slot2_end"] = (frame[IDX_FILTER_SLOT2_END_H], frame[IDX_FILTER_SLOT2_END_M])
+            result["filter_slot2_start"] = (
+                raw_s2 & MASK_SLOT_HOUR,
+                frame[IDX_FILTER_SLOT2_START_M],
+            )
+            result["filter_slot2_end"] = (
+                frame[IDX_FILTER_SLOT2_END_H],
+                frame[IDX_FILTER_SLOT2_END_M],
+            )
             result["filter_slot2_enabled"] = bool(raw_s2 & MASK_SLOT_ENABLED)
 
         # Compute unmapped bytes hash
@@ -369,15 +425,26 @@ class P25B85Adapter:
         """
         from ..protocol import build_frame
 
-        payload = bytearray([
-            0x01, 0x20, 0x10, 0x3C, 0xA1, 0x10, 0xA1,
-            pump_b7, pump_b8,
-            btn_group, btn_action,
-            modifier, context,
-            0x00,
-            setpoint_f,
-            0x00,
-        ])
+        payload = bytearray(
+            [
+                0x01,
+                0x20,
+                0x10,
+                0x3C,
+                0xA1,
+                0x10,
+                0xA1,
+                pump_b7,
+                pump_b8,
+                btn_group,
+                btn_action,
+                modifier,
+                context,
+                0x00,
+                setpoint_f,
+                0x00,
+            ]
+        )
         return build_frame(bytes(payload))
 
     def build_light_toggle_command(self) -> bytes:
@@ -528,14 +595,26 @@ class P25B85Adapter:
 
         # Command payload (16 bytes):
         # [0-6] header, [7] flags, [8-15] slot times
-        payload = bytearray([
-            0x01, 0x20, 0x10, 0x3C, cmd_type, 0x10, 0xA1,
-            flags,
-            slot1_start[0], slot1_start[1],  # slot 1 start h, m
-            slot1_end[0], slot1_end[1],      # slot 1 end h, m
-            slot2_start[0], slot2_start[1],  # slot 2 start h, m
-            slot2_end[0], slot2_end[1],      # slot 2 end h, m
-        ])
+        payload = bytearray(
+            [
+                0x01,
+                0x20,
+                0x10,
+                0x3C,
+                cmd_type,
+                0x10,
+                0xA1,
+                flags,
+                slot1_start[0],
+                slot1_start[1],  # slot 1 start h, m
+                slot1_end[0],
+                slot1_end[1],  # slot 1 end h, m
+                slot2_start[0],
+                slot2_start[1],  # slot 2 start h, m
+                slot2_end[0],
+                slot2_end[1],  # slot 2 end h, m
+            ]
+        )
         return build_frame(bytes(payload))
 
     def build_datetime_command(
@@ -572,17 +651,26 @@ class P25B85Adapter:
         from ..protocol import build_frame
 
         prefix = 0x05 if set_date else 0x50
-        payload = bytearray([
-            0x01, 0x20, 0x10, 0x3C, 0xA2, 0x10, 0xA1,
-            prefix,
-            year - 2000,             # year offset
-            month,
-            day,
-            hour,
-            minute,
-            second,
-            0x00, 0x00,
-        ])
+        payload = bytearray(
+            [
+                0x01,
+                0x20,
+                0x10,
+                0x3C,
+                0xA2,
+                0x10,
+                0xA1,
+                prefix,
+                year - 2000,  # year offset
+                month,
+                day,
+                hour,
+                minute,
+                second,
+                0x00,
+                0x00,
+            ]
+        )
         return build_frame(bytes(payload))
 
     def build_time_command(
@@ -624,7 +712,6 @@ class P25B85Adapter:
             second=second,
             set_date=True,
         )
-
 
 
 _P25B85_ENTITIES: list[SpaEntityDescription] = [

@@ -1,4 +1,5 @@
 """Constants for the Joyonway P25B85 integration."""
+
 from __future__ import annotations
 
 DOMAIN: str = "joyonway"

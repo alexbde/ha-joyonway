@@ -1,4 +1,5 @@
 """Joyonway P25B85 integration for Home Assistant."""
+
 from __future__ import annotations
 
 import logging
@@ -7,7 +8,11 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
 from .const import (
-    CONF_HOST, CONF_MODEL, CONF_PORT, DEFAULT_MODEL, DOMAIN, PLATFORMS,
+    CONF_HOST,
+    CONF_MODEL,
+    CONF_PORT,
+    DEFAULT_MODEL,
+    PLATFORMS,
 )
 from .coordinator import JoyonwayP25B85Coordinator
 

@@ -5,6 +5,7 @@ Writable switches use optimistic state for instant UI feedback.
 Commands are submitted to the coordinator's intent queue for coalescing
 and sequential execution.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -18,7 +19,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, OZONE_MODE_MANUAL, OPTIMISTIC_TIMEOUT_SECONDS, OPT_AUTO_SYNC_CLOCK
+from .const import OZONE_MODE_MANUAL, OPTIMISTIC_TIMEOUT_SECONDS, OPT_AUTO_SYNC_CLOCK
 from .coordinator import IntentBuildError, JoyonwayP25B85Coordinator
 from .entity import JoyonwayCoordinatorEntity, device_info
 
@@ -459,7 +460,9 @@ class SpaScheduleSlotSwitch(_SpaTargetStateSwitch):
         self._attr_unique_id = f"{entry.entry_id}_{self._key}"
         self._attr_device_info = device_info(entry)
         self._attr_translation_key = self._key
-        self._attr_icon = "mdi:calendar-check" if schedule_type == "heat" else "mdi:air-filter"
+        self._attr_icon = (
+            "mdi:calendar-check" if schedule_type == "heat" else "mdi:air-filter"
+        )
 
     def _broadcast_confirms_pending(self) -> bool:
         return self.coordinator.data.get(self._key) == self._pending_state
@@ -492,9 +495,12 @@ class SpaScheduleSlotSwitch(_SpaTargetStateSwitch):
 
         prefix = self._schedule_type
         required_keys = [
-            f"{prefix}_slot1_start", f"{prefix}_slot1_end",
-            f"{prefix}_slot2_start", f"{prefix}_slot2_end",
-            f"{prefix}_slot1_enabled", f"{prefix}_slot2_enabled",
+            f"{prefix}_slot1_start",
+            f"{prefix}_slot1_end",
+            f"{prefix}_slot2_start",
+            f"{prefix}_slot2_end",
+            f"{prefix}_slot1_enabled",
+            f"{prefix}_slot2_enabled",
         ]
         missing = [k for k in required_keys if k not in data]
         if missing:
@@ -514,9 +520,12 @@ class SpaScheduleSlotSwitch(_SpaTargetStateSwitch):
                 raise IntentBuildError(f"Schedule {schedule_type}: no data available")
             prefix = schedule_type
             required_keys = [
-                f"{prefix}_slot1_start", f"{prefix}_slot1_end",
-                f"{prefix}_slot2_start", f"{prefix}_slot2_end",
-                f"{prefix}_slot1_enabled", f"{prefix}_slot2_enabled",
+                f"{prefix}_slot1_start",
+                f"{prefix}_slot1_end",
+                f"{prefix}_slot2_start",
+                f"{prefix}_slot2_end",
+                f"{prefix}_slot1_enabled",
+                f"{prefix}_slot2_enabled",
             ]
             if any(k not in data for k in required_keys):
                 missing = [k for k in required_keys if k not in data]
@@ -546,14 +555,21 @@ class SpaScheduleSlotSwitch(_SpaTargetStateSwitch):
                 return None
 
             return coordinator.adapter.build_schedule_command(
-                schedule_type, s1_start, s1_end, s2_start, s2_end,
-                slot1_enabled=s1_enabled, slot2_enabled=s2_enabled,
+                schedule_type,
+                s1_start,
+                s1_end,
+                s2_start,
+                s2_end,
+                slot1_enabled=s1_enabled,
+                slot2_enabled=s2_enabled,
                 write_mode="state",
             )
 
         _LOGGER.debug(
             "Schedule %s slot %d: submitting intent (enabled=%s)",
-            self._schedule_type, self._slot, enabled,
+            self._schedule_type,
+            self._slot,
+            enabled,
         )
         # Group by schedule type so heat slot 1 + 2 coalesce into one command
         coordinator.intent_queue.submit(
