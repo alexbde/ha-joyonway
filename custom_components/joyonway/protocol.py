@@ -28,8 +28,6 @@ ESCAPE_MAP_REV: dict[int, int] = {v: k for k, v in ESCAPE_MAP.items()}
 
 # CRC-32 parameters (cracked from same-session capture analysis)
 _CRC_POLY = 0x04C11DB7
-_CRC_INIT = 0x00000000
-_CRC_XOR_OUT = 0x552D22C8
 
 # Pre-computed CRC-32 lookup table (non-reflected, MSB-first)
 _CRC_TABLE: list[int] = []
