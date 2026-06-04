@@ -12,6 +12,7 @@ import struct
 FRAME_START = 0x1A
 FRAME_END = 0x1D
 ESCAPE_BYTE = 0x1B
+SYNC_FRAME = b"\x1a\x01\x20\x08\x3c\xaa\x10\x00\x00\x6b\x73\xe4\xb9\x1d"
 
 # Pseudo-escape table: escaped pair suffix → original byte
 ESCAPE_MAP: dict[int, int] = {
@@ -52,13 +53,14 @@ def find_frames_with_indices(stream: bytes) -> list[tuple[bytes, int]]:
     n = len(stream)
     while i < n:
         if stream[i] == FRAME_START:
-            j = i + 1
-            while j < n:
+            end_idx = -1
+            for j in range(i + 1, n):
                 if stream[j] == FRAME_END:
-                    frames.append((stream[i : j + 1], j + 1))
-                    i = j + 1
+                    end_idx = j
                     break
-                j += 1
+            if end_idx != -1:
+                frames.append((stream[i : end_idx + 1], end_idx + 1))
+                i = end_idx + 1
             else:
                 break  # partial frame at end of stream
         else:
@@ -117,8 +119,8 @@ def is_broadcast(frame: bytes) -> bool:
 def validate_frame(frame: bytes) -> bool:
     """Conservative frame validation.
 
-    Checks delimiters and minimum size. Does NOT enforce length byte formula
-    (not yet fully understood) to avoid rejecting valid frames.
+    Checks delimiters and minimum size. Also validates CRC-32 if the frame
+    has sufficient payload.
     """
     if len(frame) < 4:
         return False
@@ -126,6 +128,15 @@ def validate_frame(frame: bytes) -> bool:
         return False
     if frame[-1] != FRAME_END:
         return False
+
+    # CRC validation for frames with enough payload (minimum 16 bytes payload + 4 bytes CRC)
+    unescaped = pseudo_unescape(frame[1:-1])
+    if len(unescaped) >= 20:
+        payload = unescaped[:-4]
+        crc_received = struct.unpack("<I", unescaped[-4:])[0]
+        crc_expected = compute_crc(payload)
+        if crc_received != crc_expected:
+            return False
     return True
 
 
@@ -145,23 +156,24 @@ def _word32_swap(data: bytes) -> bytes:
     """Byte-reverse each 32-bit word (MCU byte ordering for CRC peripheral)."""
     result = bytearray()
     for i in range(0, len(data), 4):
-        result.extend(reversed(data[i : i + 4]))
+        chunk = data[i : i + 4]
+        if len(chunk) < 4:
+            chunk = chunk + b"\x00" * (4 - len(chunk))
+        result.extend(reversed(chunk))
     return bytes(result)
 
 
 def compute_crc(payload: bytes) -> int:
-    """Compute CRC-32 for a 16-byte command payload.
+    """Compute CRC-32 for a payload of any length (multiple of 4 bytes expected).
 
     Uses the P25B85 CRC algorithm: standard CRC-32 polynomial (0x04C11DB7),
-    non-reflected, with 32-bit word byte-swap preprocessing.
+    non-reflected, with 32-bit word byte-swap preprocessing and init=0xFFFFFFFF.
     """
-    if len(payload) != 16:
-        raise ValueError(f"Payload must be 16 bytes, got {len(payload)}")
     msg = _word32_swap(payload)
-    crc = _CRC_INIT
+    crc = 0xFFFFFFFF
     for byte in msg:
         crc = ((crc << 8) & 0xFFFFFFFF) ^ _CRC_TABLE[((crc >> 24) ^ byte) & 0xFF]
-    return crc ^ _CRC_XOR_OUT
+    return crc
 
 
 def build_frame(payload: bytes) -> bytes:
