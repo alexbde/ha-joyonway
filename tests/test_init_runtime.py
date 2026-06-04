@@ -1,4 +1,6 @@
+# ruff: noqa: E402
 """Runtime tests for integration entry lifecycle helpers in __init__.py."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -20,18 +22,13 @@ from custom_components.joyonway import async_unload_entry
 @pytest.mark.asyncio
 async def test_async_unload_entry() -> None:
     """Test unloading a config entry."""
-    coordinator = SimpleNamespace(
-        async_shutdown=AsyncMock()
-    )
+    coordinator = SimpleNamespace(async_shutdown=AsyncMock())
     hass = SimpleNamespace(
         config_entries=SimpleNamespace(
             async_unload_platforms=AsyncMock(return_value=True)
         )
     )
-    entry = SimpleNamespace(
-        runtime_data=coordinator,
-        entry_id="entry_1"
-    )
+    entry = SimpleNamespace(runtime_data=coordinator, entry_id="entry_1")
 
     result = await async_unload_entry(hass, entry)
     assert result is True

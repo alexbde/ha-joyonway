@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Quick probe: connect to spa bridge and parse broadcast frames."""
+
 from __future__ import annotations
 
 import argparse
@@ -7,6 +8,7 @@ import os
 import socket
 import sys
 import time
+
 
 # Load .env if present (for personal bridge IP)
 def _load_dotenv():
@@ -19,6 +21,7 @@ def _load_dotenv():
                     k, v = line.split("=", 1)
                     os.environ.setdefault(k.strip(), v.strip())
 
+
 _load_dotenv()
 
 DEFAULT_HOST = os.environ.get("SPA_BRIDGE_HOST", "192.168.1.100")
@@ -30,15 +33,24 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Connect to RS485 bridge and print decoded broadcast probe data.",
     )
-    parser.add_argument("--host", default=DEFAULT_HOST, help=f"Bridge host (default: {DEFAULT_HOST})")
-    parser.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"Bridge port (default: {DEFAULT_PORT})")
+    parser.add_argument(
+        "--host", default=DEFAULT_HOST, help=f"Bridge host (default: {DEFAULT_HOST})"
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=DEFAULT_PORT,
+        help=f"Bridge port (default: {DEFAULT_PORT})",
+    )
     parser.add_argument(
         "--duration",
         type=float,
         default=DEFAULT_DURATION,
         help=f"Capture duration in seconds (default: {DEFAULT_DURATION})",
     )
-    parser.add_argument("--timeout", type=float, default=10.0, help="Socket connect timeout in seconds")
+    parser.add_argument(
+        "--timeout", type=float, default=10.0, help="Socket connect timeout in seconds"
+    )
     return parser.parse_args()
 
 
@@ -76,29 +88,51 @@ def print_probe_report(buf: bytes) -> None:
                 frame_count += 1
                 if dst == 0xFF and len(frame) > 20:
                     broadcast_count += 1
-                    print(f"=== BROADCAST frame (#{frame_count} overall, {len(frame)} bytes) ===")
+                    print(
+                        f"=== BROADCAST frame (#{frame_count} overall, {len(frame)} bytes) ==="
+                    )
                     print(f"  hex: {frame.hex(' ')}")
                     if len(frame) > 8:
-                        model = "P25B85" if frame[8] == 0x03 else "P23B32" if frame[8] == 0x02 else "unknown"
+                        model = (
+                            "P25B85"
+                            if frame[8] == 0x03
+                            else "P23B32"
+                            if frame[8] == 0x02
+                            else "unknown"
+                        )
                         print(f"  byte[8]  = 0x{frame[8]:02X}  (model: {model})")
                     if len(frame) > 9:
                         tf = frame[9]
                         tc = round((tf - 32) * 5 / 9, 1)
                         print(f"  byte[9]  = 0x{tf:02X}  water temp: {tf} F = {tc} C")
                     if len(frame) > 13:
-                        print(f"  byte[13] = 0x{frame[13]:02X}  pump status (0x02=filter, 0x04=massage)")
+                        print(
+                            f"  byte[13] = 0x{frame[13]:02X}  pump status (0x02=filter, 0x04=massage)"
+                        )
                     if len(frame) > 15:
                         b15 = frame[15]
-                        states = {0x00: "off", 0x50: "circ", 0x54: "heating", 0x40: "cooldown", 0xC1: "UV/ozone"}
-                        print(f"  byte[15] = 0x{b15:02X}  heating state: {states.get(b15, 'unknown')}")
+                        states = {
+                            0x00: "off",
+                            0x50: "circ",
+                            0x54: "heating",
+                            0x40: "cooldown",
+                            0xC1: "UV/ozone",
+                        }
+                        print(
+                            f"  byte[15] = 0x{b15:02X}  heating state: {states.get(b15, 'unknown')}"
+                        )
                     if len(frame) > 16:
                         sf = frame[16]
                         sc = round((sf - 32) * 5 / 9, 1)
                         print(f"  byte[16] = 0x{sf:02X}  setpoint: {sf} F = {sc} C")
                     if len(frame) > 18:
-                        print(f"  byte[18] = 0x{frame[18]:02X}  light: {'ON' if frame[18] & 0x01 else 'OFF'}")
+                        print(
+                            f"  byte[18] = 0x{frame[18]:02X}  light: {'ON' if frame[18] & 0x01 else 'OFF'}"
+                        )
                     if len(frame) > 29:
-                        print(f"  byte[29] = 0x{frame[29]:02X}  UV flag: {'ACTIVE' if frame[29] & 0x20 else 'off'}")
+                        print(
+                            f"  byte[29] = 0x{frame[29]:02X}  UV flag: {'ACTIVE' if frame[29] & 0x20 else 'off'}"
+                        )
                     print()
                 i = j + 1
                 continue
@@ -128,5 +162,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-

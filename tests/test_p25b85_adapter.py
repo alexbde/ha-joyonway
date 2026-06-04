@@ -1,4 +1,5 @@
 """Pytest coverage for protocol and P25B85 adapter behavior."""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -14,9 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PKG_DIR = ROOT / "custom_components" / "joyonway"
 
 protocol = load_module("joyonway.protocol", PKG_DIR / "protocol.py")
-adapters_base = load_module(
-    "joyonway.adapters.base", PKG_DIR / "adapters" / "base.py"
-)
+adapters_base = load_module("joyonway.adapters.base", PKG_DIR / "adapters" / "base.py")
 adapters_pkg_mod = types.ModuleType("joyonway.adapters")
 adapters_pkg_mod.base = adapters_base
 adapters_pkg_mod.SpaEntityDescription = adapters_base.SpaEntityDescription
@@ -128,13 +127,17 @@ def test_parse_status_core_fields(adapter: P25B85Adapter, logical_frame: bytes) 
 
 def test_parse_status_datetime(adapter: P25B85Adapter, logical_frame: bytes) -> None:
     modified = bytearray(logical_frame)
-    modified[IDX_DATETIME_START : IDX_DATETIME_START + 6] = bytes([24, 5, 20, 14, 30, 45])
+    modified[IDX_DATETIME_START : IDX_DATETIME_START + 6] = bytes(
+        [24, 5, 20, 14, 30, 45]
+    )
     result = adapter.parse_status(bytes(modified))
     assert isinstance(result["spa_datetime"], datetime)
     assert result["spa_datetime"].tzinfo == timezone.utc
 
 
-def test_parse_rejects_wrong_signature(adapter: P25B85Adapter, logical_frame: bytes) -> None:
+def test_parse_rejects_wrong_signature(
+    adapter: P25B85Adapter, logical_frame: bytes
+) -> None:
     modified = bytearray(logical_frame)
     modified[8] = 0x02
     assert adapter.parse_status(bytes(modified)) is None
@@ -267,14 +270,14 @@ def test_build_schedule_command(adapter: P25B85Adapter) -> None:
     # Default: both slots enabled → flags = 0xAA
     assert payload[7] == 0xAA
     # Check times in payload
-    assert payload[8] == 12   # slot1 start hour
-    assert payload[9] == 0    # slot1 start minute
+    assert payload[8] == 12  # slot1 start hour
+    assert payload[9] == 0  # slot1 start minute
     assert payload[10] == 16  # slot1 end hour
-    assert payload[11] == 0   # slot1 end minute
+    assert payload[11] == 0  # slot1 end minute
     assert payload[12] == 20  # slot2 start hour
-    assert payload[13] == 0   # slot2 start minute
+    assert payload[13] == 0  # slot2 start minute
     assert payload[14] == 22  # slot2 end hour
-    assert payload[15] == 0   # slot2 end minute
+    assert payload[15] == 0  # slot2 end minute
 
     # Build a filter schedule command with both slots enabled
     frame2 = adapter.build_schedule_command(
@@ -294,32 +297,44 @@ def test_build_schedule_command(adapter: P25B85Adapter) -> None:
 def test_build_schedule_command_enable_flags(adapter: P25B85Adapter) -> None:
     """State-mode schedule commands use the normal enable-state flags."""
     times = dict(
-        slot1_start=(12, 0), slot1_end=(16, 0),
-        slot2_start=(20, 0), slot2_end=(22, 0),
+        slot1_start=(12, 0),
+        slot1_end=(16, 0),
+        slot2_start=(20, 0),
+        slot2_end=(22, 0),
     )
 
     # Both enabled → 0xAA
-    frame = adapter.build_schedule_command("heat", **times, slot1_enabled=True, slot2_enabled=True)
+    frame = adapter.build_schedule_command(
+        "heat", **times, slot1_enabled=True, slot2_enabled=True
+    )
     inner = pseudo_unescape(frame[1:-1])
     assert inner[7] == 0xAA
 
     # Slot 1 on, slot 2 off → 0x62 (confirmed Phase 6: heat_schedule_disable)
-    frame = adapter.build_schedule_command("heat", **times, slot1_enabled=True, slot2_enabled=False)
+    frame = adapter.build_schedule_command(
+        "heat", **times, slot1_enabled=True, slot2_enabled=False
+    )
     inner = pseudo_unescape(frame[1:-1])
     assert inner[7] == 0x62
 
     # Slot 1 off, slot 2 on → 0x9A (confirmed Phase 6: heat_schedule_change)
-    frame = adapter.build_schedule_command("heat", **times, slot1_enabled=False, slot2_enabled=True)
+    frame = adapter.build_schedule_command(
+        "heat", **times, slot1_enabled=False, slot2_enabled=True
+    )
     inner = pseudo_unescape(frame[1:-1])
     assert inner[7] == 0x9A
 
     # Both disabled -> 0x52 (state-mode, no time-write override)
-    frame = adapter.build_schedule_command("heat", **times, slot1_enabled=False, slot2_enabled=False)
+    frame = adapter.build_schedule_command(
+        "heat", **times, slot1_enabled=False, slot2_enabled=False
+    )
     inner = pseudo_unescape(frame[1:-1])
     assert inner[7] == 0x52
 
     # Same encoding for filter
-    frame = adapter.build_schedule_command("filter", **times, slot1_enabled=True, slot2_enabled=False)
+    frame = adapter.build_schedule_command(
+        "filter", **times, slot1_enabled=True, slot2_enabled=False
+    )
     inner = pseudo_unescape(frame[1:-1])
     assert inner[7] == 0x62
 
@@ -330,9 +345,12 @@ def test_build_schedule_command_phase6_match(adapter: P25B85Adapter) -> None:
     # Wire: 1a0120103ca310a1aa0c001000150016003efb8dd91d
     frame = adapter.build_schedule_command(
         "heat",
-        slot1_start=(12, 0), slot1_end=(16, 0),
-        slot2_start=(21, 0), slot2_end=(22, 0),
-        slot1_enabled=True, slot2_enabled=True,
+        slot1_start=(12, 0),
+        slot1_end=(16, 0),
+        slot2_start=(21, 0),
+        slot2_end=(22, 0),
+        slot1_enabled=True,
+        slot2_enabled=True,
     )
     assert frame == bytes.fromhex("1a0120103ca310a1aa0c001000150016003efb8dd91d")
 
@@ -340,9 +358,12 @@ def test_build_schedule_command_phase6_match(adapter: P25B85Adapter) -> None:
     # Wire: 1a0120103ca310a1620c00100015001600e09a71e91d
     frame = adapter.build_schedule_command(
         "heat",
-        slot1_start=(12, 0), slot1_end=(16, 0),
-        slot2_start=(21, 0), slot2_end=(22, 0),
-        slot1_enabled=True, slot2_enabled=False,
+        slot1_start=(12, 0),
+        slot1_end=(16, 0),
+        slot2_start=(21, 0),
+        slot2_end=(22, 0),
+        slot1_enabled=True,
+        slot2_enabled=False,
     )
     assert frame == bytes.fromhex("1a0120103ca310a1620c00100015001600e09a71e91d")
 
@@ -350,9 +371,12 @@ def test_build_schedule_command_phase6_match(adapter: P25B85Adapter) -> None:
     # Wire: 1a0120103ca410a1aa0b000d00110012007e2109021d
     frame = adapter.build_schedule_command(
         "filter",
-        slot1_start=(11, 0), slot1_end=(13, 0),
-        slot2_start=(17, 0), slot2_end=(18, 0),
-        slot1_enabled=True, slot2_enabled=True,
+        slot1_start=(11, 0),
+        slot1_end=(13, 0),
+        slot2_start=(17, 0),
+        slot2_end=(18, 0),
+        slot1_enabled=True,
+        slot2_enabled=True,
     )
     assert frame == bytes.fromhex("1a0120103ca410a1aa0b000d00110012007e2109021d")
 
@@ -360,9 +384,12 @@ def test_build_schedule_command_phase6_match(adapter: P25B85Adapter) -> None:
     # Wire: 1a0120103ca410a1620b000d0011001200a040f5321d
     frame = adapter.build_schedule_command(
         "filter",
-        slot1_start=(11, 0), slot1_end=(13, 0),
-        slot2_start=(17, 0), slot2_end=(18, 0),
-        slot1_enabled=True, slot2_enabled=False,
+        slot1_start=(11, 0),
+        slot1_end=(13, 0),
+        slot2_start=(17, 0),
+        slot2_end=(18, 0),
+        slot1_enabled=True,
+        slot2_enabled=False,
     )
     assert frame == bytes.fromhex("1a0120103ca410a1620b000d0011001200a040f5321d")
 
@@ -376,13 +403,18 @@ def test_build_schedule_command_time_write_flags(adapter: P25B85Adapter) -> None
     identically (no asymmetry).
     """
     times = dict(
-        slot1_start=(12, 0), slot1_end=(16, 0),
-        slot2_start=(20, 0), slot2_end=(22, 0),
+        slot1_start=(12, 0),
+        slot1_end=(16, 0),
+        slot2_start=(20, 0),
+        slot2_end=(22, 0),
     )
 
     # Both disabled -> 0x5A (force-write both slots)
     frame = adapter.build_schedule_command(
-        "heat", **times, slot1_enabled=False, slot2_enabled=False,
+        "heat",
+        **times,
+        slot1_enabled=False,
+        slot2_enabled=False,
         write_mode="time",
     )
     inner = pseudo_unescape(frame[1:-1])
@@ -390,7 +422,10 @@ def test_build_schedule_command_time_write_flags(adapter: P25B85Adapter) -> None
 
     # s1 on, s2 off -> 0x6A (captured live from PB554)
     frame = adapter.build_schedule_command(
-        "heat", **times, slot1_enabled=True, slot2_enabled=False,
+        "heat",
+        **times,
+        slot1_enabled=True,
+        slot2_enabled=False,
         write_mode="time",
     )
     inner = pseudo_unescape(frame[1:-1])
@@ -398,7 +433,10 @@ def test_build_schedule_command_time_write_flags(adapter: P25B85Adapter) -> None
 
     # Both enabled → 0xAA (normal)
     frame = adapter.build_schedule_command(
-        "heat", **times, slot1_enabled=True, slot2_enabled=True,
+        "heat",
+        **times,
+        slot1_enabled=True,
+        slot2_enabled=True,
         write_mode="time",
     )
     inner = pseudo_unescape(frame[1:-1])
@@ -406,7 +444,10 @@ def test_build_schedule_command_time_write_flags(adapter: P25B85Adapter) -> None
 
     # s1 off, s2 on → 0x9A (normal)
     frame = adapter.build_schedule_command(
-        "heat", **times, slot1_enabled=False, slot2_enabled=True,
+        "heat",
+        **times,
+        slot1_enabled=False,
+        slot2_enabled=True,
         write_mode="time",
     )
     inner = pseudo_unescape(frame[1:-1])
@@ -422,9 +463,12 @@ def test_build_schedule_force_write_panel_capture_match(adapter: P25B85Adapter) 
     """
     frame = adapter.build_schedule_command(
         "heat",
-        slot1_start=(12, 0), slot1_end=(16, 0),
-        slot2_start=(20, 15), slot2_end=(23, 30),
-        slot1_enabled=False, slot2_enabled=False,
+        slot1_start=(12, 0),
+        slot1_end=(16, 0),
+        slot2_start=(20, 15),
+        slot2_end=(23, 30),
+        slot1_enabled=False,
+        slot2_enabled=False,
         write_mode="time",
     )
     # Frame should start with 0x1A, end with 0x1D
@@ -435,7 +479,7 @@ def test_build_schedule_force_write_panel_capture_match(adapter: P25B85Adapter) 
     assert inner[4] == 0xA3  # heat schedule
     assert inner[7] == 0x5A  # force-write both slots
     # Verify time bytes
-    assert inner[8] == 12 and inner[9] == 0   # slot1 start
+    assert inner[8] == 12 and inner[9] == 0  # slot1 start
     assert inner[10] == 16 and inner[11] == 0  # slot1 end
     assert inner[12] == 20 and inner[13] == 15  # slot2 start
     assert inner[14] == 23 and inner[15] == 30  # slot2 end
@@ -452,7 +496,9 @@ def test_build_schedule_command_rejects_invalid_type(adapter: P25B85Adapter) -> 
         )
 
 
-def test_build_schedule_command_rejects_invalid_write_mode(adapter: P25B85Adapter) -> None:
+def test_build_schedule_command_rejects_invalid_write_mode(
+    adapter: P25B85Adapter,
+) -> None:
     with pytest.raises(ValueError):
         adapter.build_schedule_command(
             "heat",
@@ -675,4 +721,3 @@ def test_parse_status_diagnostics(adapter: P25B85Adapter, logical_frame: bytes) 
     modified_unmapped[10] = (modified_unmapped[10] + 1) & 0xFF
     result_unmapped = adapter.parse_status(bytes(modified_unmapped))
     assert result_unmapped["unmapped_bytes_hash"] != hash1
-

@@ -1,7 +1,9 @@
+# ruff: noqa: E402
 """Optional Home Assistant runtime regression tests for the fan entity.
 
 These tests auto-skip when Home Assistant is not installed in the environment.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -20,8 +22,8 @@ if str(ROOT) not in sys.path:
 
 from homeassistant.components.fan import FanEntityFeature
 
+from homeassistant.const import CONF_HOST
 from custom_components.joyonway.adapters.p25b85 import P25B85Adapter
-from custom_components.joyonway.const import CONF_HOST
 from custom_components.joyonway.fan import SpaJetsFan
 
 # Build real command frames

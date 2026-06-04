@@ -1,15 +1,16 @@
+# ruff: noqa: E402
 """Optional Home Assistant runtime tests for entity behavior.
 
 These tests focus on entity logic and service behavior with lightweight stubs.
 They auto-skip when Home Assistant is not installed.
 """
+
 from __future__ import annotations
 
 import asyncio
 from datetime import time as dt_time
 from pathlib import Path
 import sys
-import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -32,9 +33,9 @@ from custom_components.joyonway.binary_sensor import (
     JoyonwayBinarySensor,
     JoyonwayBridgeConnectivity,
 )
+from homeassistant.const import CONF_HOST
 from custom_components.joyonway.climate import SpaClimate
 from custom_components.joyonway.const import (
-    CONF_HOST,
     OZONE_MODE_AUTO,
     OZONE_MODE_MANUAL,
     OPT_AUTO_SYNC_CLOCK,
@@ -69,12 +70,23 @@ class DummyAdapter:
     """Small adapter stub used by several entities."""
 
     @staticmethod
+    def is_heater_enabled(data: dict | None) -> bool | None:
+        if data is None:
+            return None
+        val = data.get("heater_enabled")
+        if val is None:
+            status = data.get("status")
+            if status is not None:
+                val = status in ("standby", "circulation", "heating")
+        return val
+
+    @staticmethod
     def get_jets_state(data: dict) -> str:
         return data.get("jets", "off")
 
     @staticmethod
     def build_temp_command(target_celsius: int) -> bytes | None:
-        return b"\xAA" if 10 <= target_celsius <= 40 else None
+        return b"\xaa" if 10 <= target_celsius <= 40 else None
 
     @staticmethod
     def build_light_toggle_command() -> bytes:
@@ -237,13 +249,23 @@ def test_fan_reports_power_features(entry: SimpleNamespace) -> None:
 
 def test_climate_action_mapping(entry: SimpleNamespace) -> None:
     # Heater enabled (HEAT mode)
-    heating = SpaClimate(DummyCoordinator(data={"status": "heating", "heater_enabled": True}), entry)
-    circulation = SpaClimate(DummyCoordinator(data={"status": "circulation", "heater_enabled": True}), entry)
-    ozone = SpaClimate(DummyCoordinator(data={"status": "ozone", "heater_enabled": True}), entry)
-    standby = SpaClimate(DummyCoordinator(data={"status": "standby", "heater_enabled": True}), entry)
+    heating = SpaClimate(
+        DummyCoordinator(data={"status": "heating", "heater_enabled": True}), entry
+    )
+    circulation = SpaClimate(
+        DummyCoordinator(data={"status": "circulation", "heater_enabled": True}), entry
+    )
+    ozone = SpaClimate(
+        DummyCoordinator(data={"status": "ozone", "heater_enabled": True}), entry
+    )
+    standby = SpaClimate(
+        DummyCoordinator(data={"status": "standby", "heater_enabled": True}), entry
+    )
 
     # Heater disabled (OFF mode)
-    heater_off = SpaClimate(DummyCoordinator(data={"status": "off", "heater_enabled": False}), entry)
+    heater_off = SpaClimate(
+        DummyCoordinator(data={"status": "off", "heater_enabled": False}), entry
+    )
 
     assert heating.hvac_action == HVACAction.HEATING
     assert circulation.hvac_action == HVACAction.PREHEATING
@@ -308,6 +330,7 @@ async def test_climate_hvac_mode_optimistic_and_timeout(
     climate.async_write_ha_state = lambda: None
 
     import custom_components.joyonway.climate as climate_module
+
     monkeypatch.setattr(climate_module, "OPTIMISTIC_TIMEOUT_SECONDS", 0.01)
 
     await climate.async_set_hvac_mode(HVACMode.HEAT)
@@ -338,7 +361,7 @@ async def test_climate_debounced_set_temperature_sends_command(
     await climate._debounced_send(32)
     await asyncio.sleep(0)  # let intent queue task execute
 
-    coordinator.async_send_command.assert_awaited_once_with(b"\xAA")
+    coordinator.async_send_command.assert_awaited_once_with(b"\xaa")
     # pending_temp stays until broadcast confirms (optimistic behavior)
     assert climate._pending_temp == 32
     climate._cancel_pending_timeout()
@@ -457,10 +480,12 @@ async def test_ozone_switch_availability_and_commands(entry: SimpleNamespace) ->
     coordinator = DummyCoordinator(data={"ozone_active": False})
     coordinator.entry = entry
     coordinator.ozone_mode = OZONE_MODE_AUTO
-    
+
     CMD_OZONE_ON = b"\x55"
     CMD_OZONE_OFF = b"\x66"
-    coordinator.adapter.build_ozone_manual_command = lambda on: CMD_OZONE_ON if on else CMD_OZONE_OFF
+    coordinator.adapter.build_ozone_manual_command = lambda on: (
+        CMD_OZONE_ON if on else CMD_OZONE_OFF
+    )
 
     entity = SpaOzoneSwitch(coordinator, entry)
     entity.hass = DummyHass()
@@ -501,15 +526,15 @@ async def test_auto_clock_sync_switch(entry: SimpleNamespace) -> None:
 
     entity = SpaAutoClockSyncSwitch(coordinator, entry)
     entity.hass = DummyHass()
-    
+
     # Mock config entry updates
     updated_options = {}
+
     def mock_update_entry(entry, options):
         updated_options.update(options)
         entry.options = options
-    entity.hass.config_entries = SimpleNamespace(
-        async_update_entry=mock_update_entry
-    )
+
+    entity.hass.config_entries = SimpleNamespace(async_update_entry=mock_update_entry)
 
     assert entity.is_on is False
 
@@ -528,10 +553,12 @@ async def test_manual_ozone_switch(entry: SimpleNamespace) -> None:
     coordinator = DummyCoordinator(data={})
     coordinator.entry = entry
     coordinator.ozone_mode = "auto"
-    
+
     CMD_AUTO = b"\x11"
     CMD_MANUAL = b"\x22"
-    coordinator.adapter.build_ozone_mode_command = lambda mode: CMD_AUTO if mode == "auto" else CMD_MANUAL
+    coordinator.adapter.build_ozone_mode_command = lambda mode: (
+        CMD_AUTO if mode == "auto" else CMD_MANUAL
+    )
 
     entity = SpaManualOzoneSwitch(coordinator, entry)
     entity.hass = DummyHass()
@@ -563,10 +590,12 @@ async def test_manual_heating_switch(entry: SimpleNamespace) -> None:
     coordinator = DummyCoordinator(data={})
     coordinator.entry = entry
     coordinator.heater_mode = "auto"
-    
+
     CMD_AUTO = b"\x33"
     CMD_MANUAL = b"\x44"
-    coordinator.adapter.build_heater_mode_command = lambda mode: CMD_AUTO if mode == "auto" else CMD_MANUAL
+    coordinator.adapter.build_heater_mode_command = lambda mode: (
+        CMD_AUTO if mode == "auto" else CMD_MANUAL
+    )
 
     entity = SpaManualHeaterSwitch(coordinator, entry)
     entity.hass = DummyHass()
@@ -600,11 +629,10 @@ async def test_heater_switch_availability(entry: SimpleNamespace) -> None:
     coordinator.heater_mode = "auto"
 
     entity = SpaHeaterSwitch(coordinator, entry)
-    
+
     # In auto mode, should be unavailable
     assert entity.available is False
 
     # In manual mode, should be available
     coordinator.heater_mode = "manual"
     assert entity.available is True
-
