@@ -1,13 +1,18 @@
 """Shared entity helpers for the Joyonway P25B85 integration."""
+
 from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from homeassistant.helpers.device_registry import DeviceInfo
-
 from .const import CONF_MODEL, DEFAULT_MODEL, DOMAIN
+
+if TYPE_CHECKING:
+    from .coordinator import JoyonwayP25B85Coordinator  # noqa: F401
 
 
 def device_info(entry: ConfigEntry) -> DeviceInfo:
@@ -22,7 +27,7 @@ def device_info(entry: ConfigEntry) -> DeviceInfo:
     )
 
 
-class JoyonwayCoordinatorEntity(CoordinatorEntity):
+class JoyonwayCoordinatorEntity(CoordinatorEntity["JoyonwayP25B85Coordinator"]):
     """Base entity that reads availability from coordinator grace logic."""
 
     @property

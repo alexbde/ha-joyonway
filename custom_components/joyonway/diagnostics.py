@@ -1,9 +1,10 @@
 """Diagnostics support for Joyonway."""
+
 from __future__ import annotations
 
 from typing import Any
 
-from homeassistant.components.diagnostics import redact_sensitive_values
+from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
@@ -19,7 +20,7 @@ async def async_get_config_entry_diagnostics(
     coordinator = entry.runtime_data
 
     # Redact sensitive values from config entry data
-    config_entry_data = redact_sensitive_values(dict(entry.data), TO_REDACT)
+    config_entry_data = async_redact_data(dict(entry.data), TO_REDACT)
     options = dict(entry.options)
 
     coordinator_data = {}

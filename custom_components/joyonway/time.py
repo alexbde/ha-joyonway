@@ -6,6 +6,7 @@ Uses optimistic state for instant UI feedback.
 Commands are submitted to the coordinator's intent queue for coalescing
 with sibling schedule entities.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -19,7 +20,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, OPTIMISTIC_TIMEOUT_SECONDS
+from .const import OPTIMISTIC_TIMEOUT_SECONDS
 from .coordinator import IntentBuildError, JoyonwayP25B85Coordinator
 from .entity import JoyonwayCoordinatorEntity, device_info
 
@@ -46,8 +47,7 @@ async def async_setup_entry(
     """Set up time entities from config entry."""
     coordinator: JoyonwayP25B85Coordinator = entry.runtime_data
     entities = [
-        SpaScheduleTime(coordinator, entry, *defn)
-        for defn in _SCHEDULE_TIME_DEFS
+        SpaScheduleTime(coordinator, entry, *defn) for defn in _SCHEDULE_TIME_DEFS
     ]
     async_add_entities(entities)
 
@@ -113,7 +113,9 @@ class SpaScheduleTime(JoyonwayCoordinatorEntity, TimeEntity):
         await asyncio.sleep(OPTIMISTIC_TIMEOUT_SECONDS)
         _LOGGER.warning(
             "Schedule %s slot %d %s: time not confirmed by spa within %ds, reverting",
-            self._schedule_type, self._slot, self._field,
+            self._schedule_type,
+            self._slot,
+            self._field,
             int(OPTIMISTIC_TIMEOUT_SECONDS),
         )
         self._pending_state = None
@@ -151,9 +153,12 @@ class SpaScheduleTime(JoyonwayCoordinatorEntity, TimeEntity):
                 raise IntentBuildError(f"Schedule {schedule_type}: no data available")
             prefix = schedule_type
             required_keys = [
-                f"{prefix}_slot1_start", f"{prefix}_slot1_end",
-                f"{prefix}_slot2_start", f"{prefix}_slot2_end",
-                f"{prefix}_slot1_enabled", f"{prefix}_slot2_enabled",
+                f"{prefix}_slot1_start",
+                f"{prefix}_slot1_end",
+                f"{prefix}_slot2_start",
+                f"{prefix}_slot2_end",
+                f"{prefix}_slot1_enabled",
+                f"{prefix}_slot2_enabled",
             ]
             if any(k not in data for k in required_keys):
                 missing = [k for k in required_keys if k not in data]
@@ -194,8 +199,13 @@ class SpaScheduleTime(JoyonwayCoordinatorEntity, TimeEntity):
                 return None
 
             return coordinator.adapter.build_schedule_command(
-                schedule_type, s1_start, s1_end, s2_start, s2_end,
-                slot1_enabled=s1_enabled, slot2_enabled=s2_enabled,
+                schedule_type,
+                s1_start,
+                s1_end,
+                s2_start,
+                s2_end,
+                slot1_enabled=s1_enabled,
+                slot2_enabled=s2_enabled,
                 write_mode="time",
             )
 
@@ -206,8 +216,11 @@ class SpaScheduleTime(JoyonwayCoordinatorEntity, TimeEntity):
 
         _LOGGER.debug(
             "Schedule %s slot %d %s: submitting time intent %02d:%02d",
-            self._schedule_type, self._slot, self._field,
-            value.hour, value.minute,
+            self._schedule_type,
+            self._slot,
+            self._field,
+            value.hour,
+            value.minute,
         )
         # Group by schedule_type + "time" so multiple time changes coalesce
         coordinator.intent_queue.submit(
@@ -225,9 +238,12 @@ class SpaScheduleTime(JoyonwayCoordinatorEntity, TimeEntity):
 
         prefix = self._schedule_type
         required_keys = [
-            f"{prefix}_slot1_start", f"{prefix}_slot1_end",
-            f"{prefix}_slot2_start", f"{prefix}_slot2_end",
-            f"{prefix}_slot1_enabled", f"{prefix}_slot2_enabled",
+            f"{prefix}_slot1_start",
+            f"{prefix}_slot1_end",
+            f"{prefix}_slot2_start",
+            f"{prefix}_slot2_end",
+            f"{prefix}_slot1_enabled",
+            f"{prefix}_slot2_enabled",
         ]
         missing = [k for k in required_keys if k not in data]
         if missing:
@@ -235,4 +251,3 @@ class SpaScheduleTime(JoyonwayCoordinatorEntity, TimeEntity):
                 f"Cannot send schedule: missing data keys {missing}. "
                 "Wait for the spa to report a full broadcast before changing times."
             )
-

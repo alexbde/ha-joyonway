@@ -7,6 +7,7 @@ Includes debouncing for the temperature slider: rapid successive
 set_temperature calls (e.g., from dragging the slider) are coalesced
 into a single command sent after the slider settles.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -25,7 +26,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .adapters.p25b85 import TEMP_MAX_C, TEMP_MIN_C
-from .const import DOMAIN, OPTIMISTIC_TIMEOUT_SECONDS
+from .const import OPTIMISTIC_TIMEOUT_SECONDS
 from .coordinator import JoyonwayP25B85Coordinator
 from .entity import JoyonwayCoordinatorEntity, device_info
 
@@ -313,7 +314,9 @@ class SpaClimate(JoyonwayCoordinatorEntity, ClimateEntity):
                     scheduled_target,
                 )
 
-            _LOGGER.debug("Thermostat: submitting setpoint intent %d°C", scheduled_target)
+            _LOGGER.debug(
+                "Thermostat: submitting setpoint intent %d°C", scheduled_target
+            )
             self._arm_pending_timeout()
             coordinator.intent_queue.submit(
                 group="setpoint",
@@ -345,6 +348,3 @@ class SpaClimate(JoyonwayCoordinatorEntity, ClimateEntity):
         await self._async_cancel_debounce_task()
         self._cancel_pending_timeout()
         self._cancel_pending_hvac_timeout()
-
-
-

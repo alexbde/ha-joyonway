@@ -3,6 +3,7 @@
 Frame boundary detection, pseudo-unescape, validation, CRC computation.
 Can be extracted into a shared package later for multi-model unification.
 """
+
 from __future__ import annotations
 
 import struct
@@ -144,7 +145,7 @@ def _word32_swap(data: bytes) -> bytes:
     """Byte-reverse each 32-bit word (MCU byte ordering for CRC peripheral)."""
     result = bytearray()
     for i in range(0, len(data), 4):
-        result.extend(reversed(data[i:i + 4]))
+        result.extend(reversed(data[i : i + 4]))
     return bytes(result)
 
 
@@ -170,7 +171,7 @@ def build_frame(payload: bytes) -> bytes:
     start/end delimiters.
     """
     crc = compute_crc(payload)
-    crc_bytes = struct.pack('<I', crc)  # little-endian
+    crc_bytes = struct.pack("<I", crc)  # little-endian
     inner = payload + crc_bytes
     escaped = pseudo_escape(inner)
     return bytes([FRAME_START]) + escaped + bytes([FRAME_END])

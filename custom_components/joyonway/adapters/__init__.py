@@ -1,4 +1,5 @@
 """Adapter registry for Joyonway spa controllers."""
+
 from __future__ import annotations
 
 from .base import ModelAdapter, SpaEntityDescription
@@ -19,4 +20,3 @@ def get_adapter(model: str) -> ModelAdapter:
 
 
 __all__ = ["ModelAdapter", "SpaEntityDescription", "get_adapter", "ADAPTERS"]
-
