@@ -20,7 +20,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
@@ -38,6 +38,7 @@ from .const import (
     TCP_TIMEOUT,
 )
 from .protocol import (
+    SYNC_FRAME,
     find_frames_with_indices,
     unescape_frame,
     is_broadcast,
@@ -130,7 +131,9 @@ class IntentQueue:
 
         # Start the coalesce timer if not already running
         if self._flush_task is None or self._flush_task.done():
-            self._flush_task = asyncio.ensure_future(self._flush_after_window())
+            self._flush_task = self._coordinator.hass.async_create_task(
+                self._flush_after_window()
+            )
 
     async def _flush_after_window(self) -> None:
         """Wait for the coalesce window then drain all pending groups."""
@@ -150,7 +153,9 @@ class IntentQueue:
 
         # If new intents accumulated during drain, flush them immediately
         if self._pending and (self._flush_task is None or self._flush_task.done()):
-            self._flush_task = asyncio.ensure_future(self._flush_after_window())
+            self._flush_task = self._coordinator.hass.async_create_task(
+                self._flush_after_window()
+            )
 
     async def _process_group(self, group_key: str, group: _PendingGroup) -> None:
         """Build and send the coalesced command for one group with verification retries."""
@@ -186,7 +191,7 @@ class IntentQueue:
             broadcast_count += 1
             update_event.set()
 
-        self._coordinator._on_data_callbacks.append(on_update)
+        self._coordinator.register_data_callback(on_update)
 
         converged = False
         max_attempts = 3  # 1 initial + 2 retries (total 3)
@@ -249,8 +254,7 @@ class IntentQueue:
                     )
                     await asyncio.sleep(0.5)
         finally:
-            if on_update in self._coordinator._on_data_callbacks:
-                self._coordinator._on_data_callbacks.remove(on_update)
+            self._coordinator.unregister_data_callback(on_update)
 
         if not converged:
             _LOGGER.error(
@@ -294,7 +298,12 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
     """Coordinator with persistent TCP connection and background reader."""
 
     def __init__(
-        self, hass: HomeAssistant, host: str, port: int, model: str, entry: ConfigEntry
+        self,
+        hass: HomeAssistant,
+        host: str,
+        port: int,
+        model: str,
+        entry: JoyonwayConfigEntry,
     ) -> None:
         """Initialize the coordinator."""
         super().__init__(
@@ -338,6 +347,7 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
         self._last_clock_sync_attempt_ts = 0.0
         self.last_detected_ozone_mode = None
         self._last_ozone_sync_check_ts = 0.0
+        self._clock_check_unsub: CALLBACK_TYPE | None = None
 
     @property
     def available(self) -> bool:
@@ -391,12 +401,20 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
     async def async_setup(self) -> None:
         """Establish the persistent connection and start the reader."""
         await self._connect()
+        from homeassistant.helpers.event import async_track_time_interval
+
+        self._clock_check_unsub = async_track_time_interval(
+            self.hass, self._periodic_clock_check, timedelta(seconds=60)
+        )
         with contextlib.suppress(asyncio.TimeoutError):
             await asyncio.wait_for(self._first_data_event.wait(), timeout=TCP_TIMEOUT)
 
     async def async_shutdown(self) -> None:
         """Close connection on shutdown."""
         self._stopped = True
+        if self._clock_check_unsub is not None:
+            self._clock_check_unsub()
+            self._clock_check_unsub = None
         await self.intent_queue.shutdown()
         if self._reconnect_task is not None:
             self._reconnect_task.cancel()
@@ -482,9 +500,6 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
                     self._disconnect_ts = None
                     self._first_data_event.set()
 
-                    # Clock sync (moved from _async_update_data)
-                    self._check_clock_drift(result)
-
                     self.async_set_updated_data(result)
                 if consumed:
                     del buf[:consumed]
@@ -519,7 +534,7 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
 
         latest_data: dict | None = None
         for raw_frame, _ in frames:
-            if raw_frame == b"\x1a\x01\x20\x08\x3c\xaa\x10\x00\x00\x6b\x73\xe4\xb9\x1d":
+            if raw_frame == SYNC_FRAME:
                 self._handle_sync_frame()
                 continue
 
@@ -697,3 +712,23 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
                 on_failure=_on_clock_failure,
                 verify_fn=lambda overrides, data: True,
             )
+
+    @callback
+    def _periodic_clock_check(self, _now: datetime) -> None:
+        """Periodic callback to check clock drift."""
+        if self.data is not None:
+            self._check_clock_drift(self.data)
+
+    @callback
+    def register_data_callback(self, callback_fn: Callable[[], None]) -> None:
+        """Register a callback for data updates."""
+        self._on_data_callbacks.append(callback_fn)
+
+    @callback
+    def unregister_data_callback(self, callback_fn: Callable[[], None]) -> None:
+        """Unregister a callback for data updates."""
+        if callback_fn in self._on_data_callbacks:
+            self._on_data_callbacks.remove(callback_fn)
+
+
+type JoyonwayConfigEntry = ConfigEntry[JoyonwayP25B85Coordinator]
