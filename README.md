@@ -16,8 +16,6 @@ This integration brings **local monitoring and control** of **Joyonway** spa con
 
 The integration is built with a **modular adapter pattern**, allowing community members to extend support for different controller models (like the P25B85, P23B32, and others) by defining their specific byte maps and command frame formats.
 
-> **Status: Pre-release / testing** — P25B85 write commands (light, heater, blower, jets, temperature setpoint, schedules, clock sync) are verified and working. Safety measures are built-in: the integration never sends unsolicited command packets or writes automatically on startup. **Use at your own risk.**
-
 > **Discussion thread:** [JoyOnWay Spa Control — Home Assistant Community](https://community.home-assistant.io/t/joyonway-spa-control/582344)
 
 ## Compatibility & Supported Hardware
@@ -75,7 +73,7 @@ The verified Joyonway controllers use a 4-byte CRC-32 on all command frames. The
 - ✅ CRC algorithm implemented and verified — all commands built dynamically
 - ✅ Every command uses computed CRC (no replay-only frames)
 - ✅ All commands validated against observed state changes from physical captures
-- ✅ Write pacing enforces a 1-second cooldown between commands
+- ✅ Write pacing aligns commands with the RS485 sync frame for collision-free bus access
 - ✅ Intent queue serializes and coalesces rapid user actions (no bus contention)
 - ✅ Schedule writes require complete broadcast data and fail explicitly if prerequisites are missing
 - ✅ State reversions are never silent — warnings logged if spa doesn't confirm
@@ -178,81 +176,11 @@ These raw-byte telemetry sensors help troubleshoot connection states and reverse
 | Heat slot 1/2 start/end     | Heating schedule times (HH:MM)     |
 | Filter slot 1/2 start/end   | Filtration schedule times (HH:MM)  |
 
-## Contributions Welcome
+## Contributions & Development
 
-This integration is built as a collaborative community-oriented project! We welcome all contributions, including:
-- **Adding new adapters:** Write a new model adapter under `custom_components/joyonway/adapters/` to support controllers like the P23B32.
-- **Reporting findings:** Help map undocumented registers or share command byte structures.
-- **Improving performance:** Fix bugs, refactor entities, or improve UI translations.
+This integration is built as a collaborative community-oriented project! We welcome all contributions, whether it is reverse-engineering new controller models, submitting bug fixes, or improving translations.
 
-### How to Help Reverse Engineer
-
-If you have a different Joyonway spa controller model and want to help map its protocol or add support for its features, you can capture and share telemetry:
-
-#### 1. Expose Raw Protocol Telemetry in HA
-Go to the **Joyonway Spa** integration in Home Assistant, click **Entities**, and enable the diagnostic sensors:
-- **Heater byte (raw)**
-- **Pump byte (raw)**
-- **Ozone mode byte (raw)**
-- **Activity byte (raw)**
-- **Light/cycle byte (raw)**
-- **Frame length**
-- **Unmapped bytes hash**
-
-Perform actions on your physical spa touchpad (e.g. click jets, lights, or adjust thermostat) and note down which raw bytes change.
-
-#### 2. Run the Developer Broadcast Byte Capture Tool
-If you have terminal access, you can run our standalone developer utility to analyze unmapped registers in real time:
-
-```zsh
-# Run the analysis tool to capture 20 frames directly
-SPA_BRIDGE_HOST="192.168.1.150" SPA_BRIDGE_PORT="8899" python3 tools/capture_unmapped_bytes.py --count 20
-```
-
-The tool will parse your controller's unmapped bytes and print a clean breakdown showing which byte positions are static vs. changing, their observed values, and your unique MD5 `unmapped_bytes_hash`.
-
-#### 3. Run the Live Verification Suite
-To see what works on your hardware and what might need adjustments, you can run the live test suite in either simulation/dry-run mode or directly against your hardware:
-
-```zsh
-# Run the verification suite offline in simulation mode
-python3 tests/live/test_spa_controls.py --dry-run
-
-# Run directly against your physical hardware (bridge host/port configured in .env)
-python3 tests/live/test_spa_controls.py
-```
-
-This checks basic commands, schedule matrices, ozone controls, auto-sync, and connection drop resilience, generating a test summary showing compatibilities.
-
-Please share these details, your test results, your spa model, and touchpad model on our [Community Discussion Thread](https://community.home-assistant.io/t/joyonway-spa-control/582344) or open a GitHub Issue!
-
-
-
-## Development & Testing
-
-Run all commands directly using the environment's python/pytest binaries to avoid manual source-approval steps:
-
-```zsh
-cd /path/to/ha-joyonway
-python3.13 -m venv .venv
-.venv/bin/python -m pip install -U pip
-.venv/bin/python -m pip install -e ".[test]"
-.venv/bin/pytest -q -W ignore
-```
-
-Requires Python 3.13+. The `[test]` extra installs `pytest-homeassistant-custom-component` and all HA runtime dependencies.
-
-### Live Verification Suite (optional)
-
-To verify the integration controls against real spa hardware or simulate it offline:
-
-```zsh
-# Run in simulation/dry-run mode
-.venv/bin/python tests/live/test_spa_controls.py --dry-run
-
-# Run directly on the physical hardware bridge
-.venv/bin/python tests/live/test_spa_controls.py
-```
+For guidelines on setting up your development environment, running unit/simulation tests, reverse-engineering raw telemetry, or understanding the internal architecture, please see the [Contribution & Developer Guide](CONTRIBUTING.md).
 
 ## Related Projects
 

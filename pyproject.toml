@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ha-joyonway"
-version = "0.1.0"
+version = "1.0.0"
 description = "Joyonway P25B85 Home Assistant integration"
 requires-python = ">=3.13"
 
