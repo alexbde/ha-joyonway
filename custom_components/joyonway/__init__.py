@@ -4,22 +4,20 @@ from __future__ import annotations
 
 import logging
 
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant
 
 from .const import (
-    CONF_HOST,
     CONF_MODEL,
-    CONF_PORT,
     DEFAULT_MODEL,
     PLATFORMS,
 )
-from .coordinator import JoyonwayP25B85Coordinator
+from .coordinator import JoyonwayP25B85Coordinator, JoyonwayConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_setup_entry(hass: HomeAssistant, entry: JoyonwayConfigEntry) -> bool:
     """Set up Joyonway P25B85 from a config entry."""
     host = entry.data[CONF_HOST]
     port = entry.data[CONF_PORT]
@@ -36,10 +34,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_unload_entry(hass: HomeAssistant, entry: JoyonwayConfigEntry) -> bool:
     """Unload a config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
-        coordinator: JoyonwayP25B85Coordinator = entry.runtime_data
+        coordinator = entry.runtime_data
         await coordinator.async_shutdown()
     return unload_ok

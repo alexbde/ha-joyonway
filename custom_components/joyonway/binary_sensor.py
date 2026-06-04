@@ -10,21 +10,22 @@ from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .adapters.base import SpaEntityDescription
-from .coordinator import JoyonwayP25B85Coordinator
+from .coordinator import JoyonwayP25B85Coordinator, JoyonwayConfigEntry
 from .entity import JoyonwayCoordinatorEntity, device_info
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: JoyonwayConfigEntry,
+    async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up binary sensor entities from config entry."""
-    coordinator: JoyonwayP25B85Coordinator = entry.runtime_data
+    coordinator = entry.runtime_data
     descriptions = coordinator.adapter.entity_descriptions()
 
     entities: list[BinarySensorEntity] = [
@@ -46,7 +47,7 @@ class JoyonwayBinarySensor(JoyonwayCoordinatorEntity, BinarySensorEntity):
     def __init__(
         self,
         coordinator: JoyonwayP25B85Coordinator,
-        entry: ConfigEntry,
+        entry: JoyonwayConfigEntry,
         description: SpaEntityDescription,
     ) -> None:
         """Initialize the binary sensor."""
@@ -84,7 +85,7 @@ class JoyonwayBridgeConnectivity(JoyonwayCoordinatorEntity, BinarySensorEntity):
     def __init__(
         self,
         coordinator: JoyonwayP25B85Coordinator,
-        entry: ConfigEntry,
+        entry: JoyonwayConfigEntry,
     ) -> None:
         """Initialize the connectivity sensor."""
         super().__init__(coordinator)

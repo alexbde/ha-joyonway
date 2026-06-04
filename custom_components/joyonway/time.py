@@ -14,14 +14,17 @@ from datetime import time
 import logging
 
 from homeassistant.components.time import TimeEntity
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import OPTIMISTIC_TIMEOUT_SECONDS
-from .coordinator import IntentBuildError, JoyonwayP25B85Coordinator
+from .coordinator import (
+    IntentBuildError,
+    JoyonwayP25B85Coordinator,
+    JoyonwayConfigEntry,
+)
 from .entity import JoyonwayCoordinatorEntity, device_info
 
 _LOGGER = logging.getLogger(__name__)
@@ -41,11 +44,11 @@ _SCHEDULE_TIME_DEFS = [
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: JoyonwayConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up time entities from config entry."""
-    coordinator: JoyonwayP25B85Coordinator = entry.runtime_data
+    coordinator = entry.runtime_data
     entities = [
         SpaScheduleTime(coordinator, entry, *defn) for defn in _SCHEDULE_TIME_DEFS
     ]
@@ -61,7 +64,7 @@ class SpaScheduleTime(JoyonwayCoordinatorEntity, TimeEntity):
     def __init__(
         self,
         coordinator: JoyonwayP25B85Coordinator,
-        entry: ConfigEntry,
+        entry: JoyonwayConfigEntry,
         key: str,
         schedule_type: str,
         slot: int,

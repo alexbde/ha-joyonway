@@ -13,12 +13,11 @@ import logging
 from typing import Any
 
 from homeassistant.components.fan import FanEntity, FanEntityFeature
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import OPTIMISTIC_TIMEOUT_SECONDS
-from .coordinator import JoyonwayP25B85Coordinator
+from .coordinator import JoyonwayP25B85Coordinator, JoyonwayConfigEntry
 from .entity import JoyonwayCoordinatorEntity, device_info
 
 _LOGGER = logging.getLogger(__name__)
@@ -26,11 +25,11 @@ _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: JoyonwayConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up fan entities from a config entry."""
-    coordinator: JoyonwayP25B85Coordinator = entry.runtime_data
+    coordinator = entry.runtime_data
     async_add_entities([SpaJetsFan(coordinator, entry)])
 
 
@@ -50,7 +49,7 @@ class SpaJetsFan(JoyonwayCoordinatorEntity, FanEntity):
     def __init__(
         self,
         coordinator: JoyonwayP25B85Coordinator,
-        entry: ConfigEntry,
+        entry: JoyonwayConfigEntry,
     ) -> None:
         """Initialize the jets fan."""
         super().__init__(coordinator)

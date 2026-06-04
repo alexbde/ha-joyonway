@@ -5,27 +5,31 @@ Entities are driven by the model adapter's entity_descriptions().
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
     SensorStateClass,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.typing import StateType
 
 from .adapters.base import SpaEntityDescription
-from .coordinator import JoyonwayP25B85Coordinator
+from .coordinator import JoyonwayP25B85Coordinator, JoyonwayConfigEntry
 from .entity import JoyonwayCoordinatorEntity, device_info
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: JoyonwayConfigEntry,
+    async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up sensor entities from config entry."""
-    coordinator: JoyonwayP25B85Coordinator = entry.runtime_data
+    coordinator = entry.runtime_data
     descriptions = coordinator.adapter.entity_descriptions()
 
     entities = [
@@ -44,7 +48,7 @@ class JoyonwaySensor(JoyonwayCoordinatorEntity, SensorEntity):
     def __init__(
         self,
         coordinator: JoyonwayP25B85Coordinator,
-        entry: ConfigEntry,
+        entry: JoyonwayConfigEntry,
         description: SpaEntityDescription,
     ) -> None:
         """Initialize the sensor."""
@@ -90,7 +94,7 @@ class JoyonwaySensor(JoyonwayCoordinatorEntity, SensorEntity):
         return self._default_icon
 
     @property
-    def native_value(self):
+    def native_value(self) -> StateType | datetime | None:
         """Return the sensor value from coordinator data."""
         if self.coordinator.data:
             value = self.coordinator.data.get(self._key)
