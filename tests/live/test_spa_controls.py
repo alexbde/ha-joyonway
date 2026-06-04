@@ -1504,8 +1504,16 @@ async def test_set_datetime(
 
 
 # ── Test Suite 5: IntentQueue Coalescing & Serialization ──────────────────
+class FakeHass:
+    """Mock Home Assistant core instance for task creation."""
+
+    def async_create_task(self, coro):
+        return asyncio.create_task(coro)
+
+
 class FakeCoordinator:
     def __init__(self, reader, writer):
+        self.hass = FakeHass()
         self.data = {"light": False, "jets": "off", "blower": False}
         self.host = "127.0.0.1"
         self.port = 8899
@@ -1515,6 +1523,13 @@ class FakeCoordinator:
         self.writer = writer
         self.sent_frames = []
         self._on_data_callbacks = []
+
+    def register_data_callback(self, callback_fn) -> None:
+        self._on_data_callbacks.append(callback_fn)
+
+    def unregister_data_callback(self, callback_fn) -> None:
+        if callback_fn in self._on_data_callbacks:
+            self._on_data_callbacks.remove(callback_fn)
 
     async def async_send_command(self, frame: bytes) -> bool:
         self.sent_frames.append((time.monotonic(), frame))
@@ -1966,33 +1981,31 @@ async def run_suite(option: int) -> None:
                 writer.close()
                 await writer.wait_closed()
 
-        passed = sum(1 for _, ok in results if ok)
-        failed = sum(1 for _, ok in results if not ok)
+    passed = sum(1 for _, ok in results if ok)
+    failed = sum(1 for _, ok in results if not ok)
 
-        print("\n" + "=" * 78)
-        print("TEST RESULTS SUMMARY")
-        print("=" * 78)
-        for name, ok in results:
-            print(f"  {'PASS' if ok else 'FAIL'} {name}")
-        print(f"\nTotal: {passed} passed, {failed} failed")
-        print("=" * 78)
+    print("\n" + "=" * 78)
+    print("TEST RESULTS SUMMARY")
+    print("=" * 78)
+    for name, ok in results:
+        print(f"  {'PASS' if ok else 'FAIL'} {name}")
+    print(f"\nTotal: {passed} passed, {failed} failed")
+    print("=" * 78)
 
-        _log_event(
-            "session_end",
-            total=len(results),
-            passed=passed,
-            failed=failed,
-            results=[
-                {"test": n, "result": "pass" if ok else "fail"} for n, ok in results
-            ],
-        )
+    _log_event(
+        "session_end",
+        total=len(results),
+        passed=passed,
+        failed=failed,
+        results=[{"test": n, "result": "pass" if ok else "fail"} for n, ok in results],
+    )
 
-        if _log_file:
-            _log_file.close()
-        if _raw_bin_file:
-            _raw_bin_file.close()
+    if _log_file:
+        _log_file.close()
+    if _raw_bin_file:
+        _raw_bin_file.close()
 
-        return failed
+    return failed
 
 
 def show_menu(dry_run_state: bool):
