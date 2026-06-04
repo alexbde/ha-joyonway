@@ -48,6 +48,10 @@ class ModelAdapter(Protocol):
         """Return the list of entities this model exposes."""
         ...
 
+    def is_heater_enabled(self, data: dict | None) -> bool | None:
+        """Derive heater enabled state from status if not explicitly present."""
+        ...
+
     def get_jets_state(self, data: dict) -> str:
         """Return current jets state as 'off', 'low', or 'high'."""
         ...

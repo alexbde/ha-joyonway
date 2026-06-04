@@ -129,6 +129,7 @@ MASK_BLOWER = 0x08
 # works correctly regardless of blower state.
 MASK_HEATER_BLOWER = 0x08  # bit 3 on heater byte = blower running
 
+_TRAILER_LEN = 5  # CRC32 (4) + frame end delimiter (1)
 HEATER_OFF = 0x40  # Idle/off (KDy called this "cooldown") ✅ confirmed
 HEATER_STANDBY = 0x50  # Heater enabled/armed — waiting for temp drop ✅ confirmed
 HEATER_CIRCULATION = 0x51  # Pre/post-heat circulation (circle icon on panel) — needs full capture confirmation
@@ -377,7 +378,6 @@ class P25B85Adapter:
             result["filter_slot2_enabled"] = bool(raw_s2 & MASK_SLOT_ENABLED)
 
         # Compute unmapped bytes hash
-        _TRAILER_LEN = 5  # CRC32 (4) + frame end delimiter (1)
         payload_end = max(0, len(frame) - _TRAILER_LEN)
 
         digest_input = bytearray()
@@ -386,13 +386,26 @@ class P25B85Adapter:
                 continue
             digest_input.extend((i & 0xFF, frame[i]))
 
-        result["unmapped_bytes_hash"] = hashlib.md5(bytes(digest_input)).hexdigest()[:8]
+        result["unmapped_bytes_hash"] = hashlib.md5(
+            bytes(digest_input), usedforsecurity=False
+        ).hexdigest()[:8]
 
         return result
 
     def entity_descriptions(self) -> list[SpaEntityDescription]:
         """Return entity descriptions for P25B85."""
         return _P25B85_ENTITIES
+
+    def is_heater_enabled(self, data: dict | None) -> bool | None:
+        """Derive heater enabled state from status if not explicitly present."""
+        if data is None:
+            return None
+        val = data.get("heater_enabled")
+        if val is None:
+            status = data.get("status")
+            if status is not None:
+                val = status in ("standby", "circulation", "heating")
+        return val
 
     # ── Jets / pump helpers ───────────────────────────────────
 

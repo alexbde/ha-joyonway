@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from typing import Any
 
 from homeassistant.components.climate import (
     ClimateEntity,
@@ -20,14 +21,13 @@ from homeassistant.components.climate import (
     HVACAction,
     HVACMode,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .adapters.p25b85 import TEMP_MAX_C, TEMP_MIN_C
 from .const import OPTIMISTIC_TIMEOUT_SECONDS
-from .coordinator import JoyonwayP25B85Coordinator
+from .coordinator import JoyonwayP25B85Coordinator, JoyonwayConfigEntry
 from .entity import JoyonwayCoordinatorEntity, device_info
 
 _LOGGER = logging.getLogger(__name__)
@@ -39,11 +39,11 @@ TEMP_DEBOUNCE_SECONDS = 0.5
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: JoyonwayConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up climate entities from a config entry."""
-    coordinator: JoyonwayP25B85Coordinator = entry.runtime_data
+    coordinator = entry.runtime_data
     async_add_entities([SpaClimate(coordinator, entry)])
 
 
@@ -64,7 +64,7 @@ class SpaClimate(JoyonwayCoordinatorEntity, ClimateEntity):
     def __init__(
         self,
         coordinator: JoyonwayP25B85Coordinator,
-        entry: ConfigEntry,
+        entry: JoyonwayConfigEntry,
     ) -> None:
         """Initialize the spa thermostat."""
         super().__init__(coordinator)
@@ -94,14 +94,7 @@ class SpaClimate(JoyonwayCoordinatorEntity, ClimateEntity):
 
     def _get_coordinator_heater_state(self) -> bool | None:
         """Return heater enabled/armed state from coordinator."""
-        if self.coordinator.data is None:
-            return None
-        val = self.coordinator.data.get("heater_enabled")
-        if val is None:
-            status = self.coordinator.data.get("status")
-            if status is not None:
-                val = status in ("standby", "circulation", "heating")
-        return val
+        return self.coordinator.adapter.is_heater_enabled(self.coordinator.data)
 
     def _arm_pending_timeout(self) -> None:
         """Start a timeout to clear pending temp if broadcast never confirms."""
@@ -232,13 +225,7 @@ class SpaClimate(JoyonwayCoordinatorEntity, ClimateEntity):
 
         def _build_heater(overrides: dict, data: dict | None) -> bytes | None:
             target = overrides["heater_enabled"]
-            current = None
-            if data is not None:
-                current = data.get("heater_enabled")
-                if current is None:
-                    status = data.get("status")
-                    if status is not None:
-                        current = status in ("standby", "circulation", "heating")
+            current = coordinator.adapter.is_heater_enabled(data)
             if current == target:
                 return None  # no-op
             return coordinator.adapter.build_heater_command(on=target)
@@ -260,7 +247,7 @@ class SpaClimate(JoyonwayCoordinatorEntity, ClimateEntity):
             on_failure=_on_failure,
         )
 
-    async def async_set_temperature(self, **kwargs) -> None:
+    async def async_set_temperature(self, **kwargs: Any) -> None:
         """Set target temperature with debouncing for slider support.
 
         When the slider is dragged, this gets called many times rapidly.
