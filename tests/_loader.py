@@ -3,6 +3,7 @@
 Used to test integration submodules without importing Home Assistant package
 glue from ``custom_components.joyonway.__init__``.
 """
+
 from __future__ import annotations
 
 from importlib.util import module_from_spec, spec_from_file_location
@@ -19,4 +20,3 @@ def load_module(name: str, path: Path):
     sys.modules[name] = mod
     spec.loader.exec_module(mod)
     return mod
-

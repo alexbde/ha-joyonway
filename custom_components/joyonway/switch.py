@@ -13,14 +13,17 @@ import logging
 from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import OZONE_MODE_MANUAL, OPTIMISTIC_TIMEOUT_SECONDS, OPT_AUTO_SYNC_CLOCK
-from .coordinator import IntentBuildError, JoyonwayP25B85Coordinator
+from .coordinator import (
+    IntentBuildError,
+    JoyonwayP25B85Coordinator,
+    JoyonwayConfigEntry,
+)
 from .entity import JoyonwayCoordinatorEntity, device_info
 
 _LOGGER = logging.getLogger(__name__)
@@ -28,11 +31,11 @@ _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: JoyonwayConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up switch entities from a config entry."""
-    coordinator: JoyonwayP25B85Coordinator = entry.runtime_data
+    coordinator = entry.runtime_data
 
     entities: list[SwitchEntity] = [
         SpaHeaterSwitch(coordinator, entry),
@@ -48,129 +51,6 @@ async def async_setup_entry(
         SpaScheduleSlotSwitch(coordinator, entry, "filter", 2),
     ]
     async_add_entities(entities)
-
-
-class SpaLightSwitch(JoyonwayCoordinatorEntity, SwitchEntity):
-    """Switch entity for spa light (toggle command).
-
-    Uses toggle-lock guard: double-clicks are ignored while a toggle is in-flight.
-    """
-
-    _attr_has_entity_name = True
-    _attr_translation_key = "light"
-    _attr_icon = "mdi:lightbulb"
-
-    def __init__(
-        self,
-        coordinator: JoyonwayP25B85Coordinator,
-        entry: ConfigEntry,
-    ) -> None:
-        """Initialize the light switch."""
-        super().__init__(coordinator)
-        self._attr_unique_id = f"{entry.entry_id}_light_switch"
-        self._attr_device_info = device_info(entry)
-        self._pending_state: bool | None = None
-        self._cmd_lock = asyncio.Lock()
-        self._pending_task: asyncio.Task | None = None
-
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Clear optimistic state only when broadcast confirms the new value."""
-        if self._pending_state is not None and self.coordinator.data is not None:
-            if self.coordinator.data.get("light") == self._pending_state:
-                self._cancel_pending_timeout()
-                self._pending_state = None
-        else:
-            self._cancel_pending_timeout()
-            self._pending_state = None
-        super()._handle_coordinator_update()
-
-    def _set_pending_state(self, value: bool) -> None:
-        self._pending_state = value
-        self._arm_pending_timeout()
-        self.async_write_ha_state()
-
-    def _arm_pending_timeout(self) -> None:
-        self._cancel_pending_timeout()
-        self._pending_task = self.hass.async_create_task(self._pending_timeout())
-
-    def _cancel_pending_timeout(self) -> None:
-        if self._pending_task is not None:
-            self._pending_task.cancel()
-            self._pending_task = None
-
-    async def _pending_timeout(self) -> None:
-        await asyncio.sleep(OPTIMISTIC_TIMEOUT_SECONDS)
-        _LOGGER.warning(
-            "Light: command not confirmed by spa within %ds, reverting state",
-            int(OPTIMISTIC_TIMEOUT_SECONDS),
-        )
-        self._pending_state = None
-        self._pending_task = None
-        self.async_write_ha_state()
-
-    async def async_will_remove_from_hass(self) -> None:
-        await super().async_will_remove_from_hass()
-        self._cancel_pending_timeout()
-
-    @property
-    def is_on(self) -> bool | None:
-        """Return True if the light is on."""
-        if self._pending_state is not None:
-            return self._pending_state
-        if self.coordinator.data is None:
-            return None
-        return self.coordinator.data.get("light")
-
-    async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn the light on (toggle if currently off)."""
-        if self._cmd_lock.locked():
-            return  # toggle already in-flight
-        state = self.is_on
-        if state is None:
-            raise HomeAssistantError(
-                "Light state is unknown; retry after the next broadcast"
-            )
-        if not state:
-            await self._send_toggle(target=True)
-
-    async def async_turn_off(self, **kwargs: Any) -> None:
-        """Turn the light off (toggle if currently on)."""
-        if self._cmd_lock.locked():
-            return  # toggle already in-flight
-        state = self.is_on
-        if state is None:
-            raise HomeAssistantError(
-                "Light state is unknown; retry after the next broadcast"
-            )
-        if state:
-            await self._send_toggle(target=False)
-
-    async def _send_toggle(self, target: bool) -> None:
-        """Send the light toggle command via intent queue."""
-        async with self._cmd_lock:
-            coordinator: JoyonwayP25B85Coordinator = self.coordinator
-            self._set_pending_state(target)
-
-            def _build_light(overrides: dict, data: dict | None) -> bytes | None:
-                # Light is a toggle — if current state already matches target,
-                # the intent is a no-op (user toggled ON→OFF or vice versa)
-                if data is not None and data.get("light") == overrides.get("light"):
-                    return None
-                return coordinator.adapter.build_light_toggle_command()
-
-            def _on_failure() -> None:
-                self._pending_state = None
-                self._cancel_pending_timeout()
-                self.async_write_ha_state()
-
-            _LOGGER.debug("Light: submitting toggle intent (target=%s)", target)
-            coordinator.intent_queue.submit(
-                group="light",
-                overrides={"light": target},
-                build_fn=_build_light,
-                on_failure=_on_failure,
-            )
 
 
 class _SpaTargetStateSwitch(JoyonwayCoordinatorEntity, SwitchEntity):
@@ -240,6 +120,87 @@ class _SpaTargetStateSwitch(JoyonwayCoordinatorEntity, SwitchEntity):
         self.async_write_ha_state()
 
 
+class SpaLightSwitch(_SpaTargetStateSwitch):
+    """Switch entity for spa light (toggle command).
+
+    Uses toggle-lock guard: double-clicks are ignored while a toggle is in-flight.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "light"
+    _attr_icon = "mdi:lightbulb"
+
+    def __init__(
+        self,
+        coordinator: JoyonwayP25B85Coordinator,
+        entry: JoyonwayConfigEntry,
+    ) -> None:
+        """Initialize the light switch."""
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_light_switch"
+        self._attr_device_info = device_info(entry)
+        self._cmd_lock = asyncio.Lock()
+
+    def _broadcast_confirms_pending(self) -> bool:
+        if self.coordinator.data is None:
+            return False
+        return self.coordinator.data.get("light") == self._pending_state
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return True if the light is on."""
+        if self._pending_state is not None:
+            return self._pending_state
+        if self.coordinator.data is None:
+            return None
+        return self.coordinator.data.get("light")
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Turn the light on (toggle if currently off)."""
+        if self._cmd_lock.locked():
+            return  # toggle already in-flight
+        state = self.is_on
+        if state is None:
+            raise HomeAssistantError(
+                "Light state is unknown; retry after the next broadcast"
+            )
+        if not state:
+            await self._send_toggle(target=True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Turn the light off (toggle if currently on)."""
+        if self._cmd_lock.locked():
+            return  # toggle already in-flight
+        state = self.is_on
+        if state is None:
+            raise HomeAssistantError(
+                "Light state is unknown; retry after the next broadcast"
+            )
+        if state:
+            await self._send_toggle(target=False)
+
+    async def _send_toggle(self, target: bool) -> None:
+        """Send the light toggle command via intent queue."""
+        async with self._cmd_lock:
+            coordinator: JoyonwayP25B85Coordinator = self.coordinator
+            self._set_pending_state(target)
+
+            def _build_light(overrides: dict, data: dict | None) -> bytes | None:
+                # Light is a toggle — if current state already matches target,
+                # the intent is a no-op (user toggled ON→OFF or vice versa)
+                if data is not None and data.get("light") == overrides.get("light"):
+                    return None
+                return coordinator.adapter.build_light_toggle_command()
+
+            _LOGGER.debug("Light: submitting toggle intent (target=%s)", target)
+            coordinator.intent_queue.submit(
+                group="light",
+                overrides={"light": target},
+                build_fn=_build_light,
+                on_failure=self._clear_pending_on_failure,
+            )
+
+
 class SpaHeaterSwitch(_SpaTargetStateSwitch):
     """Switch entity for spa heater (manual ON/OFF commands)."""
 
@@ -250,7 +211,7 @@ class SpaHeaterSwitch(_SpaTargetStateSwitch):
     def __init__(
         self,
         coordinator: JoyonwayP25B85Coordinator,
-        entry: ConfigEntry,
+        entry: JoyonwayConfigEntry,
     ) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry.entry_id}_heater_switch"
@@ -262,14 +223,7 @@ class SpaHeaterSwitch(_SpaTargetStateSwitch):
         return super().available and self.coordinator.heater_mode == "manual"
 
     def _get_coordinator_heater_state(self) -> bool | None:
-        if self.coordinator.data is None:
-            return None
-        val = self.coordinator.data.get("heater_enabled")
-        if val is None:
-            status = self.coordinator.data.get("status")
-            if status is not None:
-                val = status in ("standby", "circulation", "heating")
-        return val
+        return self.coordinator.adapter.is_heater_enabled(self.coordinator.data)
 
     @property
     def is_on(self) -> bool | None:
@@ -297,13 +251,7 @@ class SpaHeaterSwitch(_SpaTargetStateSwitch):
 
         def _build_heater(overrides: dict, data: dict | None) -> bytes | None:
             target = overrides["heater_enabled"]
-            current = None
-            if data is not None:
-                current = data.get("heater_enabled")
-                if current is None:
-                    status = data.get("status")
-                    if status is not None:
-                        current = status in ("standby", "circulation", "heating")
+            current = coordinator.adapter.is_heater_enabled(data)
             if current == target:
                 return None  # no-op
             return coordinator.adapter.build_heater_command(on=target)
@@ -328,7 +276,7 @@ class SpaBlowerSwitch(_SpaTargetStateSwitch):
     def __init__(
         self,
         coordinator: JoyonwayP25B85Coordinator,
-        entry: ConfigEntry,
+        entry: JoyonwayConfigEntry,
     ) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry.entry_id}_blower_switch"
@@ -388,7 +336,7 @@ class SpaOzoneSwitch(_SpaTargetStateSwitch):
     def __init__(
         self,
         coordinator: JoyonwayP25B85Coordinator,
-        entry: ConfigEntry,
+        entry: JoyonwayConfigEntry,
     ) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry.entry_id}_ozone_switch"
@@ -449,7 +397,7 @@ class SpaScheduleSlotSwitch(_SpaTargetStateSwitch):
     def __init__(
         self,
         coordinator: JoyonwayP25B85Coordinator,
-        entry: ConfigEntry,
+        entry: JoyonwayConfigEntry,
         schedule_type: str,
         slot: int,
     ) -> None:
@@ -591,7 +539,7 @@ class SpaAutoClockSyncSwitch(JoyonwayCoordinatorEntity, SwitchEntity):
     def __init__(
         self,
         coordinator: JoyonwayP25B85Coordinator,
-        entry: ConfigEntry,
+        entry: JoyonwayConfigEntry,
     ) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry.entry_id}_auto_sync_clock"
@@ -616,6 +564,10 @@ class SpaAutoClockSyncSwitch(JoyonwayCoordinatorEntity, SwitchEntity):
             self.coordinator.entry, options=new_options
         )
 
+    async def async_will_remove_from_hass(self) -> None:
+        """Handle removal from Home Assistant."""
+        await super().async_will_remove_from_hass()
+
 
 class SpaManualOzoneSwitch(_SpaTargetStateSwitch):
     """Switch entity for toggling Ozone Mode (Manual vs Auto)."""
@@ -628,7 +580,7 @@ class SpaManualOzoneSwitch(_SpaTargetStateSwitch):
     def __init__(
         self,
         coordinator: JoyonwayP25B85Coordinator,
-        entry: ConfigEntry,
+        entry: JoyonwayConfigEntry,
     ) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry.entry_id}_manual_ozone_switch"
@@ -686,7 +638,7 @@ class SpaManualHeaterSwitch(_SpaTargetStateSwitch):
     def __init__(
         self,
         coordinator: JoyonwayP25B85Coordinator,
-        entry: ConfigEntry,
+        entry: JoyonwayConfigEntry,
     ) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry.entry_id}_manual_heating_switch"

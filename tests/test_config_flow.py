@@ -1,7 +1,8 @@
+# ruff: noqa: E402
 """Tests for the Joyonway P25B85 config flow and options flow."""
+
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 import sys
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -21,11 +22,6 @@ from custom_components.joyonway.config_flow import (
 from custom_components.joyonway.const import (
     CONF_MODEL,
     DEFAULT_MODEL,
-    DOMAIN,
-    OPT_AUTO_SYNC_CLOCK,
-    OPT_OZONE_MODE,
-    OZONE_MODE_AUTO,
-    OZONE_MODE_MANUAL,
 )
 from homeassistant.const import CONF_HOST, CONF_PORT
 

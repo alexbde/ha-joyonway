@@ -1,9 +1,11 @@
+# ruff: noqa: E402
 """Advanced coordinator tests for the resilient persistent connection model.
 
 Tests cover: reconnect logic, shutdown races, stale-RX detection,
 availability grace window, optimistic timeout, and HA lifecycle.
 Auto-skip when Home Assistant is not installed.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -21,11 +23,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from homeassistant.const import CONF_HOST, CONF_PORT
 from custom_components.joyonway.const import (
     AVAILABILITY_GRACE_SECONDS,
-    CONF_HOST,
-    CONF_PORT,
-    OPTIMISTIC_TIMEOUT_SECONDS,
     RX_STALE_SECONDS,
 )
 from custom_components.joyonway.coordinator import (
@@ -210,10 +210,10 @@ async def test_send_command_success(coordinator):
     mock_writer.drain = AsyncMock()
     coordinator._writer = mock_writer
 
-    result = await coordinator.async_send_command(b"\xAB\xCD")
+    result = await coordinator.async_send_command(b"\xab\xcd")
 
     assert result is True
-    mock_writer.write.assert_called_once_with(b"\xAB\xCD")
+    mock_writer.write.assert_called_once_with(b"\xab\xcd")
     mock_writer.drain.assert_awaited_once()
 
 
@@ -259,7 +259,9 @@ def test_parse_buffer_multiple_broadcasts(coordinator):
     frame1 = b"\x1a\xff\x02\x03\x1d"
     frame2 = b"\x1a\xff\x04\x05\x1d"
 
-    mock_parse = MagicMock(side_effect=[{"status": "heating"}, {"status": "circulation"}])
+    mock_parse = MagicMock(
+        side_effect=[{"status": "heating"}, {"status": "circulation"}]
+    )
     coordinator._adapter.parse_status = mock_parse
     coordinator._adapter.unescape_full_frame = True
 
@@ -327,12 +329,12 @@ async def test_intent_queue_flush_drains_pending_immediately(coordinator):
     coordinator.intent_queue.submit(
         group="test_group",
         overrides={"x": 1},
-        build_fn=lambda overrides, data: b"\xAA",
+        build_fn=lambda overrides, data: b"\xaa",
         verify_fn=lambda overrides, data: True,
     )
     await coordinator.intent_queue.flush()
 
-    coordinator.async_send_command.assert_awaited_once_with(b"\xAA")
+    coordinator.async_send_command.assert_awaited_once_with(b"\xaa")
 
 
 @pytest.mark.asyncio
@@ -374,6 +376,17 @@ class _DummyIntentQueue:
             asyncio.ensure_future(self._coordinator.async_send_command(frame))
 
 
+def _mock_is_heater_enabled(data: dict | None) -> bool | None:
+    if data is None:
+        return None
+    val = data.get("heater_enabled")
+    if val is None:
+        status = data.get("status")
+        if status is not None:
+            val = status in ("standby", "circulation", "heating")
+    return val
+
+
 @pytest.mark.asyncio
 async def test_optimistic_timeout_clears_pending_state():
     """Pending state auto-clears after timeout."""
@@ -381,9 +394,14 @@ async def test_optimistic_timeout_clears_pending_state():
 
     class QuickCoordinator:
         data = {"status": "off"}
-        adapter = type("A", (), {
-            "build_heater_command": staticmethod(lambda on: b"\x01")
-        })()
+        adapter = type(
+            "A",
+            (),
+            {
+                "build_heater_command": staticmethod(lambda on: b"\x01"),
+                "is_heater_enabled": staticmethod(_mock_is_heater_enabled),
+            },
+        )()
 
         @property
         def available(self):
@@ -400,6 +418,7 @@ async def test_optimistic_timeout_clears_pending_state():
 
     # Monkeypatch timeout to be very short
     import custom_components.joyonway.switch as switch_mod
+
     original = switch_mod.OPTIMISTIC_TIMEOUT_SECONDS
     switch_mod.OPTIMISTIC_TIMEOUT_SECONDS = 0.05
 
@@ -421,9 +440,14 @@ async def test_optimistic_timeout_canceled_on_coordinator_update():
 
     class QuickCoordinator:
         data = {"status": "off"}
-        adapter = type("A", (), {
-            "build_heater_command": staticmethod(lambda on: b"\x01")
-        })()
+        adapter = type(
+            "A",
+            (),
+            {
+                "build_heater_command": staticmethod(lambda on: b"\x01"),
+                "is_heater_enabled": staticmethod(_mock_is_heater_enabled),
+            },
+        )()
 
         @property
         def available(self):
@@ -439,6 +463,7 @@ async def test_optimistic_timeout_canceled_on_coordinator_update():
     heater.async_write_ha_state = MagicMock()
 
     import custom_components.joyonway.switch as switch_mod
+
     original = switch_mod.OPTIMISTIC_TIMEOUT_SECONDS
     switch_mod.OPTIMISTIC_TIMEOUT_SECONDS = 5.0  # long timeout
 
@@ -468,9 +493,14 @@ async def test_pending_timeout_canceled_on_entity_removal():
 
     class QuickCoordinator:
         data = {"status": "off"}
-        adapter = type("A", (), {
-            "build_heater_command": staticmethod(lambda on: b"\x01")
-        })()
+        adapter = type(
+            "A",
+            (),
+            {
+                "build_heater_command": staticmethod(lambda on: b"\x01"),
+                "is_heater_enabled": staticmethod(_mock_is_heater_enabled),
+            },
+        )()
 
         @property
         def available(self):
@@ -486,6 +516,7 @@ async def test_pending_timeout_canceled_on_entity_removal():
     heater.async_write_ha_state = MagicMock()
 
     import custom_components.joyonway.switch as switch_mod
+
     original = switch_mod.OPTIMISTIC_TIMEOUT_SECONDS
     switch_mod.OPTIMISTIC_TIMEOUT_SECONDS = 5.0
 
@@ -507,10 +538,10 @@ async def test_pending_timeout_canceled_on_entity_removal():
 async def test_sync_frame_detection(coordinator):
     """Detecting a sync frame sets the sync_frame_event."""
     coordinator._sync_frame_event.clear()
-    
+
     sync_frame = b"\x1a\x01\x20\x08\x3c\xaa\x10\x00\x00\x6b\x73\xe4\xb9\x1d"
     result, consumed = coordinator._try_parse_buffer(bytearray(sync_frame))
-    
+
     assert result is None
     assert consumed == len(sync_frame)
     assert coordinator._sync_frame_event.is_set()
@@ -532,12 +563,12 @@ async def test_send_command_with_sync_success(coordinator):
         coordinator._sync_frame_event.set()
 
     task = asyncio.create_task(trigger_event())
-    
-    result = await coordinator.async_send_command(b"\xAB\xCD")
+
+    result = await coordinator.async_send_command(b"\xab\xcd")
     await task
 
     assert result is True
-    mock_writer.write.assert_called_once_with(b"\xAB\xCD")
+    mock_writer.write.assert_called_once_with(b"\xab\xcd")
     mock_writer.drain.assert_awaited_once()
 
 
@@ -551,7 +582,7 @@ async def test_send_command_with_sync_timeout(coordinator):
     coordinator._sync_timeout = 0.01
     coordinator._sync_frame_event.clear()
 
-    result = await coordinator.async_send_command(b"\xAB\xCD")
+    result = await coordinator.async_send_command(b"\xab\xcd")
 
     assert result is False
     mock_writer.write.assert_not_called()

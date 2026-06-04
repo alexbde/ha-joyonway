@@ -5,6 +5,7 @@ Guides the user step-by-step through the runbook to capture the combined
 jets and circulation states, parsing broadcasts in real-time and writing
 the raw binary output to a capture file.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -21,13 +22,20 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 try:
-    from custom_components.joyonway.protocol import find_frames, unescape_frame, is_broadcast
+    from custom_components.joyonway.protocol import (
+        find_frames,
+        unescape_frame,
+        is_broadcast,
+    )
     from custom_components.joyonway.adapters.p25b85 import P25B85Adapter
 except ImportError:
-    print("Error: Could not import custom component. Make sure you run this script from the repository root.")
+    print(
+        "Error: Could not import custom component. Make sure you run this script from the repository root."
+    )
     sys.path.insert(0, str(ROOT / "custom_components"))
     from joyonway.protocol import find_frames, unescape_frame, is_broadcast
     from joyonway.adapters.p25b85 import P25B85Adapter
+
 
 # Load .env if present
 def _load_dotenv():
@@ -39,6 +47,7 @@ def _load_dotenv():
                 if line and not line.startswith("#") and "=" in line:
                     k, v = line.split("=", 1)
                     os.environ.setdefault(k.strip(), v.strip())
+
 
 _load_dotenv()
 
@@ -56,11 +65,17 @@ def print_status(data: dict) -> None:
     h_byte = data.get("heater_byte_raw", 0)
     p_byte = data.get("pump_byte_raw", 0)
     l_byte = data.get("light_cycle_byte_raw", 0)
-    
-    print(f"\r  [Current State] Temp: {water}°C/{setp}°C | Jets: {jets:<4} | Heater: {heater_enabled:<3} | Status: {status:<12} (h=0x{h_byte:02X}, p=0x{p_byte:02X}, l=0x{l_byte:02X})", end="", flush=True)
+
+    print(
+        f"\r  [Current State] Temp: {water}°C/{setp}°C | Jets: {jets:<4} | Heater: {heater_enabled:<3} | Status: {status:<12} (h=0x{h_byte:02X}, p=0x{p_byte:02X}, l=0x{l_byte:02X})",
+        end="",
+        flush=True,
+    )
 
 
-def run_jets_sequence(sock: socket.socket, adapter: P25B85Adapter) -> tuple[bytearray, bool]:
+def run_jets_sequence(
+    sock: socket.socket, adapter: P25B85Adapter
+) -> tuple[bytearray, bool]:
     """Guide the user through all jets transitions (off->low->high->low->off->high->off)."""
     print("\nStarting Jets Transition Runbook:")
     print("  Step 1: Ensure jets are initially OFF.")
@@ -72,54 +87,79 @@ def run_jets_sequence(sock: socket.socket, adapter: P25B85Adapter) -> tuple[byte
     print("  Step 7: Turn jets OFF (press button once: high -> off).")
     print("\nPress ENTER when you are ready to start.")
     input()
-    
+
     raw_buffer = bytearray()
     stream_buffer = bytearray()
-    
+
     current_step = 1
     last_read_time = time.monotonic()
-    
+
     # Runbook Step descriptions and trigger criteria
     def check_step_transition(step: int, data: dict) -> tuple[bool, str | None]:
         jets = data.get("jets")
         p_raw = data.get("pump_byte_raw", 0)
-        
+
         if step == 1:
             if jets == "off" or p_raw == 0x00:
-                return True, "Jets are confirmed OFF! Step 2: Turn the jets LOW (press button once)."
+                return (
+                    True,
+                    "Jets are confirmed OFF! Step 2: Turn the jets LOW (press button once).",
+                )
         elif step == 2:
             if jets == "low" or p_raw == 0x02:
-                print("\n  --> Jets LOW detected. Capturing steady state for 3 seconds...")
+                print(
+                    "\n  --> Jets LOW detected. Capturing steady state for 3 seconds..."
+                )
                 time.sleep(3.0)
                 return True, "Step 3: Turn the jets HIGH (press button once)."
         elif step == 3:
             if jets == "high" or p_raw == 0x04:
-                print("\n  --> Jets HIGH detected. Capturing steady state for 3 seconds...")
+                print(
+                    "\n  --> Jets HIGH detected. Capturing steady state for 3 seconds..."
+                )
                 time.sleep(3.0)
-                return True, "Step 4: Turn the jets LOW (press button twice: high -> off -> low)."
+                return (
+                    True,
+                    "Step 4: Turn the jets LOW (press button twice: high -> off -> low).",
+                )
         elif step == 4:
             if jets == "low" or p_raw == 0x02:
-                print("\n  --> Jets LOW detected. Capturing steady state for 3 seconds...")
+                print(
+                    "\n  --> Jets LOW detected. Capturing steady state for 3 seconds..."
+                )
                 time.sleep(3.0)
-                return True, "Step 5: Turn the jets OFF (press button twice: low -> high -> off)."
+                return (
+                    True,
+                    "Step 5: Turn the jets OFF (press button twice: low -> high -> off).",
+                )
         elif step == 5:
             if jets == "off" or p_raw == 0x00:
-                print("\n  --> Jets OFF detected. Capturing steady state for 3 seconds...")
+                print(
+                    "\n  --> Jets OFF detected. Capturing steady state for 3 seconds..."
+                )
                 time.sleep(3.0)
-                return True, "Step 6: Turn the jets HIGH (press button twice: off -> low -> high)."
+                return (
+                    True,
+                    "Step 6: Turn the jets HIGH (press button twice: off -> low -> high).",
+                )
         elif step == 6:
             if jets == "high" or p_raw == 0x04:
-                print("\n  --> Jets HIGH detected. Capturing steady state for 3 seconds...")
+                print(
+                    "\n  --> Jets HIGH detected. Capturing steady state for 3 seconds..."
+                )
                 time.sleep(3.0)
-                return True, "Step 7: Turn the jets OFF (press button once: high -> off)."
+                return (
+                    True,
+                    "Step 7: Turn the jets OFF (press button once: high -> off).",
+                )
         elif step == 7:
             if jets == "off" or p_raw == 0x00:
                 return True, "Jets are confirmed OFF! Sequence complete."
-                
+
         return False, None
 
-    print(f"\n[STEP 1/7] Waiting for jets to be OFF...")
-    
+    print("\n[STEP 1/7] Waiting for jets to be OFF...")
+
     try:
         while True:
             try:
@@ -135,14 +175,14 @@ def run_jets_sequence(sock: socket.socket, adapter: P25B85Adapter) -> tuple[byte
                     print("\nWarning: No data received from bridge for 15 seconds.")
                     last_read_time = time.monotonic()
                 time.sleep(0.05)
-                
+
             frames = find_frames(bytes(stream_buffer))
             if frames:
                 last_frame = frames[-1]
                 idx = stream_buffer.rfind(last_frame)
                 if idx != -1:
                     del stream_buffer[: idx + len(last_frame)]
-                    
+
                 broadcasts = [f for f in frames if is_broadcast(f)]
                 if broadcasts:
                     logical = unescape_frame(broadcasts[-1])
@@ -155,7 +195,9 @@ def run_jets_sequence(sock: socket.socket, adapter: P25B85Adapter) -> tuple[byte
                             if current_step <= 7:
                                 print(f"\n\n[STEP {current_step}/7] {next_inst}")
                             else:
-                                print(f"\n\nJets transition runbook completed successfully!")
+                                print(
+                                    "\n\nJets transition runbook completed successfully!"
+                                )
                                 return raw_buffer, True
             time.sleep(0.01)
     except KeyboardInterrupt:
@@ -163,7 +205,9 @@ def run_jets_sequence(sock: socket.socket, adapter: P25B85Adapter) -> tuple[byte
         return raw_buffer, False
 
 
-def run_heating_sequence(sock: socket.socket, adapter: P25B85Adapter) -> tuple[bytearray, bool]:
+def run_heating_sequence(
+    sock: socket.socket, adapter: P25B85Adapter
+) -> tuple[bytearray, bool]:
     """Original runbook: guide user through heating & circulation states."""
     print("\nStarting Heating & Circulation Runbook:")
     print("  1. Enable the heater.")
@@ -177,13 +221,13 @@ def run_heating_sequence(sock: socket.socket, adapter: P25B85Adapter) -> tuple[b
     print("  9. Stop the jets.")
     print("\nPress ENTER when you are ready to start.")
     input()
-    
+
     raw_buffer = bytearray()
     stream_buffer = bytearray()
-    
+
     current_step = 1
     last_read_time = time.monotonic()
-    
+
     def check_step_transition(step: int, data: dict) -> tuple[bool, str | None]:
         jets = data.get("jets")
         status = data.get("status")
@@ -191,16 +235,22 @@ def run_heating_sequence(sock: socket.socket, adapter: P25B85Adapter) -> tuple[b
         h_raw = data.get("heater_byte_raw", 0)
         p_raw = data.get("pump_byte_raw", 0)
         l_raw = data.get("light_cycle_byte_raw", 0)
-        
+
         heater_base = h_raw & ~0x08
         heating_cycle_active = bool(l_raw & 0x80)
 
         if step == 1:
             if heater_enabled:
-                return True, "Heater enabled detected! Next step: Wait for the circulation to start."
+                return (
+                    True,
+                    "Heater enabled detected! Next step: Wait for the circulation to start.",
+                )
         elif step == 2:
             if status == "circulation" or heater_base == 0x51:
-                return True, "Circulation started detected! Next step: Set the jets to LOW speed on the panel."
+                return (
+                    True,
+                    "Circulation started detected! Next step: Set the jets to LOW speed on the panel.",
+                )
         elif step == 3:
             if jets == "low" or p_raw == 0x02:
                 print("\n  --> Jets are LOW. Capturing steady state for 5 seconds...")
@@ -213,26 +263,37 @@ def run_heating_sequence(sock: socket.socket, adapter: P25B85Adapter) -> tuple[b
                 return True, "Next step: Set the jets back to LOW speed on the panel."
         elif step == 5:
             if jets == "low" or p_raw == 0x02:
-                print("\n  --> Jets are LOW again. Capturing steady state for 5 seconds...")
+                print(
+                    "\n  --> Jets are LOW again. Capturing steady state for 5 seconds..."
+                )
                 time.sleep(5.0)
                 return True, "Next step: Wait for the heater to start (heating mode)."
         elif step == 6:
             if status == "heating" or heater_base in (0x55, 0x54):
-                return True, "Heater is now actively heating! Next step: Stop the heating (disable the heater)."
+                return (
+                    True,
+                    "Heater is now actively heating! Next step: Stop the heating (disable the heater).",
+                )
         elif step == 7:
             if not heater_enabled:
-                return True, "Heater disabled detected! Next step: Wait for the post-heating circulation to show up (circle icon)."
+                return (
+                    True,
+                    "Heater disabled detected! Next step: Wait for the post-heating circulation to show up (circle icon).",
+                )
         elif step == 8:
             if status == "circulation" and heater_base == 0x40 and heating_cycle_active:
-                return True, "Post-heating circulation detected! Next step: Stop the jets (turn them off)."
+                return (
+                    True,
+                    "Post-heating circulation detected! Next step: Stop the jets (turn them off).",
+                )
         elif step == 9:
             if jets == "off" or p_raw == 0x00:
                 return True, "Jets are turned off! Capture complete."
-                
+
         return False, None
 
-    print(f"\n[STEP 1/9] Please enable the heater on the touchpad or Home Assistant.")
-    
+    print("\n[STEP 1/9] Please enable the heater on the touchpad or Home Assistant.")
+
     try:
         while True:
             try:
@@ -248,14 +309,14 @@ def run_heating_sequence(sock: socket.socket, adapter: P25B85Adapter) -> tuple[b
                     print("\nWarning: No data received from bridge for 15 seconds.")
                     last_read_time = time.monotonic()
                 time.sleep(0.05)
-                
+
             frames = find_frames(bytes(stream_buffer))
             if frames:
                 last_frame = frames[-1]
                 idx = stream_buffer.rfind(last_frame)
                 if idx != -1:
                     del stream_buffer[: idx + len(last_frame)]
-                    
+
                 broadcasts = [f for f in frames if is_broadcast(f)]
                 if broadcasts:
                     logical = unescape_frame(broadcasts[-1])
@@ -268,7 +329,7 @@ def run_heating_sequence(sock: socket.socket, adapter: P25B85Adapter) -> tuple[b
                             if current_step <= 9:
                                 print(f"\n\n[STEP {current_step}/9] {next_inst}")
                             else:
-                                print(f"\n\nRunbook completed successfully!")
+                                print("\n\nRunbook completed successfully!")
                                 return raw_buffer, True
             time.sleep(0.01)
     except KeyboardInterrupt:
@@ -276,20 +337,24 @@ def run_heating_sequence(sock: socket.socket, adapter: P25B85Adapter) -> tuple[b
         return raw_buffer, False
 
 
-def run_heater_mode_sequence(sock: socket.socket, adapter: P25B85Adapter) -> tuple[bytearray, bool]:
+def run_heater_mode_sequence(
+    sock: socket.socket, adapter: P25B85Adapter
+) -> tuple[bytearray, bool]:
     """Guide the user through capturing heater mode settings (auto -> manual -> auto)."""
     print("\nStarting Heater Mode Transition Runbook:")
     print("  We will capture the transitions between Auto and Manual heater modes.")
-    print("  Step 1: Ensure heater mode is currently set to MANUAL on the physical touchpad.")
+    print(
+        "  Step 1: Ensure heater mode is currently set to MANUAL on the physical touchpad."
+    )
     print("  Step 2: Change heater mode to AUTO.")
     print("  Step 3: Change heater mode back to MANUAL.")
-    
+
     print("\nPress ENTER when the spa is in MANUAL mode and you are ready to start.")
     input()
-    
+
     raw_buffer = bytearray()
     stream_buffer = bytearray()
-    
+
     try:
         # Step 1: Capture baseline MANUAL mode for 5 seconds
         print("\n[STEP 1/3] Capturing baseline MANUAL mode for 5 seconds...")
@@ -309,7 +374,7 @@ def run_heater_mode_sequence(sock: socket.socket, adapter: P25B85Adapter) -> tup
                     print("\nWarning: No data received from bridge for 15 seconds.")
                     last_read_time = time.monotonic()
                 time.sleep(0.05)
-            
+
             # Display status on screen so the user sees it is alive
             frames = find_frames(bytes(stream_buffer))
             if frames:
@@ -325,10 +390,12 @@ def run_heater_mode_sequence(sock: socket.socket, adapter: P25B85Adapter) -> tup
                         print_status(parsed)
             time.sleep(0.01)
 
-        print("\n\n[STEP 2/3] Action: Please change the heater mode to AUTO on the touchpad.")
+        print(
+            "\n\n[STEP 2/3] Action: Please change the heater mode to AUTO on the touchpad."
+        )
         print("Press ENTER immediately AFTER you have changed it to AUTO.")
         input()
-        
+
         # Capture AUTO mode for 5 seconds
         print("\nCapturing AUTO mode for 5 seconds...")
         start_time = time.monotonic()
@@ -344,7 +411,7 @@ def run_heater_mode_sequence(sock: socket.socket, adapter: P25B85Adapter) -> tup
                 last_read_time = time.monotonic()
             except BlockingIOError:
                 time.sleep(0.05)
-            
+
             frames = find_frames(bytes(stream_buffer))
             if frames:
                 last_frame = frames[-1]
@@ -359,10 +426,12 @@ def run_heater_mode_sequence(sock: socket.socket, adapter: P25B85Adapter) -> tup
                         print_status(parsed)
             time.sleep(0.01)
 
-        print("\n\n[STEP 3/3] Action: Please change the heater mode back to MANUAL on the touchpad.")
+        print(
+            "\n\n[STEP 3/3] Action: Please change the heater mode back to MANUAL on the touchpad."
+        )
         print("Press ENTER immediately AFTER you have changed it back to MANUAL.")
         input()
-        
+
         # Capture MANUAL mode for 5 seconds
         print("\nCapturing MANUAL mode for 5 seconds...")
         start_time = time.monotonic()
@@ -378,7 +447,7 @@ def run_heater_mode_sequence(sock: socket.socket, adapter: P25B85Adapter) -> tup
                 last_read_time = time.monotonic()
             except BlockingIOError:
                 time.sleep(0.05)
-            
+
             frames = find_frames(bytes(stream_buffer))
             if frames:
                 last_frame = frames[-1]
@@ -405,7 +474,7 @@ def run_monitor(sock: socket.socket, adapter: P25B85Adapter) -> None:
     print("\nMonitoring broadcasts in real-time. Press Ctrl+C to stop.\n")
     stream_buffer = bytearray()
     last_read_time = time.monotonic()
-    
+
     try:
         # Clear any initial buffer buildup
         sock.setblocking(False)
@@ -428,14 +497,14 @@ def run_monitor(sock: socket.socket, adapter: P25B85Adapter) -> None:
                     print("\nWarning: No data received for 15 seconds.")
                     last_read_time = time.monotonic()
                 time.sleep(0.05)
-                
+
             frames = find_frames(bytes(stream_buffer))
             if frames:
                 last_frame = frames[-1]
                 idx = stream_buffer.rfind(last_frame)
                 if idx != -1:
                     del stream_buffer[: idx + len(last_frame)]
-                    
+
                 broadcasts = [f for f in frames if is_broadcast(f)]
                 if broadcasts:
                     logical = unescape_frame(broadcasts[-1])
@@ -449,34 +518,43 @@ def run_monitor(sock: socket.socket, adapter: P25B85Adapter) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Interactive guided capture tool.")
-    parser.add_argument("--host", default=DEFAULT_HOST, help=f"Bridge host (default: {DEFAULT_HOST})")
-    parser.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"Bridge port (default: {DEFAULT_PORT})")
+    parser.add_argument(
+        "--host", default=DEFAULT_HOST, help=f"Bridge host (default: {DEFAULT_HOST})"
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=DEFAULT_PORT,
+        help=f"Bridge port (default: {DEFAULT_PORT})",
+    )
     args = parser.parse_args()
 
     adapter = P25B85Adapter()
-    
+
     print("=" * 80)
     print("Joyonway Guided Capture Tool")
     print(f"Connecting to: {args.host}:{args.port}")
     print("=" * 80)
-    
+
     try:
         sock = socket.create_connection((args.host, args.port), timeout=10.0)
     except Exception as e:
         print(f"Error: Could not connect to bridge: {e}")
         return 1
-        
+
     sock.setblocking(False)
     print("Connected successfully!")
-    
+
     while True:
         print("\nSelect a mode:")
-        print("  1) Capture Jets Transitions Runbook (OFF -> LOW -> HIGH -> LOW -> OFF -> HIGH -> OFF)")
+        print(
+            "  1) Capture Jets Transitions Runbook (OFF -> LOW -> HIGH -> LOW -> OFF -> HIGH -> OFF)"
+        )
         print("  2) Capture Heating & Circulation Sequence Runbook (Original)")
         print("  3) Capture Heater Mode Runbook (MANUAL -> AUTO -> MANUAL)")
         print("  4) Monitor broadcasts in real-time (no logging)")
         print("  0) Exit")
-        
+
         choice = input("Option [0-4]: ").strip()
         if choice == "0":
             sock.close()
@@ -488,7 +566,7 @@ def main() -> int:
             ok = False
             raw_buffer = bytearray()
             seq_name = ""
-            
+
             # Clear any initial buffer buildup before starting capture
             try:
                 while sock.recv(4096):
@@ -505,14 +583,14 @@ def main() -> int:
             else:
                 raw_buffer, ok = run_heater_mode_sequence(sock, adapter)
                 seq_name = "heater_mode"
-                
+
             if ok and len(raw_buffer) > 0:
                 timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
                 filename = f"{seq_name}_transitions_{timestamp}.bin"
                 output_dir = ROOT / "tools" / "captures" / seq_name
                 output_dir.mkdir(parents=True, exist_ok=True)
                 output_path = output_dir / filename
-                
+
                 try:
                     with open(output_path, "wb") as f:
                         f.write(raw_buffer)
@@ -524,8 +602,9 @@ def main() -> int:
                 print("\nNo capture file written (sequence incomplete or aborted).")
         else:
             print("Invalid option.")
-            
+
     return 0
+
 
 if __name__ == "__main__":
     sys.exit(main())

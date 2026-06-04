@@ -1,4 +1,5 @@
 """Pytest coverage for the analysis tool frame parser."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -188,4 +189,3 @@ def test_frame_delimiters_and_stream_mix() -> None:
     assert frames[0][0] == FRAME_START
     assert frames[0][-1] == FRAME_END
     assert len([f for f in frames if is_broadcast(f)]) == 1
-

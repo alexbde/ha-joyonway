@@ -13,7 +13,9 @@ from collections import defaultdict
 from pathlib import Path
 
 # Add custom_components to path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "custom_components" / "joyonway"))
+sys.path.insert(
+    0, str(Path(__file__).resolve().parent.parent / "custom_components" / "joyonway")
+)
 from protocol import find_frames, unescape_frame, is_broadcast
 
 # Load environment variables from .env
@@ -30,24 +32,66 @@ PORT_RAW = os.environ.get("SPA_BRIDGE_PORT", "8899")
 
 # Exactly matches the mapped indexes in p25b85.py
 _MAPPED_INDEXES = {
-    0, 1, 2, 3, 4, 5, 6, 7, 8,  # signature
-    9,                          # water temp
-    12, 13, 14, 16, 17, 28,     # pump, ozone, heater, setpoint, light, activity
-    19, 20, 21, 22, 23, 24, 25, 26,  # heat schedule
-    29, 30, 31, 32, 33, 34, 35, 36,  # filter schedule
-    53, 54, 55, 56, 57, 58,     # datetime
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,  # signature
+    9,  # water temp
+    12,
+    13,
+    14,
+    16,
+    17,
+    28,  # pump, ozone, heater, setpoint, light, activity
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,  # heat schedule
+    29,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36,  # filter schedule
+    53,
+    54,
+    55,
+    56,
+    57,
+    58,  # datetime
 }
+
+_TRAILER_LEN = 5  # CRC32 (4) + frame end delimiter (1)
 
 
 async def main():
-    parser = argparse.ArgumentParser(description="Analyze unmapped broadcast frame bytes.")
+    parser = argparse.ArgumentParser(
+        description="Analyze unmapped broadcast frame bytes."
+    )
     parser.add_argument("--host", default=HOST, help="IP address of the EW11 bridge")
-    parser.add_argument("--port", type=int, default=int(PORT_RAW) if PORT_RAW else 8899, help="TCP port")
-    parser.add_argument("--count", type=int, default=10, help="Number of frames to capture for analysis")
+    parser.add_argument(
+        "--port", type=int, default=int(PORT_RAW) if PORT_RAW else 8899, help="TCP port"
+    )
+    parser.add_argument(
+        "--count", type=int, default=10, help="Number of frames to capture for analysis"
+    )
     args = parser.parse_args()
 
     if not args.host:
-        print("ERROR: IP address of EW11 bridge not specified. Use --host or set SPA_BRIDGE_HOST in .env")
+        print(
+            "ERROR: IP address of EW11 bridge not specified. Use --host or set SPA_BRIDGE_HOST in .env"
+        )
         sys.exit(1)
 
     print(f"Connecting to EW11 bridge at {args.host}:{args.port}...")
@@ -74,12 +118,14 @@ async def main():
                     continue
 
                 captured_frames.append(unescaped)
-                print(f"  Captured frame {len(captured_frames)}/{args.count} (len={len(unescaped)})")
+                print(
+                    f"  Captured frame {len(captured_frames)}/{args.count} (len={len(unescaped)})"
+                )
                 if len(captured_frames) >= args.count:
                     break
 
             if frames:
-                last_end = buffer.rfind(b'\x1d') + 1
+                last_end = buffer.rfind(b"\x1d") + 1
                 buffer = buffer[last_end:]
     except asyncio.TimeoutError:
         print("WARNING: Capture timed out waiting for frames.")
@@ -98,7 +144,6 @@ async def main():
     # Track seen values for each unmapped index
     unmapped_values = defaultdict(set)
     first_frame = captured_frames[0]
-    _TRAILER_LEN = 5
     payload_end = max(0, len(first_frame) - _TRAILER_LEN)
     unmapped_indices = [i for i in range(payload_end) if i not in _MAPPED_INDEXES]
 
@@ -108,7 +153,9 @@ async def main():
                 unmapped_values[idx].add(frame[idx])
 
     # Print summary table
-    print(f"{'Index':<7} | {'State':<10} | {'Seen Hex Values':<30} | {'Semantic Context (Guess)':<30}")
+    print(
+        f"{'Index':<7} | {'State':<10} | {'Seen Hex Values':<30} | {'Semantic Context (Guess)':<30}"
+    )
     print("-" * 85)
 
     for idx in sorted(unmapped_indices):
@@ -141,7 +188,9 @@ async def main():
             digest_input.extend((i & 0xFF, frame[i]))
 
         md5_hash = hashlib.md5(bytes(digest_input)).hexdigest()[:8]
-        print(f"Frame {index+1:2d} | Length: {len(frame):3d} | Unmapped Hash: {md5_hash}")
+        print(
+            f"Frame {index + 1:2d} | Length: {len(frame):3d} | Unmapped Hash: {md5_hash}"
+        )
 
     print("\nAnalysis complete.")
 

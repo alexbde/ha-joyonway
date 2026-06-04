@@ -37,41 +37,53 @@ to the content between delimiters.
 
 ### 2. CRC-32
 
-All command frames carry a 4-byte CRC. Verified against 44 unique
-frames across multiple capture sessions (21 session-1 + 23 phase-6).
+All command and broadcast frames carry a 4-byte CRC-32. Used for both
+outbound command construction (16-byte payloads) and inbound broadcast
+frame validation (variable-length payloads). Verified against 44 unique
+command frames across multiple capture sessions (21 session-1 + 23
+phase-6), plus inbound broadcast frames.
 
 | Parameter | Value |
 |-----------|-------|
 | Polynomial | `0x04C11DB7` (standard CRC-32 / Ethernet) |
-| Init | `0x00000000` |
-| XorOut | `0x552D22C8` |
-| Reflected | No (MSB-first) |
-| Message input | Unescaped bytes 0–15 (16-byte payload) |
+| Init | `0xFFFFFFFF` |
+| XorOut | none (`0x00000000`) |
+| Reflected | No (MSB-first, lookup table driven) |
+| Message input | Unescaped payload bytes (any length; padded to 4-byte boundary) |
 | Preprocessing | Each 32-bit word byte-reversed before CRC |
-| CRC position | Bytes 16–19 of unescaped inner frame |
+| CRC position | Last 4 bytes of unescaped inner frame |
 | CRC byte order | Little-endian |
 
 **Algorithm (pseudocode):**
 
 ```
-function compute_crc(payload[0..15]):
+function compute_crc(payload[0..N-1]):
     swapped = word32_swap(payload)   # reverse bytes within each 4-byte group
-    crc = 0x00000000
+                                     # (short trailing chunk zero-padded to 4)
+    crc = 0xFFFFFFFF
     for each byte b in swapped:
-        crc = crc XOR (b << 24)
-        repeat 8 times:
-            if crc bit 31 is set:
-                crc = (crc << 1) XOR 0x04C11DB7
-            else:
-                crc = crc << 1
-            crc = crc AND 0xFFFFFFFF
-    return crc XOR 0x552D22C8
+        crc = (crc << 8) XOR TABLE[((crc >> 24) XOR b) AND 0xFF]
+        crc = crc AND 0xFFFFFFFF
+    return crc
 ```
+
+> **Historical note:** The original CRC derivation (§8) used an equivalent
+> parameterization for 16-byte payloads: `init=0x00000000`, `xor_out=0x552D22C8`.
+> These two parameterizations produce identical results for the same input
+> because the constant-header contribution is absorbed differently. The
+> `init=0xFFFFFFFF` form was adopted when generalizing to variable-length
+> broadcast payloads, where the original XOR-out constant (derived from the
+> fixed 16-byte command header pattern) does not apply.
 
 **Word swap** is due to the PB554's ARM Cortex-M MCU feeding a hardware
 CRC peripheral in little-endian word order.
 
-**Wire frame construction:**
+**Inbound validation:** Broadcast frames (60+ bytes) are validated by
+computing CRC over all unescaped bytes except the last 4 (which are the
+CRC itself) and comparing against the received CRC. Frames failing CRC
+are silently discarded.
+
+**Wire frame construction (outbound):**
 
 ```
 inner = payload[16 bytes] + crc[4 bytes LE]
@@ -550,20 +562,41 @@ model is trustworthy, without repeating the full brute-force notebook history.
   byte-swap**. Before accounting for this transform, GCD/constraint attempts
   failed because byte-position assumptions were wrong.
 
-**Why `xor_out = 0x552D22C8` is expected**
+**Original derivation parameterization (16-byte commands only)**
 
-- This is not an anomaly; it is an equivalent CRC parameterization for this
-  message shape.
-- Because command headers are mostly constant, their contribution is absorbed
-  into an effective output constant, represented here explicitly as `xor_out`
-  to keep generation deterministic and reproducible.
+The initial CRC crack used this parameterization, optimized for the fixed
+16-byte command payload structure:
+
+- Init: `0x00000000`
+- XorOut: `0x552D22C8`
+- Input: exactly 16 bytes (command payload only)
+
+The `xor_out = 0x552D22C8` is not an anomaly; it is an equivalent CRC
+parameterization for this message shape. Because command headers are mostly
+constant, their contribution is absorbed into an effective output constant,
+represented here explicitly as `xor_out` to keep generation deterministic
+and reproducible.
+
+**Generalized parameterization (current, used for both commands and broadcasts)**
+
+When inbound broadcast CRC validation was added, the algorithm was
+re-parameterized to handle variable-length payloads:
+
+- Init: `0xFFFFFFFF`
+- XorOut: none (`0x00000000`)
+- Input: any length (zero-padded to 4-byte boundary for word swap)
+
+These two parameterizations are **mathematically equivalent** for 16-byte
+inputs — verified by direct comparison and all 44 original command frames.
+The generalized form is used in the codebase for both outbound frame
+construction and inbound broadcast validation.
 
 **Final canonical model (used in this repo)**
 
 - Polynomial: `0x04C11DB7` (non-reflected, MSB-first)
-- Init: `0x00000000`
-- Preprocessing: word32 byte-swap on payload bytes `0..15`
-- CRC storage: little-endian at bytes `16..19`
+- Init: `0xFFFFFFFF`
+- Preprocessing: word32 byte-swap on payload bytes (short chunks zero-padded)
+- CRC storage: little-endian, last 4 bytes of unescaped inner frame
 - Verification: full match on all 21 unique same-session frames
 - Phase 6 verification: 23 additional unique frames, 100% match
-
+- Broadcast verification: inbound broadcast frames validated on every receive

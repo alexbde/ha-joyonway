@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+from homeassistant.const import Platform
+
 DOMAIN: str = "joyonway"
 
 # Configuration keys
-CONF_HOST: str = "host"
-CONF_PORT: str = "port"
 CONF_MODEL: str = "model"
 
 # Options keys
@@ -43,4 +43,11 @@ CLOCK_SYNC_DRIFT_THRESHOLD: int = 30  # seconds
 CLOCK_SYNC_COOLDOWN: int = 3600  # seconds between auto syncs
 
 # Loaded platforms
-PLATFORMS: list[str] = ["sensor", "binary_sensor", "switch", "fan", "climate", "time"]
+PLATFORMS: list[Platform] = [
+    Platform.SENSOR,
+    Platform.BINARY_SENSOR,
+    Platform.SWITCH,
+    Platform.FAN,
+    Platform.CLIMATE,
+    Platform.TIME,
+]

@@ -8,6 +8,7 @@ mode for comparing two captures.
 
 Python stdlib only — no pip dependencies required.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -28,20 +29,28 @@ ESCAPE_BYTE = 0x1B
 
 # Pseudo-escape table: escaped pair suffix → original byte
 ESCAPE_MAP: dict[int, int] = {
-    0x11: 0x1A, 0x0B: 0x1B, 0x13: 0x1C, 0x14: 0x1D, 0x15: 0x1E,
+    0x11: 0x1A,
+    0x0B: 0x1B,
+    0x13: 0x1C,
+    0x14: 0x1D,
+    0x15: 0x1E,
 }
 
 MODEL_SIGNATURES: dict[int, str] = {0x03: "P25B85", 0x02: "P23B32"}
 
 HEATER_STATES = {
-    0x40: "cooldown", 0x41: "UV/ozone", 0x50: "circulation",
-    0x54: "heating", 0x55: "heating",
+    0x40: "cooldown",
+    0x41: "UV/ozone",
+    0x50: "circulation",
+    0x54: "heating",
+    0x55: "heating",
     0xC1: "UV/ozone",  # KDy variant (bit 7 differs from 0x41)
 }
 
 # ──────────────────────────────────────────────────────────────
 # Core protocol functions
 # ──────────────────────────────────────────────────────────────
+
 
 def find_frames(stream: bytes) -> list[bytes]:
     """Extract frames delimited by 0x1A ... 0x1D from a raw byte stream."""
@@ -135,8 +144,10 @@ def check_escape_positions(raw_frame: bytes) -> list[tuple[int, int, int]]:
 # Byte map annotations
 # ──────────────────────────────────────────────────────────────
 
+
 def annotate_p25b85(frame: bytes) -> list[dict]:
     annotations = []
+
     def add(idx, name, value_fn=None):
         if idx < len(frame):
             v = frame[idx]
@@ -144,13 +155,32 @@ def annotate_p25b85(frame: bytes) -> list[dict]:
             if value_fn:
                 e["decoded"] = value_fn(v)
             annotations.append(e)
+
     add(8, "model_id", lambda v: MODEL_SIGNATURES.get(v, f"unknown(0x{v:02X})"))
     add(9, "water_temp_F", lambda v: f"{v}°F = {fahrenheit_to_celsius(v)}°C")
-    add(12, "pump_byte", lambda v: f"low={'ON' if v & 0x02 else 'off'}, high={'ON' if v & 0x04 else 'off'}")
+    add(
+        12,
+        "pump_byte",
+        lambda v: (
+            f"low={'ON' if v & 0x02 else 'off'}, high={'ON' if v & 0x04 else 'off'}"
+        ),
+    )
     add(14, "heater_state", lambda v: HEATER_STATES.get(v, f"unknown(0x{v:02X})"))
     add(16, "setpoint_F", lambda v: f"{v}°F = {fahrenheit_to_celsius(v)}°C")
-    add(17, "light_flags", lambda v: f"light={'ON' if v & 0x01 else 'OFF'}, flag_0x80={'SET' if v & 0x80 else 'clear'}")
-    add(27, "pump_mirror", lambda v: f"low={'ON' if v & 0x02 else 'off'}, high={'ON' if v & 0x04 else 'off'}")
+    add(
+        17,
+        "light_flags",
+        lambda v: (
+            f"light={'ON' if v & 0x01 else 'OFF'}, flag_0x80={'SET' if v & 0x80 else 'clear'}"
+        ),
+    )
+    add(
+        27,
+        "pump_mirror",
+        lambda v: (
+            f"low={'ON' if v & 0x02 else 'off'}, high={'ON' if v & 0x04 else 'off'}"
+        ),
+    )
     add(28, "activity_flag", lambda v: f"heating_or_uv={'SET' if v & 0x20 else 'off'}")
     if len(frame) > 58:
         dt = frame[53:59]
@@ -158,13 +188,20 @@ def annotate_p25b85(frame: bytes) -> list[dict]:
             dt_str = f"20{dt[0]:02d}-{dt[1]:02d}-{dt[2]:02d} {dt[3]:02d}:{dt[4]:02d}:{dt[5]:02d}"
         except (IndexError, ValueError):
             dt_str = "parse error"
-        annotations.append({"byte": "53-58", "name": "datetime",
-                            "raw": " ".join(f"0x{b:02X}" for b in dt), "decoded": dt_str})
+        annotations.append(
+            {
+                "byte": "53-58",
+                "name": "datetime",
+                "raw": " ".join(f"0x{b:02X}" for b in dt),
+                "decoded": dt_str,
+            }
+        )
     return annotations
 
 
 def annotate_p23b32(frame: bytes) -> list[dict]:
     annotations = []
+
     def add(idx, name, value_fn=None):
         if idx < len(frame):
             v = frame[idx]
@@ -172,12 +209,31 @@ def annotate_p23b32(frame: bytes) -> list[dict]:
             if value_fn:
                 e["decoded"] = value_fn(v)
             annotations.append(e)
+
     add(8, "model_id", lambda v: MODEL_SIGNATURES.get(v, f"unknown(0x{v:02X})"))
     add(9, "water_temp_F", lambda v: f"{v}°F = {fahrenheit_to_celsius(v)}°C")
-    add(12, "pump_byte1", lambda v: f"left_jets={'ON' if v & 0x04 else 'off'}, right_jets={'ON' if v & 0x10 else 'off'}")
-    add(14, "pump_byte2", lambda v: f"filtration={'ON' if v & 0x01 else 'off'}, blower={'ON' if v & 0x08 else 'off'}, heater={'ON' if v & 0x10 else 'off'}")
+    add(
+        12,
+        "pump_byte1",
+        lambda v: (
+            f"left_jets={'ON' if v & 0x04 else 'off'}, right_jets={'ON' if v & 0x10 else 'off'}"
+        ),
+    )
+    add(
+        14,
+        "pump_byte2",
+        lambda v: (
+            f"filtration={'ON' if v & 0x01 else 'off'}, blower={'ON' if v & 0x08 else 'off'}, heater={'ON' if v & 0x10 else 'off'}"
+        ),
+    )
     add(16, "setpoint_F", lambda v: f"{v}°F = {fahrenheit_to_celsius(v)}°C")
-    add(17, "light_byte", lambda v: f"light={'ON' if v & 0x01 else 'off'}, filtration_flag={'SET' if v & 0x80 else 'clear'}")
+    add(
+        17,
+        "light_byte",
+        lambda v: (
+            f"light={'ON' if v & 0x01 else 'off'}, filtration_flag={'SET' if v & 0x80 else 'clear'}"
+        ),
+    )
     return annotations
 
 
@@ -193,6 +249,7 @@ def annotate_frame(frame: bytes, model: str | None) -> list[dict]:
 # Display
 # ──────────────────────────────────────────────────────────────
 
+
 def hex_dump(data: bytes, per_line: int = 16) -> str:
     lines = []
     for off in range(0, len(data), per_line):
@@ -205,8 +262,10 @@ def hex_dump(data: bytes, per_line: int = 16) -> str:
 # Parse mode
 # ──────────────────────────────────────────────────────────────
 
-def parse_file(filepath: str, model_arg: str, unescape_arg: str,
-               max_frames: int | None) -> dict[str, Any]:
+
+def parse_file(
+    filepath: str, model_arg: str, unescape_arg: str, max_frames: int | None
+) -> dict[str, Any]:
     with open(filepath, "rb") as f:
         data = f.read()
     raw_frames = find_frames(data)
@@ -232,13 +291,23 @@ def parse_file(filepath: str, model_arg: str, unescape_arg: str,
         escapes = check_escape_positions(raw_frame)
         logical = unescape_frame(raw_frame, policy)
         fi: dict[str, Any] = {
-            "index": idx, "model": model, "unescape_policy": policy,
-            "raw_length": len(raw_frame), "logical_length": len(logical),
-            "escape_count": len(escapes), "raw_hex": raw_frame.hex(" "),
+            "index": idx,
+            "model": model,
+            "unescape_policy": policy,
+            "raw_length": len(raw_frame),
+            "logical_length": len(logical),
+            "escape_count": len(escapes),
+            "raw_hex": raw_frame.hex(" "),
         }
         if escapes:
-            fi["escapes"] = [{"raw_index": p, "sequence": f"0x1B 0x{s:02X}",
-                              "original": f"0x{o:02X}"} for p, s, o in escapes]
+            fi["escapes"] = [
+                {
+                    "raw_index": p,
+                    "sequence": f"0x1B 0x{s:02X}",
+                    "original": f"0x{o:02X}",
+                }
+                for p, s, o in escapes
+            ]
             fi["logical_hex"] = logical.hex(" ")
         fi["annotations"] = annotate_frame(logical, model)
         result["frames"].append(fi)
@@ -248,24 +317,30 @@ def parse_file(filepath: str, model_arg: str, unescape_arg: str,
 def print_parse_result(result: dict):
     print(f"\n{'═' * 70}")
     print(f"  File: {result['file']}")
-    print(f"  Total: {result['total_bytes']} bytes, {result['total_frames']} frames "
-          f"({result['broadcast_frames']} broadcast, {result['non_broadcast_frames']} other)")
+    print(
+        f"  Total: {result['total_bytes']} bytes, {result['total_frames']} frames "
+        f"({result['broadcast_frames']} broadcast, {result['non_broadcast_frames']} other)"
+    )
     print(f"{'═' * 70}")
     for fi in result["frames"]:
-        model_str = fi['model'] or 'unknown'
-        print(f"\n── Broadcast #{fi['index']} (model: {model_str}, unescape: {fi['unescape_policy']}) ──")
+        model_str = fi["model"] or "unknown"
+        print(
+            f"\n── Broadcast #{fi['index']} (model: {model_str}, unescape: {fi['unescape_policy']}) ──"
+        )
         print(f"  Raw: {fi['raw_length']} bytes, Logical: {fi['logical_length']} bytes")
         if fi.get("escapes"):
             print(f"  Escape sequences ({fi['escape_count']}):")
             for esc in fi["escapes"]:
-                print(f"    raw[{esc['raw_index']}]: {esc['sequence']} → {esc['original']}")
-            print(f"\n  Logical hex (after unescape):")
+                print(
+                    f"    raw[{esc['raw_index']}]: {esc['sequence']} → {esc['original']}"
+                )
+            print("\n  Logical hex (after unescape):")
             print(hex_dump(bytes.fromhex(fi["logical_hex"].replace(" ", ""))))
         else:
-            print(f"\n  Hex:")
+            print("\n  Hex:")
             print(hex_dump(bytes.fromhex(fi["raw_hex"].replace(" ", ""))))
         if fi.get("annotations"):
-            print(f"\n  Decoded fields:")
+            print("\n  Decoded fields:")
             for a in fi["annotations"]:
                 dec = f" → {a['decoded']}" if "decoded" in a else ""
                 print(f"    byte[{a['byte']}] {a['name']}: {a['raw']}{dec}")
@@ -275,6 +350,7 @@ def print_parse_result(result: dict):
 # Diff mode
 # ──────────────────────────────────────────────────────────────
 
+
 def diff_files(file_a: str, file_b: str, model_arg: str, unescape_arg: str) -> dict:
     def load(fp):
         with open(fp, "rb") as f:
@@ -283,9 +359,17 @@ def diff_files(file_a: str, file_b: str, model_arg: str, unescape_arg: str) -> d
         for raw in find_frames(data):
             if not is_broadcast(raw):
                 continue
-            m = detect_model(raw) if model_arg == "auto" else (
-                "P25B85" if model_arg == "p25b85" else
-                "P23B32" if model_arg == "p23b32" else None)
+            m = (
+                detect_model(raw)
+                if model_arg == "auto"
+                else (
+                    "P25B85"
+                    if model_arg == "p25b85"
+                    else "P23B32"
+                    if model_arg == "p23b32"
+                    else None
+                )
+            )
             p = unescape_arg if unescape_arg != "auto" else get_unescape_policy(m)
             result.append((unescape_frame(raw, p), m))
         return result
@@ -303,20 +387,27 @@ def diff_files(file_a: str, file_b: str, model_arg: str, unescape_arg: str) -> d
             if bi < len(f):
                 vb[f[bi]] = vb.get(f[bi], 0) + 1
         if va != vb:
-            diffs.append({
-                "byte": bi,
-                "file_a": {f"0x{k:02X}": v for k, v in sorted(va.items())},
-                "file_b": {f"0x{k:02X}": v for k, v in sorted(vb.items())},
-            })
+            diffs.append(
+                {
+                    "byte": bi,
+                    "file_a": {f"0x{k:02X}": v for k, v in sorted(va.items())},
+                    "file_b": {f"0x{k:02X}": v for k, v in sorted(vb.items())},
+                }
+            )
     model = fa[0][1] if fa else (fb[0][1] if fb else None)
-    return {"file_a": file_a, "file_b": file_b,
-            "broadcasts_a": len(fa), "broadcasts_b": len(fb),
-            "model": model, "differing_positions": diffs}
+    return {
+        "file_a": file_a,
+        "file_b": file_b,
+        "broadcasts_a": len(fa),
+        "broadcasts_b": len(fb),
+        "model": model,
+        "differing_positions": diffs,
+    }
 
 
 def print_diff_result(r: dict):
     print(f"\n{'═' * 70}")
-    print(f"  DIFF: Broadcast frame byte comparison")
+    print("  DIFF: Broadcast frame byte comparison")
     print(f"  File A: {r['file_a']} ({r['broadcasts_a']} broadcasts)")
     print(f"  File B: {r['file_b']} ({r['broadcasts_b']} broadcasts)")
     print(f"  Model:  {r['model'] or 'unknown'}")
@@ -325,10 +416,29 @@ def print_diff_result(r: dict):
     if not diffs:
         print("\n  ✅ No differences found.")
         return
-    p25_labels = {9: "water_temp", 12: "pump", 14: "heater",
-                   16: "setpoint", 17: "light", 27: "pump_mirror", 28: "activity"}
-    p23_labels = {9: "water_temp", 12: "pump1", 14: "pump2", 16: "setpoint", 17: "light"}
-    labels = p25_labels if r["model"] == "P25B85" else p23_labels if r["model"] == "P23B32" else {}
+    p25_labels = {
+        9: "water_temp",
+        12: "pump",
+        14: "heater",
+        16: "setpoint",
+        17: "light",
+        27: "pump_mirror",
+        28: "activity",
+    }
+    p23_labels = {
+        9: "water_temp",
+        12: "pump1",
+        14: "pump2",
+        16: "setpoint",
+        17: "light",
+    }
+    labels = (
+        p25_labels
+        if r["model"] == "P25B85"
+        else p23_labels
+        if r["model"] == "P23B32"
+        else {}
+    )
     print(f"\n  {len(diffs)} byte position(s) differ:\n")
     print(f"  {'Byte':>6}  {'File A values':30}  {'File B values':30}")
     print(f"  {'─' * 6}  {'─' * 30}  {'─' * 30}")
@@ -343,20 +453,41 @@ def print_diff_result(r: dict):
 # CSV output
 # ──────────────────────────────────────────────────────────────
 
+
 def write_csv(result: dict, output=sys.stdout):
     w = csv.writer(output)
-    w.writerow(["frame_index", "model", "raw_length", "logical_length",
-                "byte_index", "field_name", "raw_value", "decoded"])
+    w.writerow(
+        [
+            "frame_index",
+            "model",
+            "raw_length",
+            "logical_length",
+            "byte_index",
+            "field_name",
+            "raw_value",
+            "decoded",
+        ]
+    )
     for fi in result.get("frames", []):
         for a in fi.get("annotations", []):
-            w.writerow([fi["index"], fi.get("model", ""), fi["raw_length"],
-                        fi["logical_length"], a["byte"], a["name"],
-                        a["raw"], a.get("decoded", "")])
+            w.writerow(
+                [
+                    fi["index"],
+                    fi.get("model", ""),
+                    fi["raw_length"],
+                    fi["logical_length"],
+                    a["byte"],
+                    a["name"],
+                    a["raw"],
+                    a.get("decoded", ""),
+                ]
+            )
 
 
 # ──────────────────────────────────────────────────────────────
 # Main
 # ──────────────────────────────────────────────────────────────
+
 
 def parse_args():
     p = argparse.ArgumentParser(
@@ -369,10 +500,13 @@ Examples:
   %(prog)s --diff before.bin after.bin          # Compare two captures
   %(prog)s --json capture.bin                   # JSON output
   %(prog)s --csv capture.bin                    # CSV output
-""")
+""",
+    )
     p.add_argument("files", nargs="+", metavar="FILE")
     p.add_argument("--model", choices=["p25b85", "p23b32", "auto"], default="auto")
-    p.add_argument("--unescape", choices=["full", "tail", "none", "auto"], default="auto")
+    p.add_argument(
+        "--unescape", choices=["full", "tail", "none", "auto"], default="auto"
+    )
     p.add_argument("--diff", action="store_true")
     p.add_argument("--json", action="store_true")
     p.add_argument("--csv", action="store_true", dest="csv_output")
@@ -406,4 +540,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
