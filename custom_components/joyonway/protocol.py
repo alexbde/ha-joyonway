@@ -28,6 +28,7 @@ ESCAPE_MAP_REV: dict[int, int] = {v: k for k, v in ESCAPE_MAP.items()}
 
 # CRC-32 parameters (cracked from same-session capture analysis)
 _CRC_POLY = 0x04C11DB7
+_CRC_INIT = 0xFFFFFFFF
 
 # Pre-computed CRC-32 lookup table (non-reflected, MSB-first)
 _CRC_TABLE: list[int] = []
@@ -168,7 +169,7 @@ def compute_crc(payload: bytes) -> int:
     non-reflected, with 32-bit word byte-swap preprocessing and init=0xFFFFFFFF.
     """
     msg = _word32_swap(payload)
-    crc = 0xFFFFFFFF
+    crc = _CRC_INIT
     for byte in msg:
         crc = ((crc << 8) & 0xFFFFFFFF) ^ _CRC_TABLE[((crc >> 24) ^ byte) & 0xFF]
     return crc
