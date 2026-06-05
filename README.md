@@ -47,38 +47,25 @@ Below is one concrete, fully tested hardware configuration that is confirmed to 
 
 ## Features
 
-- **Water temperature** monitoring (°C)
+- **Current temperature** monitoring (°C)
 - **Setpoint temperature** monitoring (°C)
 - **Thermostat control** (10°C to 40°C) with fast debounced slider writes, supporting HVAC modes (`HEAT`/`OFF`) to enable/disable the heater directly
 - **Jets control** (0% / 50% / 100%) via speed percentage controls
 - **Manual ozone** switch (CONFIG category) to toggle between Auto and Manual ozone mode, unlocking the **Ozone** ON/OFF switch
-- **Manual heating** switch (CONFIG category) to toggle between Auto and Manual heating mode, unlocking the **Heater** ON/OFF switch
+- **Manual heating** switch (CONFIG category) to toggle between Auto and Manual heating mode, unlocking the **Heating** ON/OFF switch
 - **Light** on/off via toggle command
 - **Blower (air bubbler, optional hardware)** on/off
-- **Heat schedule** — 2 time slots with start/end times and enable/disable
-- **Filter schedule** — 2 time slots with start/end times and enable/disable
+- **Heat schedule** — 2 time slots with begin/end times and enable/disable
+- **Filter schedule** — 2 time slots with begin/end times and enable/disable
 - **Auto-sync clock** switch (CONFIG category) to automatically align the spa's internal clock when drift exceeds 30 seconds
 - **Status sensor** — off / standby / circulation / heating / ozone (with dynamic icons)
 - **Jets sensor** — off / low / high
 - **Persistent TCP connection** — real-time state updates (~1–2 s), automatic reconnect with exponential backoff
 - **Optimistic UI** — writable entities show immediate feedback; snap back if the spa reports a different state
-- All commands built dynamically via cracked CRC-32 (no static replay tables)
+- **Math-correct CRC-32 generation** — all commands are built dynamically using a reverse-engineered CRC-32 algorithm (standard polynomial `0x04C11DB7` with 32-bit word-swap, detailed in [protocol.md](docs/protocol.md)), preventing potential invalid CRC hazards
+- **Bus-safe pacing & serialization** — write commands are paced relative to the RS485 sync frame to avoid bus collisions, managed via a serialized and coalesced intent queue
 - Fully local, no cloud, no internet
 - English, French, and German UI translations
-
-## Safety Philosophy
-
-The verified Joyonway controllers use a 4-byte CRC-32 on all command frames. The CRC algorithm has been fully reverse-engineered (standard CRC-32 polynomial `0x04C11DB7` with word-swap preprocessing) and verified against physical captures.
-
-- ✅ CRC algorithm implemented and verified — all commands built dynamically
-- ✅ Every command uses computed CRC (no replay-only frames)
-- ✅ All commands validated against observed state changes from physical captures
-- ✅ Write pacing aligns commands with the RS485 sync frame for collision-free bus access
-- ✅ Intent queue serializes and coalesces rapid user actions (no bus contention)
-- ✅ Schedule writes require complete broadcast data and fail explicitly if prerequisites are missing
-- ✅ State reversions are never silent — warnings logged if spa doesn't confirm
-
-> **Note:** Early reverse-engineering reports indicated that sending a frame with an invalid CRC could activate the heater unexpectedly on certain setups. This integration calculates the math-correct CRC-32 dynamically for all commands, completely avoiding this hazard.
 
 ## Installation
 
