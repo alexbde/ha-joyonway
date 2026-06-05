@@ -11,7 +11,7 @@ class SpaEntityDescription:
     """Describes an entity exposed by a model adapter."""
 
     platform: str  # "sensor" or "binary_sensor"
-    key: str  # e.g. "water_temperature"
+    key: str  # e.g. "current_temperature"
     name: str  # user-facing name
     icon: str | None = None
     icon_map: dict[str, str] | None = None  # state → icon for dynamic icons

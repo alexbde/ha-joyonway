@@ -40,7 +40,7 @@ from .base import SpaEntityDescription
 P25B85_SIGNATURE = bytes([0x1A, 0xFF, 0x01, 0x3C, 0xD2, 0xB4, 0xFF, 0x08, 0x03])
 
 # Byte positions in the logical (unescaped) broadcast frame (0-based)
-IDX_WATER_TEMP = 9  # Fahrenheit
+IDX_CURRENT_TEMP = 9  # Fahrenheit
 IDX_PUMP_BYTE = 12  # ✅ confirmed: 0x02=low, 0x04=high (KDy "byte 13")
 IDX_OZONE_MODE = 13  # ✅ bit 7: 0=Auto, 1=Manual (confirmed from phase 6 captures)
 IDX_HEATER_STATE = 14  # ✅ confirmed (KDy "byte 15")
@@ -253,7 +253,7 @@ class P25B85Adapter:
         if frame[: len(self.broadcast_signature)] != self.broadcast_signature:
             return None
 
-        water_temp_f = frame[IDX_WATER_TEMP]
+        current_temp_f = frame[IDX_CURRENT_TEMP]
         setpoint_f = frame[IDX_SETPOINT]
         pump_byte = frame[IDX_PUMP_BYTE]
         ozone_mode_byte = frame[IDX_OZONE_MODE]
@@ -287,7 +287,7 @@ class P25B85Adapter:
         heater_mode_manual = bool(ozone_mode_byte & MASK_HEATER_MODE_MANUAL)
 
         result: dict = {
-            "water_temperature": _fahrenheit_to_celsius(water_temp_f),
+            "current_temperature": _fahrenheit_to_celsius(current_temp_f),
             "setpoint": _fahrenheit_to_celsius(setpoint_f),
             "pump_low": bool(pump_byte & MASK_PUMP_LOW),
             "pump_high": bool(pump_byte & MASK_PUMP_HIGH),
@@ -731,8 +731,8 @@ _P25B85_ENTITIES: list[SpaEntityDescription] = [
     # Sensors
     SpaEntityDescription(
         platform="sensor",
-        key="water_temperature",
-        name="Water temperature",
+        key="current_temperature",
+        name="Current temperature",
         icon="mdi:thermometer-water",
         device_class="temperature",
         state_class="measurement",

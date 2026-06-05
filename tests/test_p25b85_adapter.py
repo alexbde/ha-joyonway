@@ -107,7 +107,7 @@ def test_adapter_properties(adapter: P25B85Adapter, logical_frame: bytes) -> Non
 def test_parse_status_core_fields(adapter: P25B85Adapter, logical_frame: bytes) -> None:
     result = adapter.parse_status(logical_frame)
     assert isinstance(result, dict)
-    assert result["water_temperature"] == 34
+    assert result["current_temperature"] == 34
     assert result["setpoint"] == 40
     assert result["status"] == "off"
     assert result["heater_active"] is False
@@ -199,7 +199,7 @@ def test_entity_descriptions(adapter: P25B85Adapter) -> None:
     descs = adapter.entity_descriptions()
     assert descs
     assert {d.platform for d in descs} >= {"sensor"}
-    assert "water_temperature" in {d.key for d in descs}
+    assert "current_temperature" in {d.key for d in descs}
     assert "status" in {d.key for d in descs}
     assert "jets" in {d.key for d in descs}
 
