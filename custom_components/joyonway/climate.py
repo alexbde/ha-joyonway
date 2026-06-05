@@ -37,6 +37,19 @@ _LOGGER = logging.getLogger(__name__)
 TEMP_DEBOUNCE_SECONDS = 0.5
 
 
+class ManualHeatingDisabled(HomeAssistantError):
+    """Exception raised when setting HVAC mode without manual heating enabled."""
+
+    def __init__(self) -> None:
+        """Initialize the exception."""
+        super().__init__(
+            "Cannot change HVAC mode while Manual heating is disabled. "
+            "Enable the 'Manual heating' switch in the configuration section first.",
+            translation_domain="joyonway",
+            translation_key="manual_heating_disabled",
+        )
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: JoyonwayConfigEntry,
@@ -147,7 +160,7 @@ class SpaClimate(JoyonwayCoordinatorEntity, ClimateEntity):
         """Return the current water temperature."""
         if self.coordinator.data is None:
             return None
-        return self.coordinator.data.get("water_temperature")
+        return self.coordinator.data.get("current_temperature")
 
     @property
     def target_temperature(self) -> float | None:
@@ -209,6 +222,9 @@ class SpaClimate(JoyonwayCoordinatorEntity, ClimateEntity):
         """Set HVAC mode by enabling/disabling the heater."""
         if hvac_mode not in self._attr_hvac_modes:
             raise HomeAssistantError(f"Unsupported HVAC mode: {hvac_mode}")
+
+        if self.coordinator.heater_mode != "manual":
+            raise ManualHeatingDisabled()
 
         if hvac_mode == HVACMode.HEAT:
             self._submit_heater_intent(on=True)

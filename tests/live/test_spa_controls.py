@@ -192,7 +192,7 @@ class DryRunStreamWriter:
 class DryRunSimulator:
     def __init__(self):
         self.active = True
-        self.water_temp = 36
+        self.current_temp = 36
         self.setpoint = 37
         self.light = False
         self.blower = False
@@ -234,7 +234,7 @@ class DryRunSimulator:
         payload = bytearray([0xFF, 0x01, 0x3C, 0xD2, 0xB4, 0xFF, 0x08, 0x03])
 
         # Byte 9 (index 8): Water temp (Fahrenheit)
-        payload.append(_celsius_to_fahrenheit(self.water_temp))
+        payload.append(_celsius_to_fahrenheit(self.current_temp))
 
         # Bytes 10-11 (index 9-10): filler
         payload.extend([0, 0])
@@ -261,7 +261,7 @@ class DryRunSimulator:
             else:
                 heater_val = 0x41  # HEATER_OZONE
         elif self.heater:
-            if self.water_temp < self.setpoint:
+            if self.current_temp < self.setpoint:
                 heater_val = 0x55  # HEATER_HEATING
             else:
                 heater_val = 0x50  # HEATER_STANDBY
@@ -280,7 +280,7 @@ class DryRunSimulator:
         light_val = 0
         if self.light:
             light_val |= 0x01
-        if self.heater and self.water_temp < self.setpoint:
+        if self.heater and self.current_temp < self.setpoint:
             light_val |= 0x80
         payload.append(light_val)
 

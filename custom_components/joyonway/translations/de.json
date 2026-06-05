@@ -20,7 +20,7 @@
 
   "entity": {
     "sensor": {
-      "water_temperature": { "name": "Wassertemperatur" },
+      "current_temperature": { "name": "Isttemperatur" },
       "setpoint": { "name": "Solltemperatur" },
       "status": {
         "name": "Status",
@@ -53,6 +53,9 @@
     "binary_sensor": {
       "bridge_connectivity": { "name": "RS485-Bridge" }
     },
+    "fan": {
+      "jets": { "name": "Düsen" }
+    },
     "switch": {
       "light": { "name": "Licht" },
       "heater": { "name": "Heizung" },
@@ -78,6 +81,11 @@
     },
     "climate": {
       "thermostat": { "name": "Thermostat" }
+    }
+  },
+  "exceptions": {
+    "manual_heating_disabled": {
+      "message": "Der HVAC-Modus kann nicht geändert werden, solange das manuelle Heizen deaktiviert ist. Aktivieren Sie zuerst den Schalter 'Heizung manuell' im Konfigurationsbereich des Geräts."
     }
   }
 }

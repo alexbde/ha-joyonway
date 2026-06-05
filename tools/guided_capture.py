@@ -57,7 +57,7 @@ DEFAULT_PORT = int(os.environ.get("SPA_BRIDGE_PORT", "8899"))
 
 def print_status(data: dict) -> None:
     """Print a one-line summary of current status."""
-    water = data.get("water_temperature")
+    water = data.get("current_temperature")
     setp = data.get("setpoint")
     jets = data.get("jets", "unknown")
     status = data.get("status", "unknown")
