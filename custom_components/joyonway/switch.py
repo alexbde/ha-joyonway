@@ -271,7 +271,6 @@ class SpaBlowerSwitch(_SpaTargetStateSwitch):
     _attr_has_entity_name = True
     _attr_translation_key = "blower"
     _attr_icon = "mdi:chart-bubble"
-    _attr_entity_registry_enabled_default = False
 
     def __init__(
         self,
