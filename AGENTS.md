@@ -25,7 +25,7 @@ This file contains instructions, coding conventions, architecture boundaries, an
   class JoyonwayCoordinatorEntity(CoordinatorEntity["JoyonwayP25B85Coordinator"]):
   ```
 - **Branding & Icons**: Keep icons simple and clean. Use standard Material Design Icons (`mdi:` prefix) as described in `ModelAdapter.entity_descriptions()`.
-- **Commit & PR Naming**: All commits and PR titles must follow Conventional Commits format. If a change spans multiple categories, the highest category in the list below must be used as the prefix (the "highest category wins" rule). Standard prefixes sorted from highest to lowest priority:
+- **Commit & PR Naming**: All commits and PR titles must follow Conventional Commits format, utilizing a lowercase prefix followed by a colon, a space, and a description starting with an uppercase verb (e.g., `feat: Add P31B69 model` or `chore: Update dependencies`). If a change spans multiple categories, the highest category in the list below must be used as the prefix (the "highest category wins" rule). Standard prefixes sorted from highest to lowest priority:
   - `feat`: New features or entities.
   - `fix`: Bug fixes.
   - `refactor`: Code restructuring without functional changes.

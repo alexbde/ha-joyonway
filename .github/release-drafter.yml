@@ -1,5 +1,16 @@
 name-template: '$RESOLVED_VERSION'
 tag-template: '$RESOLVED_VERSION'
+change-template: '* $TITLE ([#$NUMBER]($URL))'
+template: |
+  ## What's Changed
+
+  $CHANGELOG
+
+  ## New Contributors
+
+  $CONTRIBUTORS
+
+  **Full Changelog**: [$PREVIOUS_TAG...$RESOLVED_VERSION](https://github.com/alexbde/ha-joyonway/compare/$PREVIOUS_TAG...$RESOLVED_VERSION)
 categories:
   - title: '🚀 Features'
     labels:
