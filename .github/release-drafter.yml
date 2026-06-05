@@ -1,0 +1,51 @@
+name-template: '$RESOLVED_VERSION'
+tag-template: '$RESOLVED_VERSION'
+change-template: '* $TITLE ([#$NUMBER]($URL))'
+template: |
+  ## What's Changed
+
+  $CHANGELOG
+
+  ## New Contributors
+
+  $CONTRIBUTORS
+
+  **Full Changelog**: [$PREVIOUS_TAG...$RESOLVED_VERSION](https://github.com/alexbde/ha-joyonway/compare/$PREVIOUS_TAG...$RESOLVED_VERSION)
+categories:
+  - title: '🚀 Features'
+    labels:
+      - 'feature'
+      - 'enhancement'
+  - title: '🐛 Bug Fixes'
+    labels:
+      - 'bug'
+      - 'fix'
+  - title: '🧰 Maintenance & Refactoring'
+    labels:
+      - 'chore'
+      - 'dependencies'
+      - 'refactor'
+      - 'style'
+      - 'test'
+  - title: '📖 Documentation'
+    labels:
+      - 'documentation'
+      - 'docs'
+
+autolabeler:
+  - label: 'feature'
+    title:
+      - '/^feat(\(.+\))?:/i'
+  - label: 'bug'
+    title:
+      - '/^fix(\(.+\))?:/i'
+  - label: 'chore'
+    title:
+      - '/^chore(\(.+\))?:/i'
+      - '/^refactor(\(.+\))?:/i'
+      - '/^style(\(.+\))?:/i'
+      - '/^test(\(.+\))?:/i'
+      - '/^perf(\(.+\))?:/i'
+  - label: 'documentation'
+    title:
+      - '/^docs(\(.+\))?:/i'
