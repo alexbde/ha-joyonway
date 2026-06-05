@@ -100,68 +100,57 @@ The integration performs a TCP connection test before saving.
 
 ## Entities
 
+The integration exposes entities grouped under the standard Home Assistant device cards:
+
+### Controls
+
+| Entity | Platform | Description |
+|---|---|---|
+| **Thermostat** | Climate | Target setpoint control (10°C to 40°C) and heater armed state control via HVAC modes (`HEAT`/`OFF`) |
+| **Jets** | Fan | Pump speed control (0% / 50% / 100%) |
+| **Heating** | Switch | Heating manual ON/OFF (available when **Manual heating** is ON) |
+| **Ozone** | Switch | Ozone ON/OFF (available when **Manual ozone** is ON) |
+| **Light** | Switch | Light ON/OFF (toggle command with state guard) |
+| **Blower** | Switch | Air blower / air bubbler ON/OFF (optional hardware) |
+
 ### Sensors
 
-| Entity            | Description                                                                |
-|-------------------|----------------------------------------------------------------------------|
-| Water temperature | Current water temp in °C                                                   |
-| Setpoint          | Current target temperature in °C                                           |
-| Status            | off / standby / circulation / heating / ozone (icon changes per state) |
-| Jets     | off / low / high                                                           |
-| Spa clock         | Controller date/time as timestamp sensor (diagnostic, disabled by default) |
+| Entity | Description |
+|---|---|
+| **Current temperature** | Current water temp in °C |
+| **Setpoint temperature** | Current target temperature in °C |
+| **Status** | Current operational status (`off`, `standby`, `circulation`, `heating`, `ozone`) with dynamic icons |
+| **Jets** | Current jets speed state (`off`, `low`, `high`) |
 
-### Diagnostic Sensors (Disabled by default)
+### Configuration
 
-These raw-byte telemetry sensors help troubleshoot connection states and reverse engineer unmapped registers:
+These entities allow managing the schedules and operating modes of the spa:
 
-| Entity                  | Description                                                                |
-|-------------------------|----------------------------------------------------------------------------|
-| Heater byte (raw)       | Raw byte 14 value shown as hex (e.g. `0x40`)                                |
-| Pump byte (raw)         | Raw byte 12 value shown as hex (e.g. `0x00`)                                |
-| Ozone mode byte (raw)   | Raw byte 13 value shown as hex (e.g. `0x80`)                                |
-| Activity byte (raw)     | Raw byte 28 value shown as hex (e.g. `0x08`)                                |
-| Light/cycle byte (raw)  | Raw byte 17 value shown as hex (e.g. `0x80`)                                |
-| Frame length            | Logical post-unescape frame length in `bytes`                              |
-| Unmapped bytes hash     | MD5 fingerprint hash of all currently unmapped broadcast frame registers   |
+| Entity | Platform | Description |
+|---|---|---|
+| **Manual ozone** | Switch | Toggle Ozone Mode between Auto and Manual |
+| **Manual heating** | Switch | Toggle Heating Mode between Auto and Manual |
+| **Auto-sync clock** | Switch | Enable/disable automatic clock sync |
+| **Heat slot 1/2** | Switch | Enable/disable heating schedule slots |
+| **Filter slot 1/2** | Switch | Enable/disable filtration schedule slots |
+| **Heat slot 1/2 begin/end** | Time | Heating schedule start and end times (HH:MM) |
+| **Filter slot 1/2 begin/end** | Time | Filtration schedule start and end times (HH:MM) |
 
-### Binary sensors
+### Diagnostics
 
-| Entity                  | Description                                  |
-|-------------------------|----------------------------------------------|
-| RS485 bridge connection | Strict TCP connectivity to bridge (disabled by default) |
+These sensors monitor connection health and expose raw registers for advanced troubleshooting:
 
-### Switches
-
-| Entity             | Description                                   |
-|--------------------|-----------------------------------------------|
-| Heater             | Heater manual ON/OFF (available when **Manual heating** is ON) |
-| Ozone              | Ozone ON/OFF (available when **Manual ozone** is ON) |
-| Light              | Light ON/OFF (toggle with state guard)        |
-| Blower             | Air blower / air bubbler ON/OFF (optional hardware, disabled by default) |
-| Manual ozone       | Toggle Ozone Mode between Auto and Manual (CONFIG category) |
-| Manual heating     | Toggle Heater Mode between Auto (Manual Heating OFF) and Manual (Manual Heating ON) (CONFIG category) |
-| Auto-sync clock    | Enable/disable automatic spa clock sync (CONFIG category) |
-| Heat slot 1 / 2   | Enable/disable heating schedule slots         |
-| Filter slot 1 / 2 | Enable/disable filtration schedule slots      |
-
-### Fan
-
-| Entity | Description                                                  |
-|--------|--------------------------------------------------------------|
-| Jets   | Pump control via speed percentages (0% / 50% / 100%) |
-
-### Climate
-
-| Entity     | Description                            |
-|------------|----------------------------------------|
-| Thermostat | Target setpoint control (10°C to 40°C) and heater armed state control via HVAC modes (`HEAT`/`OFF`) |
-
-### Time
-
-| Entity                       | Description                        |
-|------------------------------|------------------------------------|
-| Heat slot 1/2 start/end     | Heating schedule times (HH:MM)     |
-| Filter slot 1/2 start/end   | Filtration schedule times (HH:MM)  |
+| Entity | Platform | Description |
+|---|---|---|
+| **RS485 bridge** | Binary Sensor | Strict TCP connectivity to the IP bridge (enabled by default) |
+| **Date & time** | Sensor | Controller internal date/time as a timestamp sensor (disabled by default) |
+| **Heater byte (raw)** | Sensor | Raw byte 14 value shown as hex (e.g. `0x40`, disabled by default) |
+| **Pump byte (raw)** | Sensor | Raw byte 12 value shown as hex (e.g. `0x00`, disabled by default) |
+| **Ozone mode byte (raw)** | Sensor | Raw byte 13 value shown as hex (e.g. `0x80`, disabled by default) |
+| **Activity byte (raw)** | Sensor | Raw byte 28 value shown as hex (e.g. `0x08`, disabled by default) |
+| **Light/cycle byte (raw)** | Sensor | Raw byte 17 value shown as hex (e.g. `0x80`, disabled by default) |
+| **Frame length** | Sensor | Logical post-unescape frame length in bytes (disabled by default) |
+| **Unmapped bytes hash** | Sensor | MD5 fingerprint hash of all unmapped broadcast registers (disabled by default) |
 
 ## Contributions & Development
 
