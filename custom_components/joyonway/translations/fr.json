@@ -20,7 +20,7 @@
 
   "entity": {
     "sensor": {
-      "water_temperature": { "name": "Température de l'eau" },
+      "current_temperature": { "name": "Température actuelle" },
       "setpoint": { "name": "Température de consigne" },
       "status": {
         "name": "Statut",
@@ -53,6 +53,9 @@
     "binary_sensor": {
       "bridge_connectivity": { "name": "Pont RS485" }
     },
+    "fan": {
+      "jets": { "name": "Jets" }
+    },
     "switch": {
       "light": { "name": "Lumière" },
       "heater": { "name": "Chauffage" },
@@ -78,6 +81,11 @@
     },
     "climate": {
       "thermostat": { "name": "Thermostat" }
+    }
+  },
+  "exceptions": {
+    "manual_heating_disabled": {
+      "message": "Impossible de modifier le mode CVC lorsque le chauffage manuel est désactivé. Veuillez d'abord activer l'interrupteur 'Chauffage manuel' dans la section de configuration de l'appareil."
     }
   }
 }

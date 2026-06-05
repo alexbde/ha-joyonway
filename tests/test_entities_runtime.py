@@ -137,6 +137,16 @@ class DummyCoordinator:
     def available(self) -> bool:
         return self._available
 
+    @property
+    def heater_mode(self) -> str:
+        if hasattr(self, "_heater_mode"):
+            return self._heater_mode
+        return self.data.get("heater_mode", "manual")
+
+    @heater_mode.setter
+    def heater_mode(self, value: str) -> None:
+        self._heater_mode = value
+
 
 class DummyHass:
     """Minimal Home Assistant stub with async task creation."""
@@ -152,11 +162,11 @@ def entry() -> SimpleNamespace:
 
 
 def test_sensor_entity_reads_coordinator_data(entry: SimpleNamespace) -> None:
-    coordinator = DummyCoordinator(data={"water_temperature": 37}, available=True)
+    coordinator = DummyCoordinator(data={"current_temperature": 37}, available=True)
     desc = SpaEntityDescription(
         platform="sensor",
-        key="water_temperature",
-        name="Water temperature",
+        key="current_temperature",
+        name="Current temperature",
         device_class="temperature",
     )
     entity = JoyonwaySensor(coordinator, entry, desc)
@@ -284,6 +294,16 @@ async def test_climate_rejects_unsupported_hvac_mode(entry: SimpleNamespace) -> 
 
 
 @pytest.mark.asyncio
+async def test_climate_rejects_hvac_mode_in_auto_mode(entry: SimpleNamespace) -> None:
+    coordinator = DummyCoordinator(data={"status": "off", "heater_mode": "auto"})
+    climate = SpaClimate(coordinator, entry)
+    climate.hass = DummyHass()
+
+    with pytest.raises(HomeAssistantError, match="Manual heating is disabled"):
+        await climate.async_set_hvac_mode(HVACMode.HEAT)
+
+
+@pytest.mark.asyncio
 async def test_climate_hvac_mode_commands(entry: SimpleNamespace) -> None:
     coordinator = DummyCoordinator(data={"status": "off", "heater_enabled": False})
     climate = SpaClimate(coordinator, entry)
@@ -347,7 +367,7 @@ async def test_climate_hvac_mode_optimistic_and_timeout(
 async def test_climate_debounced_set_temperature_sends_command(
     entry: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    coordinator = DummyCoordinator(data={"setpoint": 30, "water_temperature": 29})
+    coordinator = DummyCoordinator(data={"setpoint": 30, "current_temperature": 29})
     climate = SpaClimate(coordinator, entry)
     climate.hass = DummyHass()
 
