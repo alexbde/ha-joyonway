@@ -1,16 +1,21 @@
 <div align="center">
+<img src="custom_components/joyonway/brand/icon.png" width="128" alt="Joyonway Spa Logo" />
 
 # Joyonway Spa for Home Assistant
 
 **Local Home Assistant integration for Joyonway spa controllers via an RS485-to-IP bridge.**
 
-[![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=for-the-badge)](https://github.com/hacs/integration)
-[![License](https://img.shields.io/github/license/alexbde/ha-joyonway?style=for-the-badge&color=blue)](LICENSE)
-[![HA Version](https://img.shields.io/badge/Home%20Assistant-2026.1.0%2B-41BDF5.svg?style=for-the-badge&logo=home-assistant&logoColor=white)](https://www.home-assistant.io)
-
+[![HA](https://img.shields.io/badge/Home%20Assistant-2026.1.0%2B-41BDF5.svg?style=for-the-badge&logo=home-assistant&logoColor=white)](https://www.home-assistant.io)
+[![HACS](https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=for-the-badge&logo=home-assistant&logoColor=white)](https://github.com/hacs/integration)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge&logo=open-source-initiative&logoColor=white)](LICENSE)
+<br/>
+[![Release](https://img.shields.io/github/v/release/alexbde/ha-joyonway?style=for-the-badge&color=green&logo=github)](https://github.com/alexbde/ha-joyonway/releases)
+[![Tests](https://img.shields.io/github/actions/workflow/status/alexbde/ha-joyonway/tests.yml?style=for-the-badge&label=checks&logo=github)](https://github.com/alexbde/ha-joyonway/actions/workflows/tests.yml)
 </div>
 
 ## Overview
+
+![Joyonway Spa for Home Assistant Overview](docs/images/overview.png)
 
 This integration brings **local monitoring and control** of **Joyonway** spa controllers into Home Assistant. Communication is purely local via RS485, bridged to your home network through any standard RS485-to-IP Ethernet or WiFi bridge (operating in TCP server mode). No cloud connection, no internet required.
 
@@ -32,18 +37,9 @@ Based on community reverse-engineering efforts and sibling codebases, we have ma
 | **Joyonway P23B32** | PB553 (Segment) | 38400 8N1 | ⏳ Extensible | **Low/Medium Effort:** Extremely similar protocol layout and logical framing. Uses the identical 4-byte CRC-32 algorithm. A user can easily write a new model adapter by mapping its custom byte boundaries and command flags. |
 | **Joyonway P69B133** | PB562/PB563/PB565 | 38400 8N1 | ⏳ High Effort | **High Effort:** Advanced high-performance controller supporting up to four pumps. Uses a completely distinct framing structure, packet layout, timing boundaries, and command builder. |
 
-### Verified Reference Configuration & Requirements
+### Verified Reference Configuration
 
-Below is one concrete, fully tested hardware configuration that is confirmed to work:
-
-*   **Spa Model Example:** Home Deluxe White Marble (outdoor rigid/hardshell hot tub)
-*   **Touchpad:** PB554 colour touchscreen
-*   **Controller Pack:** Joyonway P25B85 (PCB `P2325B0003 R05`)
-*   **Heater:** 2 kW resistive, thermostat-controlled
-*   **Pumps & Blowers:** 1× dual-speed pump (Massage jets + filtration), optional air blower
-*   **Ozone/UV:** Auto or Manual mode via com1
-*   **RS485-to-IP Bridge:** Any standard RS485-to-IP Ethernet or WiFi bridge (e.g., Elfin EW11, USR-W610, Protoss) configured in **TCP Server mode** on port `8899` (configured as 38400 baud, 8N1, no parity).
-*   **Home Assistant Requirements:** 2026.1.0 or later on a network with local access to the IP bridge.
+For a detailed, step-by-step guide on how to wire the RS485 bridge and configure the adapter software for the reference model, see the [Joyonway P25B85 Setup Guide](docs/p25b85_setup.md).
 
 ## Features
 
