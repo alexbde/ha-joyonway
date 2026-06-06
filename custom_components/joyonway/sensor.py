@@ -69,6 +69,7 @@ class JoyonwaySensor(JoyonwayCoordinatorEntity, SensorEntity):
             self._attr_device_class = SensorDeviceClass.TEMPERATURE
             self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
             self._attr_state_class = SensorStateClass.MEASUREMENT
+            self._attr_suggested_display_precision = 0
         elif description.device_class == "enum":
             self._attr_device_class = SensorDeviceClass.ENUM
             if description.options:

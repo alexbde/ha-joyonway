@@ -21,7 +21,7 @@ from homeassistant.components.climate import (
     HVACAction,
     HVACMode,
 )
-from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
+from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature, PRECISION_WHOLE
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -69,6 +69,7 @@ class SpaClimate(JoyonwayCoordinatorEntity, ClimateEntity):
     _attr_hvac_modes = [HVACMode.HEAT, HVACMode.OFF]
     _attr_supported_features = ClimateEntityFeature.TARGET_TEMPERATURE
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
+    _attr_precision = PRECISION_WHOLE
     _attr_target_temperature_step = 1.0
     _attr_min_temp = float(TEMP_MIN_C)
     _attr_max_temp = float(TEMP_MAX_C)
