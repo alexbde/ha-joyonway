@@ -4,7 +4,6 @@ This directory contains standalone Python utilities to help test connectivity, p
 
 All tools require **Python 3.10+** and use the standard library only — no external dependencies are needed.
 
----
 
 ## 1. Test Bridge Connectivity (`probe_spa.py`)
 
@@ -18,7 +17,6 @@ python3 tools/probe_spa.py
 python3 tools/probe_spa.py --host 192.168.1.150 --port 8899
 ```
 
----
 
 ## 2. Capture Unmapped Bytes (`capture_unmapped_bytes.py`)
 
@@ -33,7 +31,6 @@ The script prints:
 - A statistical breakdown of unmapped registers (min/max values, static vs. ticking bytes).
 - The unique MD5 `unmapped_bytes_hash` fingerprint matching your controller firmware.
 
----
 
 ## 3. Parse and Diff Captures (`frame_parser_38400.py`)
 
@@ -47,7 +44,6 @@ python3 tools/frame_parser_38400.py tools/captures/baseline/00_baseline_before.b
 python3 tools/frame_parser_38400.py --diff tools/captures/baseline/00_baseline_before.bin tools/captures/phase4/01_light_on.bin
 ```
 
----
 
 ## 4. Guided Interactive Capture (`guided_capture.py`)
 
@@ -66,7 +62,6 @@ The script offers a menu to guide you through targeted transition runbooks:
 
 Binary capture files are automatically saved with timestamped names in `tools/captures/` for analysis.
 
----
 
 ## ⚠️ Single-Client Connection Reminder
 Most RS-485 bridges only accept a **single TCP client connection**. Before running these utilities, ensure that:
