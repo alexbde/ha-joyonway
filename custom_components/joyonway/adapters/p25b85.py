@@ -116,9 +116,6 @@ MASK_HEATING_CYCLE = 0x80
 # Activity flag at byte 28 (not UV-specific; use heater byte for UV detection)
 MASK_ACTIVITY = 0x20
 
-# Blower flag at byte 28 (bit 3)
-MASK_BLOWER = 0x08
-
 # Heater state values (at byte 14)
 # KDy describes three heating stages: circulation → heating → cooldown/off
 # Our captures confirm 0x40 and 0x50; heating and UV differ by 1 bit
@@ -300,7 +297,7 @@ class P25B85Adapter:
             "ozone_active": heater_base in (HEATER_OZONE, HEATER_OZONE_ALT),
             "ozone_mode": "manual" if ozone_mode_manual else "auto",
             "heater_mode": "manual" if heater_mode_manual else "auto",
-            "blower": bool(activity_byte & MASK_BLOWER),
+            "blower": bool(heater_byte & MASK_HEATER_BLOWER),
             "heater_byte_raw": heater_byte,
             "pump_byte_raw": pump_byte,
             "ozone_mode_byte_raw": ozone_mode_byte,
