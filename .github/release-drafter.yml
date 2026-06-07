@@ -2,11 +2,11 @@ name-template: '$RESOLVED_VERSION'
 tag-template: '$RESOLVED_VERSION'
 change-template: '* $TITLE ([#$NUMBER]($URL))'
 template: |
-  ## What's Changed
+  ## What's Changed (Since $PREVIOUS_TAG)
 
-  $CHANGELOG
+  $CHANGES
 
-  ## New Contributors
+  ## Contributors
 
   $CONTRIBUTORS
 
