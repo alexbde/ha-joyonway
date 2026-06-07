@@ -2,7 +2,6 @@
 
 This file contains instructions, coding conventions, architecture boundaries, and learned constraints for AI coding agents (Gemini, Claude, GPT, etc.) working on the `ha-joyonway` repository.
 
----
 
 ## 1. Project Context & Objectives
 
@@ -13,7 +12,6 @@ This file contains instructions, coding conventions, architecture boundaries, an
 - **Goal**: Maintain 100% test coverage, strict typing, lint-free formatting, and HACS compliance.
 - **Protocol Documentation**: The [protocol.md](docs/protocol.md) file is the single source of truth for the RS485 communication protocol structure and register map. You must update this file immediately with any new protocol-level insights or byte definitions uncovered during development.
 
----
 
 ## 2. Coding Guidelines & Style
 
@@ -34,8 +32,9 @@ This file contains instructions, coding conventions, architecture boundaries, an
   - `style`: Code style, formatting, or white-space changes (no functional impact).
   - `docs`: Documentation updates.
 - **Response Format**: Propose clear, exact code replacements (diffs) and avoid conversational fluff.
+- **Temporary and Scratch Files**: Store any temporary scripts, debugging helpers, or logical analysis tools in the `scratch/` directory (which is gitignored) if not using internal system temp paths, to keep the repository clean.
+- **Markdown Formatting**: Do **NOT** use horizontal rules (`---`) in markdown files or documentation. Headlines are sufficient for separating sections.
 
----
 
 ## 3. Strict Constraints & Guardrails
 
@@ -51,7 +50,6 @@ This file contains instructions, coding conventions, architecture boundaries, an
 - **Schedule Command Flags**: P25B85 schedule writes use two flag modes: `write_mode="state"` for enables (`0xAA/0x62/0x9A/0x52`) and `write_mode="time"` for time edits (`0xAA/0x6A/0x9A/0x5A`). The `0x6A`/`0x5A` force-write flags are critical to prevent write refusal issues when slot 2 is disabled.
 - **Diagnostics Redaction**: Config entry diagnostics (`diagnostics.py`) must redact sensitive keys (like `host`, `port`) and export raw byte states (`heater_byte_raw`, `pump_byte_raw`, etc.) for troubleshooting.
 
----
 
 ## 4. Testing Requirements
 
@@ -59,7 +57,6 @@ This file contains instructions, coding conventions, architecture boundaries, an
 - **Dry-Run Simulation**: Run `.venv/bin/python tests/live/test_spa_controls.py --non-interactive` to simulate the full logical control path. 64 tests must pass cleanly.
 - **Physical Test Restorations**: When running physical hardware tests, always include a `finally` block to restore the initial state (schedules, clock settings, heater status) to avoid leaving the spa in a weird state.
 
----
 
 ## 5. Reverse Engineering Guided Capture Runbook
 

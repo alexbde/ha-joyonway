@@ -4,6 +4,7 @@
 .vscode/
 .local/
 .env
+scratch/
 
 # Python bytecode and temp backups
 __pycache__/

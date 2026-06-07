@@ -1,16 +1,21 @@
 <div align="center">
+<img src="custom_components/joyonway/brand/icon.png" width="128" alt="Joyonway Spa Logo" />
 
 # Joyonway Spa for Home Assistant
 
 **Local Home Assistant integration for Joyonway spa controllers via an RS485-to-IP bridge.**
 
-[![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=for-the-badge)](https://github.com/hacs/integration)
-[![License](https://img.shields.io/github/license/alexbde/ha-joyonway?style=for-the-badge&color=blue)](LICENSE)
-[![HA Version](https://img.shields.io/badge/Home%20Assistant-2026.1.0%2B-41BDF5.svg?style=for-the-badge&logo=home-assistant&logoColor=white)](https://www.home-assistant.io)
-
+[![HA](https://img.shields.io/badge/Home%20Assistant-2026.1.0%2B-41BDF5.svg?style=for-the-badge&logo=home-assistant&logoColor=white)](https://www.home-assistant.io)
+[![HACS](https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=for-the-badge&logo=home-assistant&logoColor=white)](https://github.com/hacs/integration)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge&logo=open-source-initiative&logoColor=white)](LICENSE)
+<br/>
+[![Release](https://img.shields.io/github/v/release/alexbde/ha-joyonway?style=for-the-badge&color=green&logo=github)](https://github.com/alexbde/ha-joyonway/releases)
+[![Tests](https://img.shields.io/github/actions/workflow/status/alexbde/ha-joyonway/tests.yml?style=for-the-badge&label=checks&logo=github)](https://github.com/alexbde/ha-joyonway/actions/workflows/tests.yml)
 </div>
 
 ## Overview
+
+![Joyonway Spa for Home Assistant Overview](docs/images/overview.png)
 
 This integration brings **local monitoring and control** of **Joyonway** spa controllers into Home Assistant. Communication is purely local via RS485, bridged to your home network through any standard RS485-to-IP Ethernet or WiFi bridge (operating in TCP server mode). No cloud connection, no internet required.
 
@@ -32,53 +37,31 @@ Based on community reverse-engineering efforts and sibling codebases, we have ma
 | **Joyonway P23B32** | PB553 (Segment) | 38400 8N1 | ⏳ Extensible | **Low/Medium Effort:** Extremely similar protocol layout and logical framing. Uses the identical 4-byte CRC-32 algorithm. A user can easily write a new model adapter by mapping its custom byte boundaries and command flags. |
 | **Joyonway P69B133** | PB562/PB563/PB565 | 38400 8N1 | ⏳ High Effort | **High Effort:** Advanced high-performance controller supporting up to four pumps. Uses a completely distinct framing structure, packet layout, timing boundaries, and command builder. |
 
-### Verified Reference Configuration & Requirements
+### Verified Reference Configuration
 
-Below is one concrete, fully tested hardware configuration that is confirmed to work:
-
-*   **Spa Model Example:** Home Deluxe White Marble (outdoor rigid/hardshell hot tub)
-*   **Touchpad:** PB554 colour touchscreen
-*   **Controller Pack:** Joyonway P25B85 (PCB `P2325B0003 R05`)
-*   **Heater:** 2 kW resistive, thermostat-controlled
-*   **Pumps & Blowers:** 1× dual-speed pump (Massage jets + filtration), optional air blower
-*   **Ozone/UV:** Auto or Manual mode via com1
-*   **RS485-to-IP Bridge:** Any standard RS485-to-IP Ethernet or WiFi bridge (e.g., Elfin EW11, USR-W610, Protoss) configured in **TCP Server mode** on port `8899` (configured as 38400 baud, 8N1, no parity).
-*   **Home Assistant Requirements:** 2026.1.0 or later on a network with local access to the IP bridge.
+For a detailed, step-by-step guide on how to wire the RS485 bridge and configure the adapter software for the reference model, see the [Joyonway P25B85 Setup Guide](docs/p25b85_setup.md).
 
 ## Features
 
-- **Water temperature** monitoring (°C)
+- **Current temperature** monitoring (°C)
 - **Setpoint temperature** monitoring (°C)
 - **Thermostat control** (10°C to 40°C) with fast debounced slider writes, supporting HVAC modes (`HEAT`/`OFF`) to enable/disable the heater directly
 - **Jets control** (0% / 50% / 100%) via speed percentage controls
 - **Manual ozone** switch (CONFIG category) to toggle between Auto and Manual ozone mode, unlocking the **Ozone** ON/OFF switch
-- **Manual heating** switch (CONFIG category) to toggle between Auto and Manual heating mode, unlocking the **Heater** ON/OFF switch
+- **Manual heating** switch (CONFIG category) to toggle between Auto and Manual heating mode, unlocking the **Heating** ON/OFF switch
 - **Light** on/off via toggle command
 - **Blower (air bubbler, optional hardware)** on/off
-- **Heat schedule** — 2 time slots with start/end times and enable/disable
-- **Filter schedule** — 2 time slots with start/end times and enable/disable
+- **Heat schedule** — 2 time slots with begin/end times and enable/disable
+- **Filter schedule** — 2 time slots with begin/end times and enable/disable
 - **Auto-sync clock** switch (CONFIG category) to automatically align the spa's internal clock when drift exceeds 30 seconds
 - **Status sensor** — off / standby / circulation / heating / ozone (with dynamic icons)
 - **Jets sensor** — off / low / high
 - **Persistent TCP connection** — real-time state updates (~1–2 s), automatic reconnect with exponential backoff
 - **Optimistic UI** — writable entities show immediate feedback; snap back if the spa reports a different state
-- All commands built dynamically via cracked CRC-32 (no static replay tables)
+- **Math-correct CRC-32 generation** — all commands are built dynamically using a reverse-engineered CRC-32 algorithm (standard polynomial `0x04C11DB7` with 32-bit word-swap, detailed in [protocol.md](docs/protocol.md)), preventing potential invalid CRC hazards
+- **Bus-safe pacing & serialization** — write commands are paced relative to the RS485 sync frame to avoid bus collisions, managed via a serialized and coalesced intent queue
 - Fully local, no cloud, no internet
 - English, French, and German UI translations
-
-## Safety Philosophy
-
-The verified Joyonway controllers use a 4-byte CRC-32 on all command frames. The CRC algorithm has been fully reverse-engineered (standard CRC-32 polynomial `0x04C11DB7` with word-swap preprocessing) and verified against physical captures.
-
-- ✅ CRC algorithm implemented and verified — all commands built dynamically
-- ✅ Every command uses computed CRC (no replay-only frames)
-- ✅ All commands validated against observed state changes from physical captures
-- ✅ Write pacing aligns commands with the RS485 sync frame for collision-free bus access
-- ✅ Intent queue serializes and coalesces rapid user actions (no bus contention)
-- ✅ Schedule writes require complete broadcast data and fail explicitly if prerequisites are missing
-- ✅ State reversions are never silent — warnings logged if spa doesn't confirm
-
-> **Note:** Early reverse-engineering reports indicated that sending a frame with an invalid CRC could activate the heater unexpectedly on certain setups. This integration calculates the math-correct CRC-32 dynamically for all commands, completely avoiding this hazard.
 
 ## Installation
 
@@ -113,68 +96,57 @@ The integration performs a TCP connection test before saving.
 
 ## Entities
 
+The integration exposes entities grouped under the standard Home Assistant device cards:
+
+### Controls
+
+| Entity | Platform | Description |
+|---|---|---|
+| **Thermostat** | Climate | Target setpoint control (10°C to 40°C) and heater armed state control via HVAC modes (`HEAT`/`OFF`) |
+| **Jets** | Fan | Pump speed control (0% / 50% / 100%) |
+| **Heating** | Switch | Heating manual ON/OFF (available when **Manual heating** is ON) |
+| **Ozone** | Switch | Ozone ON/OFF (available when **Manual ozone** is ON) |
+| **Light** | Switch | Light ON/OFF (toggle command with state guard) |
+| **Blower** | Switch | Air blower / air bubbler ON/OFF (optional hardware) |
+
 ### Sensors
 
-| Entity            | Description                                                                |
-|-------------------|----------------------------------------------------------------------------|
-| Water temperature | Current water temp in °C                                                   |
-| Setpoint          | Current target temperature in °C                                           |
-| Status            | off / standby / circulation / heating / ozone (icon changes per state) |
-| Jets     | off / low / high                                                           |
-| Spa clock         | Controller date/time as timestamp sensor (diagnostic, disabled by default) |
+| Entity | Description |
+|---|---|
+| **Current temperature** | Current water temp in °C |
+| **Setpoint temperature** | Current target temperature in °C |
+| **Status** | Current operational status (`off`, `standby`, `circulation`, `heating`, `ozone`) with dynamic icons |
+| **Jets** | Current jets speed state (`off`, `low`, `high`) |
 
-### Diagnostic Sensors (Disabled by default)
+### Configuration
 
-These raw-byte telemetry sensors help troubleshoot connection states and reverse engineer unmapped registers:
+These entities allow managing the schedules and operating modes of the spa:
 
-| Entity                  | Description                                                                |
-|-------------------------|----------------------------------------------------------------------------|
-| Heater byte (raw)       | Raw byte 14 value shown as hex (e.g. `0x40`)                                |
-| Pump byte (raw)         | Raw byte 12 value shown as hex (e.g. `0x00`)                                |
-| Ozone mode byte (raw)   | Raw byte 13 value shown as hex (e.g. `0x80`)                                |
-| Activity byte (raw)     | Raw byte 28 value shown as hex (e.g. `0x08`)                                |
-| Light/cycle byte (raw)  | Raw byte 17 value shown as hex (e.g. `0x80`)                                |
-| Frame length            | Logical post-unescape frame length in `bytes`                              |
-| Unmapped bytes hash     | MD5 fingerprint hash of all currently unmapped broadcast frame registers   |
+| Entity | Platform | Description |
+|---|---|---|
+| **Manual ozone** | Switch | Toggle Ozone Mode between Auto and Manual |
+| **Manual heating** | Switch | Toggle Heating Mode between Auto and Manual |
+| **Auto-sync clock** | Switch | Enable/disable automatic clock sync |
+| **Heat slot 1/2** | Switch | Enable/disable heating schedule slots |
+| **Filter slot 1/2** | Switch | Enable/disable filtration schedule slots |
+| **Heat slot 1/2 begin/end** | Time | Heating schedule start and end times (HH:MM) |
+| **Filter slot 1/2 begin/end** | Time | Filtration schedule start and end times (HH:MM) |
 
-### Binary sensors
+### Diagnostics
 
-| Entity                  | Description                                  |
-|-------------------------|----------------------------------------------|
-| RS485 bridge connection | Strict TCP connectivity to bridge (disabled by default) |
+These sensors monitor connection health and expose raw registers for advanced troubleshooting:
 
-### Switches
-
-| Entity             | Description                                   |
-|--------------------|-----------------------------------------------|
-| Heater             | Heater manual ON/OFF (available when **Manual heating** is ON) |
-| Ozone              | Ozone ON/OFF (available when **Manual ozone** is ON) |
-| Light              | Light ON/OFF (toggle with state guard)        |
-| Blower             | Air blower / air bubbler ON/OFF (optional hardware, disabled by default) |
-| Manual ozone       | Toggle Ozone Mode between Auto and Manual (CONFIG category) |
-| Manual heating     | Toggle Heater Mode between Auto (Manual Heating OFF) and Manual (Manual Heating ON) (CONFIG category) |
-| Auto-sync clock    | Enable/disable automatic spa clock sync (CONFIG category) |
-| Heat slot 1 / 2   | Enable/disable heating schedule slots         |
-| Filter slot 1 / 2 | Enable/disable filtration schedule slots      |
-
-### Fan
-
-| Entity | Description                                                  |
-|--------|--------------------------------------------------------------|
-| Jets   | Pump control via speed percentages (0% / 50% / 100%) |
-
-### Climate
-
-| Entity     | Description                            |
-|------------|----------------------------------------|
-| Thermostat | Target setpoint control (10°C to 40°C) and heater armed state control via HVAC modes (`HEAT`/`OFF`) |
-
-### Time
-
-| Entity                       | Description                        |
-|------------------------------|------------------------------------|
-| Heat slot 1/2 start/end     | Heating schedule times (HH:MM)     |
-| Filter slot 1/2 start/end   | Filtration schedule times (HH:MM)  |
+| Entity | Platform | Description |
+|---|---|---|
+| **RS485 bridge** | Binary Sensor | Strict TCP connectivity to the IP bridge (enabled by default) |
+| **Date & time** | Sensor | Controller internal date/time as a timestamp sensor (disabled by default) |
+| **Heater byte (raw)** | Sensor | Raw byte 14 value shown as hex (e.g. `0x40`, disabled by default) |
+| **Pump byte (raw)** | Sensor | Raw byte 12 value shown as hex (e.g. `0x00`, disabled by default) |
+| **Ozone mode byte (raw)** | Sensor | Raw byte 13 value shown as hex (e.g. `0x80`, disabled by default) |
+| **Activity byte (raw)** | Sensor | Raw byte 28 value shown as hex (e.g. `0x08`, disabled by default) |
+| **Light/cycle byte (raw)** | Sensor | Raw byte 17 value shown as hex (e.g. `0x80`, disabled by default) |
+| **Frame length** | Sensor | Logical post-unescape frame length in bytes (disabled by default) |
+| **Unmapped bytes hash** | Sensor | MD5 fingerprint hash of all unmapped broadcast registers (disabled by default) |
 
 ## Contributions & Development
 
