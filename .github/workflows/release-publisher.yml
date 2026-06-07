@@ -23,7 +23,7 @@ jobs:
 
       - name: Inspect current draft status
         id: drafter_info
-        uses: release-drafter/release-drafter@v6
+        uses: release-drafter/release-drafter@v7
         with:
           commitish: main
         env:
@@ -49,7 +49,7 @@ jobs:
 
       - name: Publish official release
         if: steps.verification_gate.outputs.proceed_to_publish == 'true'
-        uses: release-drafter/release-drafter@v6
+        uses: release-drafter/release-drafter@v7
         with:
           publish: true
           commitish: main
