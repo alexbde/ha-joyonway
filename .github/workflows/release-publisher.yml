@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - main
+    paths:
+      - custom_components/joyonway/manifest.json
+      - pyproject.toml
 
 jobs:
   publish-release:
