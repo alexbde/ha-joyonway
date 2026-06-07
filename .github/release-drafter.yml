@@ -1,5 +1,6 @@
 name-template: '$RESOLVED_VERSION'
 tag-template: '$RESOLVED_VERSION'
+category-template: '### $TITLE'
 change-template: '* $TITLE ([#$NUMBER]($URL))'
 template: |
   ## What's Changed (Since $PREVIOUS_TAG)

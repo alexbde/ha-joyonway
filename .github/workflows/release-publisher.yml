@@ -1,0 +1,63 @@
+name: Release Publisher
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  publish-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout main branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Inspect current draft status
+        id: drafter_info
+        uses: release-drafter/release-drafter@v6
+        with:
+          commitish: main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Validate manifest state against release draft
+        id: verification_gate
+        run: |
+          MANIFEST_VERSION=$(jq -r '.version' custom_components/joyonway/manifest.json)
+          EXPECTED_TAG="${{ steps.drafter_info.outputs.tag_name }}"
+          EXPECTED_VERSION="${EXPECTED_TAG#v}"
+          
+          echo "Manifest Version: $MANIFEST_VERSION"
+          echo "Expected Version: $EXPECTED_VERSION"
+          
+          if [ "$MANIFEST_VERSION" = "$EXPECTED_VERSION" ]; then
+            echo "Verification successful. Manifest is synchronized with the release targets."
+            echo "proceed_to_publish=true" >> $GITHUB_OUTPUT
+          else
+            echo "Verification skipped. Manifest version does not equal the next draft version template."
+            echo "proceed_to_publish=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Publish official release
+        if: steps.verification_gate.outputs.proceed_to_publish == 'true'
+        uses: release-drafter/release-drafter@v6
+        with:
+          publish: true
+          commitish: main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Purge ephemeral release branch
+        if: always()
+        run: |
+          if git ls-remote --heads origin release | grep -q 'refs/heads/release'; then
+            echo "Cleaning up remote repository state..."
+            git push origin --delete release
+          else
+            echo "Remote branch 'release' was already cleaned up or does not exist."
+          fi
