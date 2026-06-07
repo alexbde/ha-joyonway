@@ -45,7 +45,7 @@ IDX_PUMP_BYTE = 12  # ✅ confirmed: 0x02=low, 0x04=high (KDy "byte 13")
 IDX_OZONE_MODE = 13  # ✅ bit 7: 0=Auto, 1=Manual (confirmed from phase 6 captures)
 IDX_HEATER_STATE = 14  # ✅ confirmed (KDy "byte 15")
 IDX_SETPOINT = 16  # Fahrenheit
-IDX_LIGHT_FLAGS = 17  # ✅ confirmed (KDy "byte 18")
+IDX_LIGHT_CYCLE = 17  # ✅ confirmed (KDy "byte 18")
 IDX_ACTIVITY_FLAG = 28  # ✅ confirmed (KDy "byte 29"); set during heating and UV/ozone
 
 # Ozone mode mask (byte 13)
@@ -258,7 +258,7 @@ class P25B85Adapter:
         pump_byte = frame[IDX_PUMP_BYTE]
         ozone_mode_byte = frame[IDX_OZONE_MODE]
         heater_byte = frame[IDX_HEATER_STATE]
-        light_byte = frame[IDX_LIGHT_FLAGS]
+        light_byte = frame[IDX_LIGHT_CYCLE]
         activity_byte = frame[IDX_ACTIVITY_FLAG]
 
         # Bit 3 of the heater byte is the blower flag — strip it so the
@@ -266,11 +266,11 @@ class P25B85Adapter:
         heater_base = heater_byte & ~MASK_HEATER_BLOWER
         status = HEATER_STATE_MAP.get(heater_base, "unknown")
 
-        # Post-heat circulation detection: when byte 14 = off (0x40) but the
-        # heating cycle flag (byte 17 bit 7) is still set, the pump is running
-        # post-heat circulation (circle icon on panel).
+        # Pre/post-heat circulation detection: when byte 14 is off (0x40) or
+        # standby (0x50), but the heating cycle flag (byte 17 bit 7) is set,
+        # the pump is actively running circulation (pre-heating or post-heating).
         heating_cycle_active = bool(light_byte & MASK_HEATING_CYCLE)
-        if status == "off" and heating_cycle_active:
+        if status in ("off", "standby") and heating_cycle_active:
             status = "circulation"
 
         # Derive jets state string
