@@ -47,6 +47,8 @@ HEATER_STANDBY = adapters_p25b85.HEATER_STANDBY
 HEATER_OZONE = adapters_p25b85.HEATER_OZONE
 fahrenheit_to_celsius = adapters_p25b85._fahrenheit_to_celsius
 celsius_to_fahrenheit = adapters_p25b85._celsius_to_fahrenheit
+IDX_LIGHT_CYCLE = adapters_p25b85.IDX_LIGHT_CYCLE
+MASK_HEATING_CYCLE = adapters_p25b85.MASK_HEATING_CYCLE
 
 get_adapter = adapters_registry.get_adapter
 ADAPTERS = adapters_registry.ADAPTERS
@@ -193,6 +195,18 @@ def test_standby_status_even_when_jets_running(
     modified[IDX_PUMP_BYTE] = 0x02  # manual jets low — independent of heater state
     result = adapter.parse_status(bytes(modified))
     assert result["status"] == "standby"
+
+
+def test_preheat_circulation_status(
+    adapter: P25B85Adapter,
+    logical_frame: bytes,
+) -> None:
+    """Status is 'circulation' when heater byte is 0x50 but heating cycle is active."""
+    modified = bytearray(logical_frame)
+    modified[IDX_HEATER_STATE] = HEATER_STANDBY
+    modified[IDX_LIGHT_CYCLE] = MASK_HEATING_CYCLE
+    result = adapter.parse_status(bytes(modified))
+    assert result["status"] == "circulation"
 
 
 def test_entity_descriptions(adapter: P25B85Adapter) -> None:
