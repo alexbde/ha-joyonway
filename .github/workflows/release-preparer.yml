@@ -1,0 +1,97 @@
+name: Release Preparer
+
+on:
+  push:
+    branches:
+      - release
+
+jobs:
+  prepare-release:
+    runs-on: ubuntu-latest
+
+    environment: release
+
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout release branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: release
+
+      - name: Verify branch synchronization
+        id: safety_gate
+        run: |
+          git fetch origin main
+          MAIN_SHA=$(git rev-parse origin/main)
+          RELEASE_SHA=$(git rev-parse HEAD)
+          
+          echo "Main SHA: $MAIN_SHA"
+          echo "Release SHA: $RELEASE_SHA"
+          
+          if [ "$MAIN_SHA" != "$RELEASE_SHA" ]; then
+            echo "ERROR: The release branch is out of sync with main! Aborting."
+            exit 1
+          fi
+
+      - name: Fetch next version details
+        id: drafter_info
+        uses: release-drafter/release-drafter@v6
+        with:
+          commitish: main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update version compliance
+        run: |
+          NEXT_TAG="${{ steps.drafter_info.outputs.tag_name }}"
+          NEXT_VERSION="${NEXT_TAG#v}"
+          
+          echo "Next calculated version: $NEXT_VERSION"
+          
+          MANIFEST_PATH="custom_components/joyonway/manifest.json"
+          jq --arg ver "$NEXT_VERSION" '.version = $ver' "$MANIFEST_PATH" > tmp.json && mv tmp.json "$MANIFEST_PATH"
+          
+          TOML_PATH="pyproject.toml"
+          if [ -f "$TOML_PATH" ]; then
+            sed -i 's/^version = "[^"]*"/version = "'"$NEXT_VERSION"'"/' "$TOML_PATH"
+          fi
+
+      - name: Commit version adjustments
+        run: |
+          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          
+          git add .
+          
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: Bump version to ${{ steps.drafter_info.outputs.tag_name }}"
+            git push origin release
+          else
+            echo "No files required updating."
+          fi
+
+      - name: Save release notes to file
+        env:
+          CHANGELOG_BODY: ${{ steps.drafter_info.outputs.body }}
+        run: |
+          printf "%s\n" "$CHANGELOG_BODY" > pr_description.md
+
+      - name: Open Pull Request and activate Auto-Merge
+        env:
+          GITHUB_TOKEN: ${{ secrets.ACCESS_TOKEN }}
+        run: |
+          TARGET_TAG="${{ steps.drafter_info.outputs.tag_name }}"
+          
+          PR_URL=$(gh pr create \
+            --title "chore: Release $TARGET_TAG" \
+            --body-file pr_description.md \
+            --base main \
+            --head release)
+          
+          echo "Pull Request successfully created: $PR_URL"
+          
+          gh pr merge "$PR_URL" --auto --squash
