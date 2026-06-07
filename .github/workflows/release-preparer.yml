@@ -39,7 +39,7 @@ jobs:
 
       - name: Fetch next version details
         id: drafter_info
-        uses: release-drafter/release-drafter@v6
+        uses: release-drafter/release-drafter@v7
         with:
           commitish: main
         env:
