@@ -12,6 +12,8 @@ template: |
   $CONTRIBUTORS
 
   **Full Changelog**: [$PREVIOUS_TAG...$RESOLVED_VERSION](https://github.com/alexbde/ha-joyonway/compare/$PREVIOUS_TAG...$RESOLVED_VERSION)
+exclude-contributors:
+  - dependabot[bot]
 categories:
   - title: '🚀 Features'
     labels:

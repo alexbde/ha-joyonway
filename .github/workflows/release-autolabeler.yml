@@ -1,8 +1,6 @@
-name: Release Labeler
+name: Release Autolabeler
 
 on:
-  pull_request:
-    types: [opened, reopened, synchronize]
   pull_request_target:
     types: [opened, reopened, synchronize]
 
@@ -10,11 +8,10 @@ permissions:
   contents: read
 
 jobs:
-  release-labeler:
-    name: Release Labeler
+  release-autolabeler:
     permissions:
       pull-requests: write
     runs-on: ubuntu-latest
     steps:
-      - name: Label for Release
+      - name: Autolabel for Release
         uses: release-drafter/release-drafter/autolabeler@v7
