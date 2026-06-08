@@ -57,7 +57,7 @@ jobs:
           
           TOML_PATH="pyproject.toml"
           if [ -f "$TOML_PATH" ]; then
-            sed -i 's/^version = "[^"]*"/version = "'"$NEXT_VERSION"'"/' "$TOML_PATH"
+            sed -i 's/^version\s*=\s*"[^"]*"/version = "'"$NEXT_VERSION"'"/' "$TOML_PATH"
           fi
 
       - name: Commit version adjustments
@@ -68,7 +68,7 @@ jobs:
           git add .
           
           if ! git diff --cached --quiet; then
-            git commit -m "chore: Bump version to ${{ steps.drafter_info.outputs.tag_name }} [skip ci]"
+            git commit -m "chore: Bump version to ${{ steps.drafter_info.outputs.tag_name }}"
             git push origin release
           else
             echo "No files required updating."
