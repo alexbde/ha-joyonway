@@ -16,27 +16,41 @@ template: |
 exclude-contributors:
   - dependabot[bot]
 categories:
+  - type: 'version-resolver'
+    semver-increment: 'major'
+    when:
+      labels:
+        - 'breaking'
   - title: '🚀 Features'
-    labels:
-      - 'feature'
-      - 'enhancement'
+    semver-increment: 'minor'
+    when:
+      labels:
+        - 'feature'
+        - 'enhancement'
   - title: '🐛 Bug Fixes'
-    labels:
-      - 'bug'
-      - 'fix'
+    when:
+      labels:
+        - 'bug'
+        - 'fix'
   - title: '🧰 Maintenance & Refactoring'
-    labels:
-      - 'chore'
-      - 'dependencies'
-      - 'refactor'
-      - 'style'
-      - 'test'
+    when:
+      labels:
+        - 'chore'
+        - 'dependencies'
+        - 'refactor'
+        - 'style'
+        - 'test'
   - title: '📖 Documentation'
-    labels:
-      - 'documentation'
-      - 'docs'
-
+    when:
+      labels:
+        - 'documentation'
+        - 'docs'
 autolabeler:
+  - label: 'breaking'
+    title:
+      - '/^feat(\(.+\))?!:/i'
+      - '/^fix(\(.+\))?!:/i'
+      - '/^chore(\(.+\))?!:/i'
   - label: 'feature'
     title:
       - '/^feat(\(.+\))?:/i'
