@@ -68,7 +68,7 @@ jobs:
           git add .
           
           if ! git diff --cached --quiet; then
-            git commit -m "chore: Bump version to ${{ steps.drafter_info.outputs.tag_name }}"
+            git commit -m "chore: Release ${{ steps.drafter_info.outputs.tag_name }}"
             git push origin release
           else
             echo "No files required updating."
