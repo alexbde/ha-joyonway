@@ -10,7 +10,6 @@ on:
 
 jobs:
   publish-release:
-    name: Publish Release
     runs-on: ubuntu-latest
     if: "startsWith(github.event.head_commit.message, 'chore: Release')"
     permissions:

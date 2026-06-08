@@ -9,7 +9,6 @@ permissions:
 
 jobs:
   release-autolabeler:
-    name: Release Autolabeler
     permissions:
       pull-requests: write
     runs-on: ubuntu-latest

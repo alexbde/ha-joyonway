@@ -10,7 +10,6 @@ permissions:
 
 jobs:
   draft-release:
-    name: Draft Release
     runs-on: ubuntu-latest
     if: "!startsWith(github.event.head_commit.message, 'chore: Release')"
     steps:

@@ -7,7 +7,6 @@ on:
 
 jobs:
   prepare-release:
-    name: Prepare Release
     runs-on: ubuntu-latest
 
     environment: release

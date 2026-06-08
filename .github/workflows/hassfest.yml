@@ -1,16 +1,10 @@
-# Validate integration with Home Assistant hassfest
-# Runs on: push, pull request, daily schedule, manual dispatch
-# Source: https://developers.home-assistant.io/blog/2020/04/16/hassfest-as-a-github-action/
-name: Validate with hassfest
+name: Hassfest
 
 on:
   push:
     branches:
       - main
   pull_request:
-  schedule:
-    - cron: "0 0 * * *"
-  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
