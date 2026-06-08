@@ -2,6 +2,7 @@ name-template: '$RESOLVED_VERSION'
 tag-template: '$RESOLVED_VERSION'
 category-template: '### $TITLE'
 change-template: '* $TITLE ([#$NUMBER]($URL))'
+sort-direction: ascending
 template: |
   ## What's Changed (Since $PREVIOUS_TAG)
 
