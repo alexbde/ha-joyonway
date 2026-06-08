@@ -41,12 +41,14 @@ graph TD
     end
     
     subgraph Spa Hardware
-        Bridge -- "RS485 Serial (38400 Baud, CN23/CN24)" --> Ctrl["Joyonway P25B85 Controller"]
-        Ctrl -- "RS485 Bus" --> Panel["PB554 Touchpad"]
+        Ctrl["Joyonway P25B85 Controller"] <--> "RS485 Bus" <--> Panel["PB554 Touchpad"]
         Ctrl -- "Power/Control" --> Heater["Heater"]
         Ctrl -- "Power/Control" --> Pumps["Pumps & Blower"]
         Ctrl -- "Power/Control" --> Ozone["Ozone / UV"]
     end
+
+    %% Cross-subgraph connections
+    Bridge <--> "RS485 Serial (38400 Baud, CN23/CN24)" <--> Ctrl
 ```
 
 ## Hardware Setup
