@@ -37,7 +37,7 @@ autolabeler:
   - label: 'feature'
     title:
       - '/^feat(\(.+\))?:/i'
-  - label: 'bug'
+  - label: 'fix'
     title:
       - '/^fix(\(.+\))?:/i'
   - label: 'chore'
