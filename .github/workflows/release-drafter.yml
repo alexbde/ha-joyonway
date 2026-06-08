@@ -5,14 +5,16 @@ on:
     branches:
       - main
 
+permissions:
+  contents: write
+
 jobs:
   draft-release:
+    name: Draft Release
     runs-on: ubuntu-latest
     if: "!startsWith(github.event.head_commit.message, 'chore: Release')"
-    permissions:
-      contents: write
     steps:
-      - name: Update Release Draft
+      - name: Run Release Drafter
         uses: release-drafter/release-drafter@v7
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

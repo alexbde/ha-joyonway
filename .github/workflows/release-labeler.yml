@@ -1,0 +1,19 @@
+name: Release Labeler
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  release-labeler:
+    name: Label PR
+    runs-on: ubuntu-latest
+    steps:
+      - name: Label PR
+        uses: release-drafter/release-drafter@v7
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
