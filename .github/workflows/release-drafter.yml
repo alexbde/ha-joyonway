@@ -4,21 +4,17 @@ on:
   push:
     branches:
       - main
-  pull_request:
-    types: [opened, reopened, synchronize]
 
 permissions:
   contents: write
-  pull-requests: write
 
 jobs:
-  update_release_draft:
+  draft-release:
+    name: Draft Release
     runs-on: ubuntu-latest
-    if: "!(github.event_name == 'push' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'chore: Release'))"
+    if: "!startsWith(github.event.head_commit.message, 'chore: Release')"
     steps:
       - name: Run Release Drafter
         uses: release-drafter/release-drafter@v7
-        with:
-          commitish: main
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,20 @@
+name: Release Labeler
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+  pull_request_target:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  release-labeler:
+    name: Release Labeler
+    permissions:
+      pull-requests: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Label for Release
+        uses: release-drafter/release-drafter/autolabeler@v7
