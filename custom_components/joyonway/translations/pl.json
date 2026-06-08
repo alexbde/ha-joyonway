@@ -1,0 +1,91 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Joyonway Spa",
+        "description": "Wprowadź adres IP i port TCP swojego mostka RS485.",
+        "data": {
+          "host": "Adres IP",
+          "port": "Port TCP"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Nie można połączyć się z mostkiem RS485. Sprawdź adres IP, port i czy mostek jest włączony. Upewnij się, że żaden inny klient (aplikacja na telefon, inna integracja) nie jest połączony."
+    },
+    "abort": {
+      "already_configured": "Ten mostek jest już skonfigurowany."
+    }
+  },
+
+  "entity": {
+    "sensor": {
+      "current_temperature": { "name": "Aktualna temperatura" },
+      "setpoint": { "name": "Temperatura zadana" },
+      "status": {
+        "name": "Status",
+        "state": {
+          "off": "Wyłączony",
+          "standby": "Tryb gotowości",
+          "circulation": "Cyrkulacja",
+          "heating": "Ogrzewanie",
+          "ozone": "Ozonowanie",
+          "unknown": "Nieznany"
+        }
+      },
+      "jets": {
+        "name": "Dysze",
+        "state": {
+          "off": "Wyłączone",
+          "low": "Niskie",
+          "high": "Wysokie"
+        }
+      },
+      "spa_datetime": { "name": "Data i godzina" },
+      "heater_byte_raw": { "name": "Bajt podgrzewacza (surowy)" },
+      "pump_byte_raw": { "name": "Bajt pompy (surowy)" },
+      "ozone_mode_byte_raw": { "name": "Bajt trybu ozonowania (surowy)" },
+      "activity_byte_raw": { "name": "Bajt aktywności (surowy)" },
+      "light_cycle_byte_raw": { "name": "Bajt światła/cyklu (surowy)" },
+      "frame_length": { "name": "Długość ramki" },
+      "unmapped_bytes_hash": { "name": "Hash niezmapowanych bajtów" }
+    },
+    "binary_sensor": {
+      "bridge_connectivity": { "name": "Mostek RS485" }
+    },
+    "fan": {
+      "jets": { "name": "Dysze" }
+    },
+    "switch": {
+      "light": { "name": "Oświetlenie" },
+      "heater": { "name": "Ogrzewanie" },
+      "ozone": { "name": "Ozonator" },
+      "blower": { "name": "Dmuchawa" },
+      "auto_sync_clock": { "name": "Automatyczna synchronizacja zegara" },
+      "manual_ozone": { "name": "Ręczne ozonowanie" },
+      "manual_heating": { "name": "Ręczne ogrzewanie" },
+      "heat_slot1_enabled": { "name": "Przedział ogrzewania 1" },
+      "heat_slot2_enabled": { "name": "Przedział ogrzewania 2" },
+      "filter_slot1_enabled": { "name": "Przedział filtrowania 1" },
+      "filter_slot2_enabled": { "name": "Przedział filtrowania 2" }
+    },
+    "time": {
+      "heat_slot1_start": { "name": "Początek przedziału ogrzewania 1" },
+      "heat_slot1_end": { "name": "Koniec przedziału ogrzewania 1" },
+      "heat_slot2_start": { "name": "Początek przedziału ogrzewania 2" },
+      "heat_slot2_end": { "name": "Koniec przedziału ogrzewania 2" },
+      "filter_slot1_start": { "name": "Początek przedziału filtrowania 1" },
+      "filter_slot1_end": { "name": "Koniec przedziału filtrowania 1" },
+      "filter_slot2_start": { "name": "Początek przedziału filtrowania 2" },
+      "filter_slot2_end": { "name": "Koniec przedziału filtrowania 2" }
+    },
+    "climate": {
+      "thermostat": { "name": "Termostat" }
+    }
+  },
+  "exceptions": {
+    "manual_heating_disabled": {
+      "message": "Nie można zmienić trybu HVAC, gdy ręczne ogrzewanie jest wyłączone. Włącz najpierw przełącznik „Ręczne ogrzewanie” w sekcji konfiguracji."
+    }
+  }
+}
