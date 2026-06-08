@@ -16,10 +16,12 @@ template: |
 exclude-contributors:
   - dependabot[bot]
 categories:
-  - type: 'version-resolver'
+  - title: '💥 Breaking Changes'
     semver-increment: 'major'
+    exclusive: true
     when:
-      label: 'breaking'
+      labels:
+        - 'breaking'
   - title: '🚀 Features'
     semver-increment: 'minor'
     when:
