@@ -61,7 +61,7 @@ For a detailed, step-by-step guide on how to wire the RS485 bridge and configure
 - **Math-correct CRC-32 generation** — all commands are built dynamically using a reverse-engineered CRC-32 algorithm (standard polynomial `0x04C11DB7` with 32-bit word-swap, detailed in [protocol.md](docs/protocol.md)), preventing potential invalid CRC hazards
 - **Bus-safe pacing & serialization** — write commands are paced relative to the RS485 sync frame to avoid bus collisions, managed via a serialized and coalesced intent queue
 - Fully local, no cloud, no internet
-- English, French, and German UI translations
+- English, French, German, and Polish UI translations
 
 ## Installation
 
