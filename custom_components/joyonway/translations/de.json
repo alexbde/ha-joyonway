@@ -41,6 +41,22 @@
           "high": "Hoch"
         }
       },
+      "jets_left": {
+        "name": "Düsen links",
+        "state": {
+          "off": "Aus",
+          "low": "Niedrig",
+          "high": "Hoch"
+        }
+      },
+      "jets_right": {
+        "name": "Düsen rechts",
+        "state": {
+          "off": "Aus",
+          "low": "Niedrig",
+          "high": "Hoch"
+        }
+      },
       "spa_datetime": { "name": "Datum & Uhrzeit" },
       "heater_byte_raw": { "name": "Heizungs-Byte (roh)" },
       "pump_byte_raw": { "name": "Pumpen-Byte (roh)" },
@@ -54,7 +70,9 @@
       "bridge_connectivity": { "name": "RS485-Bridge" }
     },
     "fan": {
-      "jets": { "name": "Düsen" }
+      "jets": { "name": "Düsen" },
+      "jets_left": { "name": "Düsen links" },
+      "jets_right": { "name": "Düsen rechts" }
     },
     "switch": {
       "light": { "name": "Licht" },

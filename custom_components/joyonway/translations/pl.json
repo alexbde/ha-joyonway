@@ -41,6 +41,22 @@
           "high": "Wysokie"
         }
       },
+      "jets_left": {
+        "name": "Dysze lewe",
+        "state": {
+          "off": "Wyłączone",
+          "low": "Niskie",
+          "high": "Wysokie"
+        }
+      },
+      "jets_right": {
+        "name": "Dysze prawe",
+        "state": {
+          "off": "Wyłączone",
+          "low": "Niskie",
+          "high": "Wysokie"
+        }
+      },
       "spa_datetime": { "name": "Data i godzina" },
       "heater_byte_raw": { "name": "Bajt podgrzewacza (surowy)" },
       "pump_byte_raw": { "name": "Bajt pompy (surowy)" },
@@ -54,7 +70,9 @@
       "bridge_connectivity": { "name": "Mostek RS485" }
     },
     "fan": {
-      "jets": { "name": "Dysze" }
+      "jets": { "name": "Dysze" },
+      "jets_left": { "name": "Dysze lewe" },
+      "jets_right": { "name": "Dysze prawe" }
     },
     "switch": {
       "light": { "name": "Oświetlenie" },
