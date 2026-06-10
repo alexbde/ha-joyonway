@@ -42,6 +42,7 @@ from custom_components.joyonway.const import (
 )
 from custom_components.joyonway.fan import SpaJetsFan
 from custom_components.joyonway.sensor import JoyonwaySensor
+from custom_components.joyonway.adapters.base import PumpDescription
 from custom_components.joyonway.switch import (
     SpaAutoClockSyncSwitch,
     SpaBlowerSwitch,
@@ -61,9 +62,9 @@ CMD_HEATER_ON = _adapter.build_heater_command(on=True)
 CMD_HEATER_OFF = _adapter.build_heater_command(on=False)
 CMD_BLOWER_ON = _adapter.build_blower_command(on=True)
 CMD_BLOWER_OFF = _adapter.build_blower_command(on=False)
-CMD_JETS_LOW = _adapter.build_jets_command("low")
-CMD_JETS_HIGH = _adapter.build_jets_command("high")
-CMD_JETS_OFF = _adapter.build_jets_command("off")
+CMD_JETS_LOW = _adapter.build_jets_command("jets", "low")
+CMD_JETS_HIGH = _adapter.build_jets_command("jets", "high")
+CMD_JETS_OFF = _adapter.build_jets_command("jets", "off")
 
 
 class DummyAdapter:
@@ -81,15 +82,15 @@ class DummyAdapter:
         return val
 
     @staticmethod
-    def get_jets_state(data: dict) -> str:
-        return data.get("jets", "off")
+    def get_jets_state(data: dict, pump_id: str) -> str:
+        return data.get(pump_id, "off")
 
     @staticmethod
     def build_temp_command(target_celsius: int) -> bytes | None:
         return b"\xaa" if 10 <= target_celsius <= 40 else None
 
     @staticmethod
-    def build_light_toggle_command() -> bytes:
+    def build_light_toggle_command(on: bool | None = None) -> bytes:
         return CMD_LIGHT_TOGGLE
 
     @staticmethod
@@ -101,14 +102,12 @@ class DummyAdapter:
         return CMD_BLOWER_ON if on else CMD_BLOWER_OFF
 
     @staticmethod
-    def build_jets_command(target: str) -> bytes | None:
-        if target == "low":
-            return CMD_JETS_LOW
-        if target == "high":
-            return CMD_JETS_HIGH
+    def build_jets_command(pump_id: str, target: str) -> bytes | None:
         if target == "off":
             return CMD_JETS_OFF
-        return None
+        if target == "high":
+            return CMD_JETS_HIGH
+        return CMD_JETS_LOW
 
 
 class DummyIntentQueue:
@@ -250,7 +249,7 @@ async def test_heater_and_blower_switch_commands(entry: SimpleNamespace) -> None
 
 def test_fan_reports_power_features(entry: SimpleNamespace) -> None:
     coordinator = DummyCoordinator(data={"jets": "off"})
-    fan = SpaJetsFan(coordinator, entry)
+    fan = SpaJetsFan(coordinator, entry, PumpDescription(id="jets", name="Jets", type="dual"))
 
     assert fan.supported_features & FanEntityFeature.SET_SPEED
     assert fan.supported_features & FanEntityFeature.TURN_ON
@@ -424,7 +423,7 @@ async def test_heater_optimistic_state(entry: SimpleNamespace) -> None:
 async def test_fan_optimistic_percentage(entry: SimpleNamespace) -> None:
     """Fan shows optimistic percentage immediately after command send."""
     coordinator = DummyCoordinator(data={"jets": "off"})
-    fan = SpaJetsFan(coordinator, entry)
+    fan = SpaJetsFan(coordinator, entry, PumpDescription(id="jets", name="Jets", type="dual"))
     fan.hass = DummyHass()
     fan.async_write_ha_state = lambda: None
 

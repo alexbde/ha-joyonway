@@ -351,7 +351,7 @@ class DryRunSimulator:
         for rf in raw_frames:
             if not validate_frame(rf):
                 continue
-            logical = unescape_frame(rf, full=adapter.unescape_full_frame)
+            logical = unescape_frame(rf, unescape_full=adapter.unescape_full_frame)
             if len(logical) < 10:
                 continue
             cmd_type = logical[5]
@@ -514,7 +514,7 @@ async def read_broadcast(
                 _log_event("non_broadcast_frame", raw_hex=raw_frame.hex())
                 continue
             try:
-                logical = unescape_frame(raw_frame, full=adapter.unescape_full_frame)
+                logical = unescape_frame(raw_frame, unescape_full=adapter.unescape_full_frame)
                 result = adapter.parse_status(logical)
                 if result is not None:
                     latest_result = result
@@ -682,10 +682,10 @@ async def test_basic_controls(
 
     # Ensure starting state is off
     if orig_jets != "off":
-        cmd_off = adapter.build_jets_command("off")
+        cmd_off = adapter.build_jets_command("jets", "off")
         # If in low, go through high first
         if orig_jets == "low":
-            cmd_high = adapter.build_jets_command("high")
+            cmd_high = adapter.build_jets_command("jets", "high")
             await send_raw_command(reader, writer, cmd_high, "Settle jets: LOW -> HIGH")
             await wait_for_expected_state(reader, lambda st: st.get("jets") == "high")
             await asyncio.sleep(jets_settle)
@@ -694,7 +694,7 @@ async def test_basic_controls(
         await asyncio.sleep(jets_settle)
 
     # 3a. Off -> Low (Permutation 1)
-    cmd_low = adapter.build_jets_command("low")
+    cmd_low = adapter.build_jets_command("jets", "low")
     await send_raw_command(reader, writer, cmd_low, "Set jets LOW")
     ok_off_low, new_state = await wait_for_expected_state(
         reader, lambda st: st.get("jets") == "low"
@@ -706,7 +706,7 @@ async def test_basic_controls(
     await asyncio.sleep(jets_settle)
 
     # 3b. Low -> High (Permutation 2)
-    cmd_high = adapter.build_jets_command("high")
+    cmd_high = adapter.build_jets_command("jets", "high")
     await send_raw_command(reader, writer, cmd_high, "Set jets HIGH")
     ok_low_high, new_state = await wait_for_expected_state(
         reader, lambda st: st.get("jets") == "high"
@@ -718,7 +718,7 @@ async def test_basic_controls(
     await asyncio.sleep(jets_settle)
 
     # 3c. High -> Low (Permutation 5 - multi-step: high -> off -> low)
-    cmd_off = adapter.build_jets_command("off")
+    cmd_off = adapter.build_jets_command("jets", "off")
     await send_raw_command(
         reader, writer, cmd_off, "Set jets OFF (intermediate for HIGH -> LOW)"
     )
@@ -792,7 +792,7 @@ async def test_basic_controls(
 
     # Restore Jets to baseline if they were not off originally
     if state.get("jets") != orig_jets:
-        cmd_restore = adapter.build_jets_command(orig_jets)
+        cmd_restore = adapter.build_jets_command("jets", orig_jets)
         await send_raw_command(
             reader, writer, cmd_restore, f"Restore jets (target: {orig_jets})"
         )
@@ -1572,18 +1572,18 @@ async def test_intent_queue(
         print(f"      build_jets: target={target}, current={current}")
         if target == current:
             return None
-        return adapter.build_jets_command(target)
+        return adapter.build_jets_command("jets", target)
 
     def is_jets_command(f: bytes) -> bool:
         try:
-            logical = unescape_frame(f, full=adapter.unescape_full_frame)
+            logical = unescape_frame(f, unescape_full=adapter.unescape_full_frame)
             return len(logical) > 8 and logical[5] == 0xA1 and logical[8] != 0x00
         except Exception:
             return False
 
     def is_light_command(f: bytes) -> bool:
         try:
-            logical = unescape_frame(f, full=adapter.unescape_full_frame)
+            logical = unescape_frame(f, unescape_full=adapter.unescape_full_frame)
             return len(logical) > 10 and logical[5] == 0xA1 and logical[10] == 0x40
         except Exception:
             return False
@@ -1904,7 +1904,7 @@ async def run_suite(option: int) -> None:
                         await send_raw_command(
                             restoration_reader,
                             restoration_writer,
-                            adapter.build_jets_command(initial_state.get("jets")),
+                            adapter.build_jets_command("jets", initial_state.get("jets")),
                             "Restore Jets",
                         )
                         await asyncio.sleep(1.0 if dry_run else 12.0)
