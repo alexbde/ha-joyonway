@@ -129,7 +129,9 @@ MASK_HEATER_BLOWER = 0x08  # bit 3 on heater byte = blower running
 _TRAILER_LEN = 5  # CRC32 (4) + frame end delimiter (1)
 HEATER_OFF = 0x40  # Idle/off (KDy called this "cooldown") ✅ confirmed
 HEATER_STANDBY = 0x50  # Heater enabled/armed — waiting for temp drop ✅ confirmed
-HEATER_CIRCULATION = 0x51  # Pre/post-heat circulation (circle icon on panel) ✅ confirmed
+HEATER_CIRCULATION = (
+    0x51  # Pre/post-heat circulation (circle icon on panel) ✅ confirmed
+)
 HEATER_HEATING = 0x55  # Actively heating (flame icon) ✅ confirmed
 HEATER_HEATING_ALT = 0x54  # Actively heating (KDy's value, differs by bit 0)
 HEATER_OZONE = 0x41  # Ozone cycle — scheduled (our capture) ✅ confirmed

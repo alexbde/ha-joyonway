@@ -540,10 +540,14 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
 
             if not is_broadcast(raw_frame):
                 continue
-            if not validate_frame(raw_frame, unescape_full=self._adapter.unescape_full_frame):
+            if not validate_frame(
+                raw_frame, unescape_full=self._adapter.unescape_full_frame
+            ):
                 continue
 
-            logical = unescape_frame(raw_frame, unescape_full=self._adapter.unescape_full_frame)
+            logical = unescape_frame(
+                raw_frame, unescape_full=self._adapter.unescape_full_frame
+            )
 
             try:
                 data = self._adapter.parse_status(logical)

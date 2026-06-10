@@ -29,8 +29,11 @@ from homeassistant.const import CONF_HOST, CONF_PORT
 async def test_detect_model_success() -> None:
     """Test connection helper when TCP connection succeeds."""
     from unittest.mock import AsyncMock
+
     mock_reader = MagicMock()
-    mock_reader.read = AsyncMock(return_value=bytes([0x1A, 0xFF, 0x01, 0x3C, 0xD2, 0xB4, 0xFF, 0x08, 0x03, 0x00]))
+    mock_reader.read = AsyncMock(
+        return_value=bytes([0x1A, 0xFF, 0x01, 0x3C, 0xD2, 0xB4, 0xFF, 0x08, 0x03, 0x00])
+    )
     mock_writer = MagicMock()
     mock_writer.close = MagicMock()
     mock_writer.wait_closed = AsyncMock()

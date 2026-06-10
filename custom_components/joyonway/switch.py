@@ -616,7 +616,12 @@ class SpaManualOzoneSwitch(_SpaTargetStateSwitch):
             target = overrides["mode"]
             if data is not None and data.get("ozone_mode") == target:
                 return None
-            return coordinator.adapter.build_ozone_mode_command(target)
+            cmd = coordinator.adapter.build_ozone_mode_command(target)
+            if not cmd:
+                raise IntentBuildError(
+                    "Ozone mode configuration not supported on this model"
+                )
+            return cmd
 
         coordinator.intent_queue.submit(
             group="ozone_mode",
@@ -674,7 +679,12 @@ class SpaManualHeaterSwitch(_SpaTargetStateSwitch):
             target = overrides["mode"]
             if data is not None and data.get("heater_mode") == target:
                 return None
-            return coordinator.adapter.build_heater_mode_command(target)
+            cmd = coordinator.adapter.build_heater_mode_command(target)
+            if not cmd:
+                raise IntentBuildError(
+                    "Heater mode configuration not supported on this model"
+                )
+            return cmd
 
         coordinator.intent_queue.submit(
             group="heater_mode",

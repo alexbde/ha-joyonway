@@ -68,11 +68,13 @@ sys.modules["joyonway.adapters"] = _adapters_pkg
 _load("joyonway.adapters", _comp_dir / "adapters" / "__init__.py")
 _load("joyonway.adapters.base", _comp_dir / "adapters" / "base.py")
 _load("joyonway.adapters.p25b85", _comp_dir / "adapters" / "p25b85.py")
+_load("joyonway.adapters.p23b32", _comp_dir / "adapters" / "p23b32.py")
 _load("joyonway.protocol", _comp_dir / "protocol.py")
 _load("joyonway.coordinator", _comp_dir / "coordinator.py")
 
 
 from joyonway.adapters.p25b85 import P25B85Adapter
+from joyonway.adapters.p23b32 import P23B32Adapter
 from joyonway.protocol import (
     compute_crc,
     find_frames,
@@ -105,7 +107,8 @@ POST_COMMAND_DELAY = 2.5
 RETRY_DELAY = 1.5
 MAX_ATTEMPTS = 3
 
-adapter = P25B85Adapter()
+MODEL = "P25B85"
+adapter: P25B85Adapter | P23B32Adapter = P25B85Adapter()
 dry_run = False
 
 # Schedule combos
@@ -190,13 +193,16 @@ class DryRunStreamWriter:
 
 
 class DryRunSimulator:
-    def __init__(self):
+    def __init__(self, model_name: str = "P25B85"):
+        self.model = model_name.upper()
         self.active = True
         self.current_temp = 36
         self.setpoint = 37
         self.light = False
         self.blower = False
         self.jets = "off"
+        self.jets_left = "off"
+        self.jets_right = "off"
         self.heater = True
         self.ozone_mode = "auto"
         self.ozone_active = False
@@ -229,186 +235,278 @@ class DryRunSimulator:
         }
 
     def generate_broadcast(self) -> bytes:
-        # Build logical frame status bytes matching the P25B85 byte map parsing
-        # Frame signature: 8 bytes
-        payload = bytearray([0xFF, 0x01, 0x3C, 0xD2, 0xB4, 0xFF, 0x08, 0x03])
+        if self.model in ("P23B32", "P20B29"):
+            payload = bytearray([0xFF, 0x01, 0x3C, 0xD2, 0xB4, 0xFF, 0x08, 0x02])
+            payload.append(_celsius_to_fahrenheit(self.current_temp))
+            payload.extend([0, 0])
 
-        # Byte 9 (index 8): Water temp (Fahrenheit)
-        payload.append(_celsius_to_fahrenheit(self.current_temp))
+            pump_val = 0
+            if self.jets_left == "on":
+                pump_val |= 0x04
+            if self.jets_right == "on":
+                pump_val |= 0x10
+            payload.append(pump_val)
 
-        # Bytes 10-11 (index 9-10): filler
-        payload.extend([0, 0])
-
-        # Byte 12 (index 11): Pump/jets
-        pump_val = 0
-        if self.jets == "low":
-            pump_val = 0x02
-        elif self.jets == "high":
-            pump_val = 0x04
-        payload.append(pump_val)
-
-        # Byte 13 (index 12): Ozone mode
-        ozone_mode_val = 0
-        if self.ozone_mode == "manual":
-            ozone_mode_val |= 0x80
-        payload.append(ozone_mode_val)
-
-        # Byte 14 (index 13): Heater status
-        heater_val = 0x40  # HEATER_OFF
-        if self.ozone_active:
+            ozone_mode_val = 0
             if self.ozone_mode == "manual":
-                heater_val = 0xC1  # HEATER_OZONE_ALT
-            else:
-                heater_val = 0x41  # HEATER_OZONE
-        elif self.heater:
-            if self.current_temp < self.setpoint:
-                heater_val = 0x55  # HEATER_HEATING
-            else:
-                heater_val = 0x50  # HEATER_STANDBY
+                ozone_mode_val |= 0x80
+            payload.append(ozone_mode_val)
 
-        if self.blower:
-            heater_val |= 0x08  # MASK_HEATER_BLOWER
-        payload.append(heater_val)
+            heater_val = 0x40  # HEATER_OFF
+            if self.ozone_active:
+                heater_val = 0xC1
+            elif self.heater:
+                if self.current_temp < self.setpoint:
+                    heater_val = 0x55
+                else:
+                    heater_val = 0x50
+                heater_val |= 0x10
+            if self.blower:
+                heater_val |= 0x08
+            payload.append(heater_val)
 
-        # Byte 15 (index 14): filler
-        payload.append(0)
+            payload.append(0)
+            payload.append(_celsius_to_fahrenheit(self.setpoint))
 
-        # Byte 16 (index 15): Setpoint (Fahrenheit)
-        payload.append(_celsius_to_fahrenheit(self.setpoint))
+            light_val = 0
+            if self.light:
+                light_val |= 0x01
+            if self.heater and self.current_temp < self.setpoint:
+                light_val |= 0x80
+            payload.append(light_val)
 
-        # Byte 17 (index 16): Light / heating cycle
-        light_val = 0
-        if self.light:
-            light_val |= 0x01
-        if self.heater and self.current_temp < self.setpoint:
-            light_val |= 0x80
-        payload.append(light_val)
+            payload.append(0)
 
-        # Byte 18 (index 17): filler
-        payload.append(0)
+            # Heat schedule
+            payload.append(
+                self.heat["slot1_start"][0]
+                | (0x40 if self.heat["slot1_enabled"] else 0)
+            )
+            payload.append(self.heat["slot1_start"][1])
+            payload.append(self.heat["slot1_end"][0])
+            payload.append(self.heat["slot1_end"][1])
+            payload.append(
+                self.heat["slot2_start"][0]
+                | (0x40 if self.heat["slot2_enabled"] else 0)
+            )
+            payload.append(self.heat["slot2_start"][1])
+            payload.append(self.heat["slot2_end"][0])
+            payload.append(self.heat["slot2_end"][1])
 
-        # Bytes 19-26 (index 18-25): Heat schedule
-        # s1_start, s1_end, s2_start, s2_end
-        payload.append(
-            self.heat["slot1_start"][0] | (0x40 if self.heat["slot1_enabled"] else 0)
-        )
-        payload.append(self.heat["slot1_start"][1])
-        payload.append(self.heat["slot1_end"][0])
-        payload.append(self.heat["slot1_end"][1])
-        payload.append(
-            self.heat["slot2_start"][0] | (0x40 if self.heat["slot2_enabled"] else 0)
-        )
-        payload.append(self.heat["slot2_start"][1])
-        payload.append(self.heat["slot2_end"][0])
-        payload.append(self.heat["slot2_end"][1])
+            payload.append(0)
 
-        # Byte 27 (index 26): filler
-        payload.append(0)
+            # Activity flag
+            activity_val = 0
+            if self.blower:
+                activity_val |= 0x20
+            payload.append(activity_val)
 
-        # Byte 28 (index 27): Activity / Blower
-        activity_val = 0
-        if self.blower:
-            activity_val |= 0x08
-        payload.append(activity_val)
+            # Filter schedule
+            payload.append(
+                self.filter["slot1_start"][0]
+                | (0x40 if self.filter["slot1_enabled"] else 0)
+            )
+            payload.append(self.filter["slot1_start"][1])
+            payload.append(self.filter["slot1_end"][0])
+            payload.append(self.filter["slot1_end"][1])
+            payload.append(
+                self.filter["slot2_start"][0]
+                | (0x40 if self.filter["slot2_enabled"] else 0)
+            )
+            payload.append(self.filter["slot2_start"][1])
+            payload.append(self.filter["slot2_end"][0])
+            payload.append(self.filter["slot2_end"][1])
 
-        # Bytes 29-36 (index 28-35): Filter schedule
-        payload.append(
-            self.filter["slot1_start"][0]
-            | (0x40 if self.filter["slot1_enabled"] else 0)
-        )
-        payload.append(self.filter["slot1_start"][1])
-        payload.append(self.filter["slot1_end"][0])
-        payload.append(self.filter["slot1_end"][1])
-        payload.append(
-            self.filter["slot2_start"][0]
-            | (0x40 if self.filter["slot2_enabled"] else 0)
-        )
-        payload.append(self.filter["slot2_start"][1])
-        payload.append(self.filter["slot2_end"][0])
-        payload.append(self.filter["slot2_end"][1])
+            payload.extend([0] * 16)
+            payload.extend(
+                [self.year, self.month, self.day, self.hour, self.minute, self.second]
+            )
+            payload.append(0)
+        else:
+            payload = bytearray([0xFF, 0x01, 0x3C, 0xD2, 0xB4, 0xFF, 0x08, 0x03])
+            payload.append(_celsius_to_fahrenheit(self.current_temp))
+            payload.extend([0, 0])
 
-        # Bytes 37-52 (index 36-51): filler (16 bytes)
-        payload.extend([0] * 16)
+            pump_val = 0
+            if self.jets == "low":
+                pump_val = 0x02
+            elif self.jets == "high":
+                pump_val = 0x04
+            payload.append(pump_val)
 
-        # Bytes 53-58 (index 52-57): DateTime (year, month, day, hour, minute, second)
-        payload.extend(
-            [self.year, self.month, self.day, self.hour, self.minute, self.second]
-        )
+            ozone_mode_val = 0
+            if self.ozone_mode == "manual":
+                ozone_mode_val |= 0x80
+            payload.append(ozone_mode_val)
 
-        # Byte 59 (index 58): filler
-        payload.append(0)
+            heater_val = 0x40
+            if self.ozone_active:
+                if self.ozone_mode == "manual":
+                    heater_val = 0xC1
+                else:
+                    heater_val = 0x41
+            elif self.heater:
+                if self.current_temp < self.setpoint:
+                    heater_val = 0x55
+                else:
+                    heater_val = 0x50
+            if self.blower:
+                heater_val |= 0x08
+            payload.append(heater_val)
+
+            payload.append(0)
+            payload.append(_celsius_to_fahrenheit(self.setpoint))
+
+            light_val = 0
+            if self.light:
+                light_val |= 0x01
+            if self.heater and self.current_temp < self.setpoint:
+                light_val |= 0x80
+            payload.append(light_val)
+
+            payload.append(0)
+
+            # Heat schedule
+            payload.append(
+                self.heat["slot1_start"][0]
+                | (0x40 if self.heat["slot1_enabled"] else 0)
+            )
+            payload.append(self.heat["slot1_start"][1])
+            payload.append(self.heat["slot1_end"][0])
+            payload.append(self.heat["slot1_end"][1])
+            payload.append(
+                self.heat["slot2_start"][0]
+                | (0x40 if self.heat["slot2_enabled"] else 0)
+            )
+            payload.append(self.heat["slot2_start"][1])
+            payload.append(self.heat["slot2_end"][0])
+            payload.append(self.heat["slot2_end"][1])
+
+            payload.append(0)
+
+            activity_val = 0
+            if self.blower:
+                activity_val |= 0x08
+            payload.append(activity_val)
+
+            # Filter schedule
+            payload.append(
+                self.filter["slot1_start"][0]
+                | (0x40 if self.filter["slot1_enabled"] else 0)
+            )
+            payload.append(self.filter["slot1_start"][1])
+            payload.append(self.filter["slot1_end"][0])
+            payload.append(self.filter["slot1_end"][1])
+            payload.append(
+                self.filter["slot2_start"][0]
+                | (0x40 if self.filter["slot2_enabled"] else 0)
+            )
+            payload.append(self.filter["slot2_start"][1])
+            payload.append(self.filter["slot2_end"][0])
+            payload.append(self.filter["slot2_end"][1])
+
+            payload.extend([0] * 16)
+            payload.extend(
+                [self.year, self.month, self.day, self.hour, self.minute, self.second]
+            )
+            payload.append(0)
 
         # Add CRC-32 (4 bytes)
         crc = compute_crc(payload)
-        payload.extend(struct.pack("<I", crc))
+        inner = payload + struct.pack("<I", crc)
 
-        # Add frame delimiters
-        frame = b"\x1a" + pseudo_escape(payload) + b"\x1d"
+        # Add frame delimiters and apply escape policy
+        if self.model in ("P23B32", "P20B29"):
+            escaped = inner[:54] + pseudo_escape(inner[54:])
+        else:
+            escaped = pseudo_escape(inner)
+        frame = b"\x1a" + escaped + b"\x1d"
         return frame
 
     def handle_write(self, data: bytes):
         raw_frames = find_frames(data)
         for rf in raw_frames:
-            if not validate_frame(rf):
+            if not validate_frame(rf, unescape_full=True):
                 continue
-            logical = unescape_frame(rf, unescape_full=adapter.unescape_full_frame)
+            logical = unescape_frame(rf, unescape_full=True)
             if len(logical) < 10:
                 continue
             cmd_type = logical[5]
 
             # Button Commands
             if cmd_type == 0xA1:
-                jet_b7 = logical[8]
-                pump_b8 = logical[9]
-                btn_group = logical[10]
-                btn_action = logical[11]
-                modifier = logical[12]
-                context = logical[13]
-                setpoint_f = logical[15]
+                if self.model in ("P23B32", "P20B29"):
+                    # Jets Left
+                    if logical[8] == 0x06:
+                        self.jets_left = "on" if logical[9] == 0x04 else "off"
+                    # Jets Right
+                    elif logical[8] == 0x18:
+                        self.jets_right = "on" if logical[9] == 0x10 else "off"
+                    # Light (discrete on/off)
+                    elif logical[11] == 0x40 and logical[12] == 0x40:
+                        self.light = logical[17] == 0x81
+                    # Blower
+                    elif logical[10] == 0x04:
+                        self.blower = logical[11] == 0x04
+                    # Heater
+                    elif logical[10] == 0x08:
+                        self.heater = logical[11] == 0x18
+                    # Setpoint
+                    elif logical[10] == 0x80 and logical[11] == 0x80:
+                        c = _fahrenheit_to_celsius(logical[15])
+                        if c is not None:
+                            self.setpoint = c
+                    # Ozone manual
+                    elif logical[10] == 0x01:
+                        self.ozone_active = logical[11] == 0x01
+                else:
+                    jet_b7 = logical[8]
+                    pump_b8 = logical[9]
+                    btn_group = logical[10]
+                    btn_action = logical[11]
+                    modifier = logical[12]
+                    context = logical[13]
+                    setpoint_f = logical[15]
 
-                # Jets
-                if (jet_b7, pump_b8) == (0x02, 0x02):
-                    if self.jets == "high":
-                        self.jets = "off"
-                    else:
-                        self.jets = "low"
-                elif (jet_b7, pump_b8) == (0x06, 0x04):
-                    self.jets = "high"
-                elif (jet_b7, pump_b8) == (0x04, 0x00):
-                    if self.jets == "high":
-                        self.jets = "off"
-                    # If low, ignored by hardware
+                    # Jets
+                    if (jet_b7, pump_b8) == (0x02, 0x02):
+                        if self.jets == "high":
+                            self.jets = "off"
+                        else:
+                            self.jets = "low"
+                    elif (jet_b7, pump_b8) == (0x06, 0x04):
+                        self.jets = "high"
+                    elif (jet_b7, pump_b8) == (0x04, 0x00):
+                        if self.jets == "high":
+                            self.jets = "off"
 
-                # Light toggle
-                elif btn_group == 0x40 and btn_action == 0x40:
-                    self.light = not self.light
+                    # Light toggle
+                    elif btn_group == 0x40 and btn_action == 0x40:
+                        self.light = not self.light
 
-                # Blower
-                elif btn_group == 0x04:
-                    self.blower = btn_action == 0x0C
+                    # Blower
+                    elif btn_group == 0x04:
+                        self.blower = btn_action == 0x0C
 
-                # Heater
-                elif btn_group == 0x08:
-                    self.heater = btn_action == 0x08
+                    # Heater
+                    elif btn_group == 0x08:
+                        self.heater = btn_action == 0x08
 
-                # Setpoint
-                elif btn_group == 0x80 and btn_action == 0x98:
-                    c = _fahrenheit_to_celsius(setpoint_f)
-                    if c is not None:
-                        self.setpoint = c
+                    # Setpoint
+                    elif btn_group == 0x80 and btn_action == 0x98:
+                        c = _fahrenheit_to_celsius(setpoint_f)
+                        if c is not None:
+                            self.setpoint = c
 
-                # Ozone Mode / Manual Control
-                elif modifier == 0x80:
-                    self.ozone_mode = "auto" if context == 0xC0 else "manual"
-                elif btn_group == 0x01:
-                    # In manual mode, we accept manual command.
-                    # In auto mode, real hardware might ignore it. Let's ignore it in auto mode.
-                    if self.ozone_mode == "manual":
-                        self.ozone_active = btn_action == 0x01
+                    # Ozone Mode / Manual Control
+                    elif modifier == 0x80:
+                        self.ozone_mode = "auto" if context == 0xC0 else "manual"
+                    elif btn_group == 0x01:
+                        if self.ozone_mode == "manual":
+                            self.ozone_active = btn_action == 0x01
 
             # DateTime / Clock sync command
             elif cmd_type == 0xA2:
-                # [8] is prefix, [9] is year, [10] is month, [11] is day, [12] is hour, [13] is minute, [14] is second
                 self.year = logical[9]
                 self.month = logical[10]
                 self.day = logical[11]
@@ -455,12 +553,59 @@ async def open_spa_connection() -> (
     tuple[asyncio.StreamReader, asyncio.StreamWriter]
     | tuple[DryRunStreamReader, DryRunStreamWriter]
 ):
+    global adapter, MODEL
     if dry_run:
-        print("  [DRY-RUN] Simulating RS485 connection to spa...")
-        sim = DryRunSimulator()
+        print(f"  [DRY-RUN] Simulating RS485 connection to spa ({MODEL})...")
+        sim = DryRunSimulator(MODEL)
         return DryRunStreamReader(sim), DryRunStreamWriter(sim)
     else:
-        return await asyncio.open_connection(HOST, PORT)
+        reader, writer = await asyncio.open_connection(HOST, PORT)
+        print("  Detecting spa model from live broadcast...")
+        try:
+            buf = bytearray()
+            detected_model = None
+            deadline = time.monotonic() + 4.0
+            while time.monotonic() < deadline:
+                chunk = await asyncio.wait_for(reader.read(4096), timeout=0.5)
+                if not chunk:
+                    break
+                buf.extend(chunk)
+                raw_frames = find_frames(bytes(buf))
+                for rf in raw_frames:
+                    if not (
+                        validate_frame(rf, unescape_full=True)
+                        or validate_frame(rf, unescape_full=False)
+                    ):
+                        continue
+                    if not is_broadcast(rf):
+                        continue
+                    if len(rf) > 9:
+                        sig_byte = rf[9]
+                        if sig_byte == 0x03:
+                            detected_model = "P25B85"
+                            break
+                        elif sig_byte == 0x02:
+                            detected_model = "P23B32"
+                            break
+                if detected_model:
+                    break
+
+            if detected_model:
+                print(f"  Auto-detected spa model: {detected_model}")
+                MODEL = detected_model
+                if MODEL in ("P23B32", "P20B29"):
+                    adapter = P23B32Adapter()
+                else:
+                    adapter = P25B85Adapter()
+            else:
+                print(
+                    f"  Warning: Could not auto-detect spa model. Using default: {MODEL}"
+                )
+        except Exception as err:
+            print(
+                f"  Warning during model auto-detection: {err}. Using default: {MODEL}"
+            )
+        return reader, writer
 
 
 async def drain_stale(reader: asyncio.StreamReader) -> None:
@@ -508,13 +653,15 @@ async def read_broadcast(
             buf = buf[last_end + 1 :]
 
         for raw_frame in raw_frames:
-            if not validate_frame(raw_frame):
+            if not validate_frame(raw_frame, unescape_full=adapter.unescape_full_frame):
                 continue
             if not is_broadcast(raw_frame):
                 _log_event("non_broadcast_frame", raw_hex=raw_frame.hex())
                 continue
             try:
-                logical = unescape_frame(raw_frame, unescape_full=adapter.unescape_full_frame)
+                logical = unescape_frame(
+                    raw_frame, unescape_full=adapter.unescape_full_frame
+                )
                 result = adapter.parse_status(logical)
                 if result is not None:
                     latest_result = result
@@ -625,7 +772,10 @@ async def test_basic_controls(
     # 1. Light Toggle
     print("  Testing Light Toggle...")
     orig_light = state.get("light", False)
-    cmd = adapter.build_light_toggle_command()
+    if MODEL in ("P23B32", "P20B29"):
+        cmd = adapter.build_light_toggle_command(not orig_light)
+    else:
+        cmd = adapter.build_light_toggle_command()
     await send_raw_command(
         reader, writer, cmd, f"Light toggle (target: {not orig_light})"
     )
@@ -642,8 +792,12 @@ async def test_basic_controls(
 
     # Restore Light
     if converged:
+        if MODEL in ("P23B32", "P20B29"):
+            restore_cmd = adapter.build_light_toggle_command(orig_light)
+        else:
+            restore_cmd = cmd
         await send_raw_command(
-            reader, writer, cmd, f"Restore Light (target: {orig_light})"
+            reader, writer, restore_cmd, f"Restore Light (target: {orig_light})"
         )
         await wait_for_expected_state(reader, lambda st: st.get("light") == orig_light)
 
@@ -675,129 +829,222 @@ async def test_basic_controls(
             reader, lambda st: st.get("blower") == orig_blower
         )
 
-    # 3. Jets Transitions (off -> low -> high -> low -> off -> high -> off)
-    print("  Testing Jets Pump (off -> low -> high -> low -> off -> high -> off)...")
-    orig_jets = state.get("jets", "off")
+    # 3. Jets/Pumps Control
     jets_settle = 0.5 if dry_run else 12.0
-
-    # Ensure starting state is off
-    if orig_jets != "off":
-        cmd_off = adapter.build_jets_command("jets", "off")
-        # If in low, go through high first
-        if orig_jets == "low":
-            cmd_high = adapter.build_jets_command("jets", "high")
-            await send_raw_command(reader, writer, cmd_high, "Settle jets: LOW -> HIGH")
-            await wait_for_expected_state(reader, lambda st: st.get("jets") == "high")
+    if MODEL in ("P23B32", "P20B29"):
+        print("  Testing Jets Pump Left (off -> on -> off)...")
+        orig_jets_l = state.get("jets_left", "off")
+        if orig_jets_l != "off":
+            cmd_off = adapter.build_jets_command("jets_left", "off")
+            await send_raw_command(reader, writer, cmd_off, "Settle jets_left -> OFF")
+            await wait_for_expected_state(
+                reader, lambda st: st.get("jets_left") == "off"
+            )
             await asyncio.sleep(jets_settle)
-        await send_raw_command(reader, writer, cmd_off, "Settle jets -> OFF")
-        await wait_for_expected_state(reader, lambda st: st.get("jets") == "off")
-        await asyncio.sleep(jets_settle)
 
-    # 3a. Off -> Low (Permutation 1)
-    cmd_low = adapter.build_jets_command("jets", "low")
-    await send_raw_command(reader, writer, cmd_low, "Set jets LOW")
-    ok_off_low, new_state = await wait_for_expected_state(
-        reader, lambda st: st.get("jets") == "low"
-    )
-    print(f"  {'PASS' if ok_off_low else 'FAIL'}: Jets transition OFF -> LOW")
-    results.append(("Jets OFF -> LOW", ok_off_low))
-    if new_state:
-        state = new_state
-    await asyncio.sleep(jets_settle)
-
-    # 3b. Low -> High (Permutation 2)
-    cmd_high = adapter.build_jets_command("jets", "high")
-    await send_raw_command(reader, writer, cmd_high, "Set jets HIGH")
-    ok_low_high, new_state = await wait_for_expected_state(
-        reader, lambda st: st.get("jets") == "high"
-    )
-    print(f"  {'PASS' if ok_low_high else 'FAIL'}: Jets transition LOW -> HIGH")
-    results.append(("Jets LOW -> HIGH", ok_low_high))
-    if new_state:
-        state = new_state
-    await asyncio.sleep(jets_settle)
-
-    # 3c. High -> Low (Permutation 5 - multi-step: high -> off -> low)
-    cmd_off = adapter.build_jets_command("jets", "off")
-    await send_raw_command(
-        reader, writer, cmd_off, "Set jets OFF (intermediate for HIGH -> LOW)"
-    )
-    ok_high_off_int, new_state = await wait_for_expected_state(
-        reader, lambda st: st.get("jets") == "off"
-    )
-    if new_state:
-        state = new_state
-    await asyncio.sleep(jets_settle)
-
-    await send_raw_command(
-        reader, writer, cmd_low, "Set jets LOW (target for HIGH -> LOW)"
-    )
-    ok_high_low, new_state = await wait_for_expected_state(
-        reader, lambda st: st.get("jets") == "low"
-    )
-    print(
-        f"  {'PASS' if (ok_high_off_int and ok_high_low) else 'FAIL'}: Jets transition HIGH -> LOW"
-    )
-    results.append(("Jets HIGH -> LOW", ok_high_off_int and ok_high_low))
-    if new_state:
-        state = new_state
-    await asyncio.sleep(jets_settle)
-
-    # 3d. Low -> Off (Permutation 6 - multi-step: low -> high -> off)
-    await send_raw_command(
-        reader, writer, cmd_high, "Set jets HIGH (intermediate for LOW -> OFF)"
-    )
-    ok_low_high_int, new_state = await wait_for_expected_state(
-        reader, lambda st: st.get("jets") == "high"
-    )
-    if new_state:
-        state = new_state
-    await asyncio.sleep(jets_settle)
-
-    await send_raw_command(
-        reader, writer, cmd_off, "Set jets OFF (target for LOW -> OFF)"
-    )
-    ok_low_off, new_state = await wait_for_expected_state(
-        reader, lambda st: st.get("jets") == "off"
-    )
-    print(
-        f"  {'PASS' if (ok_low_high_int and ok_low_off) else 'FAIL'}: Jets transition LOW -> OFF"
-    )
-    results.append(("Jets LOW -> OFF", ok_low_high_int and ok_low_off))
-    if new_state:
-        state = new_state
-    await asyncio.sleep(jets_settle)
-
-    # 3e. Off -> High (Permutation 4)
-    await send_raw_command(reader, writer, cmd_high, "Set jets HIGH")
-    ok_off_high, new_state = await wait_for_expected_state(
-        reader, lambda st: st.get("jets") == "high"
-    )
-    print(f"  {'PASS' if ok_off_high else 'FAIL'}: Jets transition OFF -> HIGH")
-    results.append(("Jets OFF -> HIGH", ok_off_high))
-    if new_state:
-        state = new_state
-    await asyncio.sleep(jets_settle)
-
-    # 3f. High -> Off (Permutation 3)
-    await send_raw_command(reader, writer, cmd_off, "Set jets OFF (from High)")
-    ok_high_off, new_state = await wait_for_expected_state(
-        reader, lambda st: st.get("jets") == "off"
-    )
-    print(f"  {'PASS' if ok_high_off else 'FAIL'}: Jets transition HIGH -> OFF")
-    results.append(("Jets HIGH -> OFF", ok_high_off))
-    if new_state:
-        state = new_state
-    await asyncio.sleep(jets_settle)
-
-    # Restore Jets to baseline if they were not off originally
-    if state.get("jets") != orig_jets:
-        cmd_restore = adapter.build_jets_command("jets", orig_jets)
-        await send_raw_command(
-            reader, writer, cmd_restore, f"Restore jets (target: {orig_jets})"
+        cmd_l_on = adapter.build_jets_command("jets_left", "on")
+        await send_raw_command(reader, writer, cmd_l_on, "Set jets_left ON")
+        ok_l_on, new_state = await wait_for_expected_state(
+            reader, lambda st: st.get("jets_left") == "on"
         )
-        await wait_for_expected_state(reader, lambda st: st.get("jets") == orig_jets)
+        if new_state:
+            state = new_state
         await asyncio.sleep(jets_settle)
+
+        cmd_l_off = adapter.build_jets_command("jets_left", "off")
+        await send_raw_command(reader, writer, cmd_l_off, "Set jets_left OFF")
+        ok_l_off, new_state = await wait_for_expected_state(
+            reader, lambda st: st.get("jets_left") == "off"
+        )
+        print(f"  {'PASS' if (ok_l_on and ok_l_off) else 'FAIL'}: Jets Left transition")
+        results.append(("Jets Left transition", ok_l_on and ok_l_off))
+        if new_state:
+            state = new_state
+        await asyncio.sleep(jets_settle)
+
+        print("  Testing Jets Pump Right (off -> on -> off)...")
+        orig_jets_r = state.get("jets_right", "off")
+        if orig_jets_r != "off":
+            cmd_off = adapter.build_jets_command("jets_right", "off")
+            await send_raw_command(reader, writer, cmd_off, "Settle jets_right -> OFF")
+            await wait_for_expected_state(
+                reader, lambda st: st.get("jets_right") == "off"
+            )
+            await asyncio.sleep(jets_settle)
+
+        cmd_r_on = adapter.build_jets_command("jets_right", "on")
+        await send_raw_command(reader, writer, cmd_r_on, "Set jets_right ON")
+        ok_r_on, new_state = await wait_for_expected_state(
+            reader, lambda st: st.get("jets_right") == "on"
+        )
+        if new_state:
+            state = new_state
+        await asyncio.sleep(jets_settle)
+
+        cmd_r_off = adapter.build_jets_command("jets_right", "off")
+        await send_raw_command(reader, writer, cmd_r_off, "Set jets_right OFF")
+        ok_r_off, new_state = await wait_for_expected_state(
+            reader, lambda st: st.get("jets_right") == "off"
+        )
+        print(
+            f"  {'PASS' if (ok_r_on and ok_r_off) else 'FAIL'}: Jets Right transition"
+        )
+        results.append(("Jets Right transition", ok_r_on and ok_r_off))
+        if new_state:
+            state = new_state
+        await asyncio.sleep(jets_settle)
+
+        # Restore Left
+        if orig_jets_l != "off":
+            cmd_restore = adapter.build_jets_command("jets_left", orig_jets_l)
+            await send_raw_command(
+                reader, writer, cmd_restore, f"Restore jets_left ({orig_jets_l})"
+            )
+            await wait_for_expected_state(
+                reader, lambda st: st.get("jets_left") == orig_jets_l
+            )
+            await asyncio.sleep(jets_settle)
+        # Restore Right
+        if orig_jets_r != "off":
+            cmd_restore = adapter.build_jets_command("jets_right", orig_jets_r)
+            await send_raw_command(
+                reader, writer, cmd_restore, f"Restore jets_right ({orig_jets_r})"
+            )
+            await wait_for_expected_state(
+                reader, lambda st: st.get("jets_right") == orig_jets_r
+            )
+            await asyncio.sleep(jets_settle)
+
+    else:
+        # P25B85 dual-speed transitions
+        print(
+            "  Testing Jets Pump (off -> low -> high -> low -> off -> high -> off)..."
+        )
+        orig_jets = state.get("jets", "off")
+
+        # Ensure starting state is off
+        if orig_jets != "off":
+            cmd_off = adapter.build_jets_command("jets", "off")
+            if orig_jets == "low":
+                cmd_high = adapter.build_jets_command("jets", "high")
+                await send_raw_command(
+                    reader, writer, cmd_high, "Settle jets: LOW -> HIGH"
+                )
+                await wait_for_expected_state(
+                    reader, lambda st: st.get("jets") == "high"
+                )
+                await asyncio.sleep(jets_settle)
+            await send_raw_command(reader, writer, cmd_off, "Settle jets -> OFF")
+            await wait_for_expected_state(reader, lambda st: st.get("jets") == "off")
+            await asyncio.sleep(jets_settle)
+
+        # 3a. Off -> Low (Permutation 1)
+        cmd_low = adapter.build_jets_command("jets", "low")
+        await send_raw_command(reader, writer, cmd_low, "Set jets LOW")
+        ok_off_low, new_state = await wait_for_expected_state(
+            reader, lambda st: st.get("jets") == "low"
+        )
+        print(f"  {'PASS' if ok_off_low else 'FAIL'}: Jets transition OFF -> LOW")
+        results.append(("Jets OFF -> LOW", ok_off_low))
+        if new_state:
+            state = new_state
+        await asyncio.sleep(jets_settle)
+
+        # 3b. Low -> High (Permutation 2)
+        cmd_high = adapter.build_jets_command("jets", "high")
+        await send_raw_command(reader, writer, cmd_high, "Set jets HIGH")
+        ok_low_high, new_state = await wait_for_expected_state(
+            reader, lambda st: st.get("jets") == "high"
+        )
+        print(f"  {'PASS' if ok_low_high else 'FAIL'}: Jets transition LOW -> HIGH")
+        results.append(("Jets LOW -> HIGH", ok_low_high))
+        if new_state:
+            state = new_state
+        await asyncio.sleep(jets_settle)
+
+        # 3c. High -> Low (Permutation 5 - multi-step: high -> off -> low)
+        cmd_off = adapter.build_jets_command("jets", "off")
+        await send_raw_command(
+            reader, writer, cmd_off, "Set jets OFF (intermediate for HIGH -> LOW)"
+        )
+        ok_high_off_int, new_state = await wait_for_expected_state(
+            reader, lambda st: st.get("jets") == "off"
+        )
+        if new_state:
+            state = new_state
+        await asyncio.sleep(jets_settle)
+
+        await send_raw_command(
+            reader, writer, cmd_low, "Set jets LOW (target for HIGH -> LOW)"
+        )
+        ok_high_low, new_state = await wait_for_expected_state(
+            reader, lambda st: st.get("jets") == "low"
+        )
+        print(
+            f"  {'PASS' if (ok_high_off_int and ok_high_low) else 'FAIL'}: Jets transition HIGH -> LOW"
+        )
+        results.append(("Jets HIGH -> LOW", ok_high_off_int and ok_high_low))
+        if new_state:
+            state = new_state
+        await asyncio.sleep(jets_settle)
+
+        # 3d. Low -> Off (Permutation 6 - multi-step: low -> high -> off)
+        await send_raw_command(
+            reader, writer, cmd_high, "Set jets HIGH (intermediate for LOW -> OFF)"
+        )
+        ok_low_high_int, new_state = await wait_for_expected_state(
+            reader, lambda st: st.get("jets") == "high"
+        )
+        if new_state:
+            state = new_state
+        await asyncio.sleep(jets_settle)
+
+        await send_raw_command(
+            reader, writer, cmd_off, "Set jets OFF (target for LOW -> OFF)"
+        )
+        ok_low_off, new_state = await wait_for_expected_state(
+            reader, lambda st: st.get("jets") == "off"
+        )
+        print(
+            f"  {'PASS' if (ok_low_high_int and ok_low_off) else 'FAIL'}: Jets transition LOW -> OFF"
+        )
+        results.append(("Jets LOW -> OFF", ok_low_high_int and ok_low_off))
+        if new_state:
+            state = new_state
+        await asyncio.sleep(jets_settle)
+
+        # 3e. Off -> High (Permutation 4)
+        await send_raw_command(reader, writer, cmd_high, "Set jets HIGH")
+        ok_off_high, new_state = await wait_for_expected_state(
+            reader, lambda st: st.get("jets") == "high"
+        )
+        print(f"  {'PASS' if ok_off_high else 'FAIL'}: Jets transition OFF -> HIGH")
+        results.append(("Jets OFF -> HIGH", ok_off_high))
+        if new_state:
+            state = new_state
+        await asyncio.sleep(jets_settle)
+
+        # 3f. High -> Off (Permutation 3)
+        await send_raw_command(reader, writer, cmd_off, "Set jets OFF (from High)")
+        ok_high_off, new_state = await wait_for_expected_state(
+            reader, lambda st: st.get("jets") == "off"
+        )
+        print(f"  {'PASS' if ok_high_off else 'FAIL'}: Jets transition HIGH -> OFF")
+        results.append(("Jets HIGH -> OFF", ok_high_off))
+        if new_state:
+            state = new_state
+        await asyncio.sleep(jets_settle)
+
+        # Restore Jets to baseline if they were not off originally
+        if state.get("jets") != orig_jets:
+            cmd_restore = adapter.build_jets_command("jets", orig_jets)
+            await send_raw_command(
+                reader, writer, cmd_restore, f"Restore jets (target: {orig_jets})"
+            )
+            await wait_for_expected_state(
+                reader, lambda st: st.get("jets") == orig_jets
+            )
+            await asyncio.sleep(jets_settle)
 
     # 4. Temperature Setpoint
     print("  Testing Setpoint Adjust...")
@@ -1143,6 +1390,29 @@ async def test_ozone_controls(
     if state is None:
         print("  FAIL: Unable to read baseline broadcast.")
         return [("Ozone baseline check", False)]
+
+    if MODEL in ("P23B32", "P20B29"):
+        print("  Testing Manual Ozone toggles (P23/P20 direct command)...")
+        # Toggle ON
+        cmd_on = adapter.build_ozone_manual_command(True)
+        await send_raw_command(reader, writer, cmd_on, "Manual Ozone ON")
+        ok_on, new_state = await wait_for_expected_state(
+            reader, lambda st: st.get("ozone_active") is True
+        )
+        print(f"    {'PASS' if ok_on else 'FAIL'}: Manual Ozone ON")
+        results.append(("Manual Ozone ON", ok_on))
+        if new_state:
+            state = new_state
+
+        # Toggle OFF
+        cmd_off = adapter.build_ozone_manual_command(False)
+        await send_raw_command(reader, writer, cmd_off, "Manual Ozone OFF")
+        ok_off, new_state = await wait_for_expected_state(
+            reader, lambda st: st.get("ozone_active") is False
+        )
+        print(f"    {'PASS' if ok_off else 'FAIL'}: Manual Ozone OFF")
+        results.append(("Manual Ozone OFF", ok_off))
+        return results
 
     orig_mode = state.get("ozone_mode", "auto")
     print(f"  Baseline Ozone Mode: {orig_mode.upper()}")
@@ -1514,10 +1784,16 @@ class FakeHass:
 class FakeCoordinator:
     def __init__(self, reader, writer):
         self.hass = FakeHass()
-        self.data = {"light": False, "jets": "off", "blower": False}
+        self.data = {
+            "light": False,
+            "jets": "off",
+            "jets_left": "off",
+            "jets_right": "off",
+            "blower": False,
+        }
         self.host = "127.0.0.1"
         self.port = 8899
-        self.model = "P25B85"
+        self.model = MODEL
         self._adapter = adapter
         self.reader = reader
         self.writer = writer
@@ -1556,7 +1832,10 @@ async def test_intent_queue(
     iq = IntentQueue(coord, coalesce_seconds=0.05 if dry_run else 0.3)
 
     # 1. Coalescing Test: Queue 3 rapid toggles of different overrides, verify only last is processed
-    print("  Testing Coalescing (Light ON -> Jets LOW -> Light OFF)...")
+    if MODEL in ("P23B32", "P20B29"):
+        print("  Testing Coalescing (Light ON -> Jets Left ON -> Light OFF)...")
+    else:
+        print("  Testing Coalescing (Light ON -> Jets LOW -> Light OFF)...")
 
     def build_light(overrides, data):
         target = overrides.get("light")
@@ -1564,39 +1843,91 @@ async def test_intent_queue(
         print(f"      build_light: target={target}, current={current}")
         if target == current:
             return None
-        return adapter.build_light_toggle_command()
+        if MODEL in ("P23B32", "P20B29"):
+            return adapter.build_light_toggle_command(target)
+        else:
+            return adapter.build_light_toggle_command()
 
     def build_jets(overrides, data):
-        target = overrides.get("jets")
-        current = data.get("jets") if data else "off"
-        print(f"      build_jets: target={target}, current={current}")
-        if target == current:
-            return None
-        return adapter.build_jets_command("jets", target)
+        if MODEL in ("P23B32", "P20B29"):
+            target = overrides.get("jets_left")
+            current = data.get("jets_left") if data else "off"
+            print(f"      build_jets (left): target={target}, current={current}")
+            if target == current:
+                return None
+            return adapter.build_jets_command("jets_left", target)
+        else:
+            target = overrides.get("jets")
+            current = data.get("jets") if data else "off"
+            print(f"      build_jets: target={target}, current={current}")
+            if target == current:
+                return None
+            return adapter.build_jets_command("jets", target)
 
     def is_jets_command(f: bytes) -> bool:
         try:
-            logical = unescape_frame(f, unescape_full=adapter.unescape_full_frame)
-            return len(logical) > 8 and logical[5] == 0xA1 and logical[8] != 0x00
+            logical = unescape_frame(f, unescape_full=True)
+            if MODEL in ("P23B32", "P20B29"):
+                return (
+                    len(logical) > 8
+                    and logical[5] == 0xA1
+                    and logical[8] in (0x06, 0x18)
+                )
+            else:
+                return len(logical) > 8 and logical[5] == 0xA1 and logical[8] != 0x00
         except Exception:
             return False
 
     def is_light_command(f: bytes) -> bool:
         try:
-            logical = unescape_frame(f, unescape_full=adapter.unescape_full_frame)
-            return len(logical) > 10 and logical[5] == 0xA1 and logical[10] == 0x40
+            logical = unescape_frame(f, unescape_full=True)
+            if MODEL in ("P23B32", "P20B29"):
+                return (
+                    len(logical) > 12
+                    and logical[5] == 0xA1
+                    and logical[11] == 0x40
+                    and logical[12] == 0x40
+                )
+            else:
+                return len(logical) > 10 and logical[5] == 0xA1 and logical[10] == 0x40
         except Exception:
             return False
 
-    iq.submit(
-        "light", {"light": True}, build_light, verify_fn=lambda overrides, data: True
-    )
-    iq.submit(
-        "jets", {"jets": "low"}, build_jets, verify_fn=lambda overrides, data: True
-    )
-    iq.submit(
-        "light", {"light": False}, build_light, verify_fn=lambda overrides, data: True
-    )
+    if MODEL in ("P23B32", "P20B29"):
+        iq.submit(
+            "light",
+            {"light": True},
+            build_light,
+            verify_fn=lambda overrides, data: True,
+        )
+        iq.submit(
+            "jets_left",
+            {"jets_left": "on"},
+            build_jets,
+            verify_fn=lambda overrides, data: True,
+        )
+        iq.submit(
+            "light",
+            {"light": False},
+            build_light,
+            verify_fn=lambda overrides, data: True,
+        )
+    else:
+        iq.submit(
+            "light",
+            {"light": True},
+            build_light,
+            verify_fn=lambda overrides, data: True,
+        )
+        iq.submit(
+            "jets", {"jets": "low"}, build_jets, verify_fn=lambda overrides, data: True
+        )
+        iq.submit(
+            "light",
+            {"light": False},
+            build_light,
+            verify_fn=lambda overrides, data: True,
+        )
 
     print(f"    Waiting {'0.2s' if dry_run else '3.0s'} for coalesce queue to flush...")
     await asyncio.sleep(0.2 if dry_run else 3.0)
@@ -1604,7 +1935,7 @@ async def test_intent_queue(
     # Coalescing should have merged same-group overrides
     # We submitted 'light' twice (True then False), they should have merged to False
     # Since current state is False, target matches current (False) -> no-op -> returns None.
-    # It should be 1 frame (jets="low"), and light should have been a no-op!
+    # It should be 1 frame (jets_left="on" or jets="low"), and light should have been a no-op!
     jets_frames = [f for _, f in coord.sent_frames if is_jets_command(f)]
     light_frames = [f for _, f in coord.sent_frames if is_light_command(f)]
 
@@ -1621,12 +1952,29 @@ async def test_intent_queue(
     print("  Testing Command Serialization...")
     coord.sent_frames.clear()
 
-    iq.submit(
-        "light", {"light": True}, build_light, verify_fn=lambda overrides, data: True
-    )
-    iq.submit(
-        "jets", {"jets": "low"}, build_jets, verify_fn=lambda overrides, data: True
-    )
+    if MODEL in ("P23B32", "P20B29"):
+        iq.submit(
+            "light",
+            {"light": True},
+            build_light,
+            verify_fn=lambda overrides, data: True,
+        )
+        iq.submit(
+            "jets_left",
+            {"jets_left": "on"},
+            build_jets,
+            verify_fn=lambda overrides, data: True,
+        )
+    else:
+        iq.submit(
+            "light",
+            {"light": True},
+            build_light,
+            verify_fn=lambda overrides, data: True,
+        )
+        iq.submit(
+            "jets", {"jets": "low"}, build_jets, verify_fn=lambda overrides, data: True
+        )
 
     # Wait for execution to finish
     await asyncio.sleep(1.5 if dry_run else 6.0)
@@ -1654,12 +2002,29 @@ async def test_intent_queue(
 
     # Revert changes by submitting revert commands to the queue
     print("  Reverting queue test mock changes...")
-    iq.submit(
-        "light", {"light": False}, build_light, verify_fn=lambda overrides, data: True
-    )
-    iq.submit(
-        "jets", {"jets": "off"}, build_jets, verify_fn=lambda overrides, data: True
-    )
+    if MODEL in ("P23B32", "P20B29"):
+        iq.submit(
+            "light",
+            {"light": False},
+            build_light,
+            verify_fn=lambda overrides, data: True,
+        )
+        iq.submit(
+            "jets_left",
+            {"jets_left": "off"},
+            build_jets,
+            verify_fn=lambda overrides, data: True,
+        )
+    else:
+        iq.submit(
+            "light",
+            {"light": False},
+            build_light,
+            verify_fn=lambda overrides, data: True,
+        )
+        iq.submit(
+            "jets", {"jets": "off"}, build_jets, verify_fn=lambda overrides, data: True
+        )
     await asyncio.sleep(0.2 if dry_run else 3.0)
 
     # Shutdown intent queue
@@ -1879,10 +2244,16 @@ async def run_suite(option: int) -> None:
                     # 1. Restore Light
                     if current.get("light") != initial_state.get("light"):
                         print(f"    Restoring Light to {initial_state.get('light')}...")
+                        if MODEL in ("P23B32", "P20B29"):
+                            restore_cmd = adapter.build_light_toggle_command(
+                                initial_state.get("light")
+                            )
+                        else:
+                            restore_cmd = adapter.build_light_toggle_command()
                         await send_raw_command(
                             restoration_reader,
                             restoration_writer,
-                            adapter.build_light_toggle_command(),
+                            restore_cmd,
                             "Restore Light",
                         )
 
@@ -1899,15 +2270,48 @@ async def run_suite(option: int) -> None:
                         )
 
                     # 3. Restore Jets
-                    if current.get("jets") != initial_state.get("jets"):
-                        print(f"    Restoring Jets to {initial_state.get('jets')}...")
-                        await send_raw_command(
-                            restoration_reader,
-                            restoration_writer,
-                            adapter.build_jets_command("jets", initial_state.get("jets")),
-                            "Restore Jets",
-                        )
-                        await asyncio.sleep(1.0 if dry_run else 12.0)
+                    if MODEL in ("P23B32", "P20B29"):
+                        # Restore Jets Left
+                        if current.get("jets_left") != initial_state.get("jets_left"):
+                            print(
+                                f"    Restoring Jets Left to {initial_state.get('jets_left')}..."
+                            )
+                            await send_raw_command(
+                                restoration_reader,
+                                restoration_writer,
+                                adapter.build_jets_command(
+                                    "jets_left", initial_state.get("jets_left")
+                                ),
+                                "Restore Jets Left",
+                            )
+                        # Restore Jets Right
+                        if current.get("jets_right") != initial_state.get("jets_right"):
+                            print(
+                                f"    Restoring Jets Right to {initial_state.get('jets_right')}..."
+                            )
+                            await send_raw_command(
+                                restoration_reader,
+                                restoration_writer,
+                                adapter.build_jets_command(
+                                    "jets_right", initial_state.get("jets_right")
+                                ),
+                                "Restore Jets Right",
+                            )
+                        await asyncio.sleep(0.5 if dry_run else 12.0)
+                    else:
+                        if current.get("jets") != initial_state.get("jets"):
+                            print(
+                                f"    Restoring Jets to {initial_state.get('jets')}..."
+                            )
+                            await send_raw_command(
+                                restoration_reader,
+                                restoration_writer,
+                                adapter.build_jets_command(
+                                    "jets", initial_state.get("jets")
+                                ),
+                                "Restore Jets",
+                            )
+                            await asyncio.sleep(1.0 if dry_run else 12.0)
 
                     # 4. Restore Setpoint
                     if current.get("setpoint") != initial_state.get("setpoint"):
@@ -1922,7 +2326,9 @@ async def run_suite(option: int) -> None:
                         )
 
                     # 5. Restore Ozone Mode
-                    if current.get("ozone_mode") != initial_state.get("ozone_mode"):
+                    if MODEL not in ("P23B32", "P20B29") and current.get(
+                        "ozone_mode"
+                    ) != initial_state.get("ozone_mode"):
                         print(
                             f"    Restoring Ozone mode to {initial_state.get('ozone_mode')}..."
                         )
@@ -2039,15 +2445,29 @@ if __name__ == "__main__":
     parser.add_argument(
         "--non-interactive", action="store_true", help="Run without user interaction"
     )
+    parser.add_argument(
+        "--model",
+        default="p25b85",
+        choices=["p25b85", "p23b32", "p20b29"],
+        help="Spa model to test/simulate",
+    )
     args = parser.parse_args()
 
     # Determine interactivity: check if stdin is a tty and --non-interactive wasn't passed
     is_interactive = sys.stdin.isatty() and not args.non_interactive
 
+    MODEL = args.model.upper()
+    if MODEL in ("P23B32", "P20B29"):
+        adapter = P23B32Adapter()
+    else:
+        adapter = P25B85Adapter()
+
     if not is_interactive:
         # Non-interactive defaults: default to dry-run unless --live was explicitly requested
         dry_run = not args.live
-        print(f"Non-interactive mode: running all tests (dry-run={dry_run})...")
+        print(
+            f"Non-interactive mode: running all tests for {MODEL} (dry-run={dry_run})..."
+        )
 
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         LOG_PATH = CAPTURE_DIR / f"live_test_{ts}.jsonl"

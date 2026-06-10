@@ -71,7 +71,9 @@ class SpaJetsFan(JoyonwayCoordinatorEntity, FanEntity):
     def _handle_coordinator_update(self) -> None:
         """Clear optimistic state or trigger intermediate transitions on update."""
         if self._pending_state is not None and self.coordinator.data is not None:
-            current = self.coordinator.adapter.get_jets_state(self.coordinator.data, self.jet.id)
+            current = self.coordinator.adapter.get_jets_state(
+                self.coordinator.data, self.jet.id
+            )
             if current == self._pending_state:
                 # Broadcast confirms the new value — clear optimistic state
                 self._cancel_pending_timeout()
@@ -120,7 +122,9 @@ class SpaJetsFan(JoyonwayCoordinatorEntity, FanEntity):
         """Return current jets state from pending or coordinator data."""
         if self._pending_state is not None:
             return self._pending_state
-        return self.coordinator.adapter.get_jets_state(self.coordinator.data or {}, self.jet.id)
+        return self.coordinator.adapter.get_jets_state(
+            self.coordinator.data or {}, self.jet.id
+        )
 
     @property
     def is_on(self) -> bool | None:
@@ -129,7 +133,10 @@ class SpaJetsFan(JoyonwayCoordinatorEntity, FanEntity):
             return self._pending_state != "off"
         if self.coordinator.data is None:
             return None
-        return self.coordinator.adapter.get_jets_state(self.coordinator.data, self.jet.id) != "off"
+        return (
+            self.coordinator.adapter.get_jets_state(self.coordinator.data, self.jet.id)
+            != "off"
+        )
 
     @property
     def percentage(self) -> int | None:
@@ -177,7 +184,9 @@ class SpaJetsFan(JoyonwayCoordinatorEntity, FanEntity):
             return
 
         self._set_pending_state(target)
-        current = self.coordinator.adapter.get_jets_state(self.coordinator.data or {}, self.jet.id)
+        current = self.coordinator.adapter.get_jets_state(
+            self.coordinator.data or {}, self.jet.id
+        )
 
         # Determine the immediate next physical command we must send
         if current == "low" and target == "off":
@@ -228,14 +237,13 @@ class SpaJetsFan(JoyonwayCoordinatorEntity, FanEntity):
             on_failure=_on_failure,
         )
 
+
 class SpaSingleSpeedFan(JoyonwayCoordinatorEntity, FanEntity):
     """Fan entity representing a single-speed spa jet (off / high)."""
 
     _attr_has_entity_name = True
     _attr_icon = "mdi:weather-windy"
-    _attr_supported_features = (
-        FanEntityFeature.TURN_ON | FanEntityFeature.TURN_OFF
-    )
+    _attr_supported_features = FanEntityFeature.TURN_ON | FanEntityFeature.TURN_OFF
 
     def __init__(
         self,
@@ -255,7 +263,9 @@ class SpaSingleSpeedFan(JoyonwayCoordinatorEntity, FanEntity):
     @callback
     def _handle_coordinator_update(self) -> None:
         if self._pending_state is not None and self.coordinator.data is not None:
-            current = self.coordinator.adapter.get_jets_state(self.coordinator.data, self.jet.id)
+            current = self.coordinator.adapter.get_jets_state(
+                self.coordinator.data, self.jet.id
+            )
             if current == self._pending_state:
                 self._cancel_pending_timeout()
                 self._pending_state = None
@@ -299,7 +309,10 @@ class SpaSingleSpeedFan(JoyonwayCoordinatorEntity, FanEntity):
             return self._pending_state != "off"
         if self.coordinator.data is None:
             return None
-        return self.coordinator.adapter.get_jets_state(self.coordinator.data, self.jet.id) != "off"
+        return (
+            self.coordinator.adapter.get_jets_state(self.coordinator.data, self.jet.id)
+            != "off"
+        )
 
     async def async_turn_on(
         self,

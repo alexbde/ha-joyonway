@@ -39,21 +39,21 @@ async def _detect_model(host: str, port: int, timeout: float = 5.0) -> str | Non
         reader, writer = await asyncio.wait_for(
             asyncio.open_connection(host, port), timeout=timeout
         )
-        
+
         # Read stream until we find a full broadcast frame
         buf = bytearray()
         detected_model = DEFAULT_MODEL
         end_time = asyncio.get_running_loop().time() + timeout
-        
+
         while asyncio.get_running_loop().time() < end_time:
             time_left = end_time - asyncio.get_running_loop().time()
             if time_left <= 0:
                 break
-            
+
             chunk = await asyncio.wait_for(reader.read(1024), timeout=time_left)
             if not chunk:
                 break
-                
+
             buf.extend(chunk)
             frames = find_frames_with_indices(bytes(buf))
             for raw_frame, _ in frames:
@@ -63,7 +63,7 @@ async def _detect_model(host: str, port: int, timeout: float = 5.0) -> str | Non
                         detected_model = "P23B32"
                     elif raw_frame[8] == 0x03:
                         detected_model = "P25B85"
-                    
+
                     writer.close()
                     await writer.wait_closed()
                     return detected_model

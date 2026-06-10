@@ -90,7 +90,9 @@ def _make_entry() -> SimpleNamespace:
 
 def test_fan_supported_features_include_power_actions() -> None:
     coordinator = DummyCoordinator(data={"jets": "off"})
-    entity = SpaJetsFan(coordinator, _make_entry(), JetDescription(id="jets", name="Jets", type="dual"))
+    entity = SpaJetsFan(
+        coordinator, _make_entry(), JetDescription(id="jets", name="Jets", type="dual")
+    )
 
     assert entity.supported_features & FanEntityFeature.SET_SPEED
     assert entity.supported_features & FanEntityFeature.TURN_ON
@@ -100,7 +102,9 @@ def test_fan_supported_features_include_power_actions() -> None:
 @pytest.mark.asyncio
 async def test_fan_turn_on_and_turn_off_paths() -> None:
     coordinator = DummyCoordinator(data={"jets": "off"})
-    entity = SpaJetsFan(coordinator, _make_entry(), JetDescription(id="jets", name="Jets", type="dual"))
+    entity = SpaJetsFan(
+        coordinator, _make_entry(), JetDescription(id="jets", name="Jets", type="dual")
+    )
     entity.hass = DummyHass()
     entity.async_write_ha_state = lambda: None
 
@@ -127,7 +131,9 @@ async def test_fan_turn_on_and_turn_off_paths() -> None:
 @pytest.mark.asyncio
 async def test_fan_percentage_paths() -> None:
     coordinator = DummyCoordinator(data={"jets": "off"})
-    entity = SpaJetsFan(coordinator, _make_entry(), JetDescription(id="jets", name="Jets", type="dual"))
+    entity = SpaJetsFan(
+        coordinator, _make_entry(), JetDescription(id="jets", name="Jets", type="dual")
+    )
     entity.hass = DummyHass()
     entity.async_write_ha_state = lambda: None
 

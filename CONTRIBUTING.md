@@ -58,7 +58,7 @@ If you have a different Joyonway spa controller model and want to map its protoc
 ### 1. Expose Raw Protocol Telemetry in HA
 Go to the **Joyonway Spa** integration in Home Assistant, click **Entities**, and enable the diagnostic sensors:
 - **Heater byte (raw)**
-- **Pump byte (raw)**
+- **Jet byte (raw)**
 - **Ozone mode byte (raw)**
 - **Activity byte (raw)**
 - **Light/cycle byte (raw)**
@@ -103,7 +103,7 @@ Below are the core architectural patterns and design decisions implemented in th
 - **Schedule command split:** Schedule writes use two flag modes: `write_mode="state"` for enables (`0xAA/0x62/0x9A/0x52`) and `write_mode="time"` for time edits (`0xAA/0x6A/0x9A/0x5A`). Prevents write refusal issues when slot 2 is disabled.
 - **Ozone control & Heater control availability:** Both Ozone and Heater main switches are linked to their respective configuration switches. SpaOzoneSwitch and SpaHeaterSwitch are only available when the corresponding config switch (SpaManualOzoneSwitch / SpaManualHeaterSwitch) is enabled (meaning the spa is in Manual mode).
 - **Auto clock sync:** Drift-triggered (>30s) sync with a 1-hour cooldown (cooldown applies to both success and failure to prevent log spam), managed via a standard native CONFIG switch entity.
-- **Diagnostics support:** Added entry diagnostics via `diagnostics.py` to redact sensitive fields (IP/Port) and export raw byte states (`heater_byte_raw`, `pump_byte_raw`, etc.) for easier troubleshooting.
+- **Diagnostics support:** Added entry diagnostics via `diagnostics.py` to redact sensitive fields (IP/Port) and export raw byte states (`heater_byte_raw`, `jet_byte_raw`, etc.) for easier troubleshooting.
 
 ## Submitting a PR
 

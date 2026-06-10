@@ -95,22 +95,59 @@ HEATER_STATE_MAP: dict[int, str] = {
 }
 
 _MAPPED_INDEXES = {
-    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 13, 14, 16, 17, 28,
-    19, 20, 21, 22, 23, 24, 25, 26,
-    29, 30, 31, 32, 33, 34, 35, 36,
-    53, 54, 55, 56, 57, 58,
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    12,
+    13,
+    14,
+    16,
+    17,
+    28,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    29,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36,
+    53,
+    54,
+    55,
+    56,
+    57,
+    58,
 }
 
 TEMP_MIN_C = 10
 TEMP_MAX_C = 40
+
 
 def _fahrenheit_to_celsius(f: int) -> int | None:
     if f == 0 or f > 200:
         return None
     return round((f - 32) * 5 / 9)
 
+
 def _celsius_to_fahrenheit(c: int) -> int:
     return round(c * 9 / 5 + 32)
+
 
 class P23B32Adapter:
     """Adapter for the Joyonway P23B32 controller."""
@@ -191,21 +228,45 @@ class P23B32Adapter:
         if len(frame) > IDX_HEAT_SLOT2_END_M:
             raw_s1 = frame[IDX_HEAT_SLOT1_START_H]
             raw_s2 = frame[IDX_HEAT_SLOT2_START_H]
-            result["heat_slot1_start"] = (raw_s1 & MASK_SLOT_HOUR, frame[IDX_HEAT_SLOT1_START_M])
-            result["heat_slot1_end"] = (frame[IDX_HEAT_SLOT1_END_H], frame[IDX_HEAT_SLOT1_END_M])
+            result["heat_slot1_start"] = (
+                raw_s1 & MASK_SLOT_HOUR,
+                frame[IDX_HEAT_SLOT1_START_M],
+            )
+            result["heat_slot1_end"] = (
+                frame[IDX_HEAT_SLOT1_END_H],
+                frame[IDX_HEAT_SLOT1_END_M],
+            )
             result["heat_slot1_enabled"] = bool(raw_s1 & MASK_SLOT_ENABLED)
-            result["heat_slot2_start"] = (raw_s2 & MASK_SLOT_HOUR, frame[IDX_HEAT_SLOT2_START_M])
-            result["heat_slot2_end"] = (frame[IDX_HEAT_SLOT2_END_H], frame[IDX_HEAT_SLOT2_END_M])
+            result["heat_slot2_start"] = (
+                raw_s2 & MASK_SLOT_HOUR,
+                frame[IDX_HEAT_SLOT2_START_M],
+            )
+            result["heat_slot2_end"] = (
+                frame[IDX_HEAT_SLOT2_END_H],
+                frame[IDX_HEAT_SLOT2_END_M],
+            )
             result["heat_slot2_enabled"] = bool(raw_s2 & MASK_SLOT_ENABLED)
 
         if len(frame) > IDX_FILTER_SLOT2_END_M:
             raw_s1 = frame[IDX_FILTER_SLOT1_START_H]
             raw_s2 = frame[IDX_FILTER_SLOT2_START_H]
-            result["filter_slot1_start"] = (raw_s1 & MASK_SLOT_HOUR, frame[IDX_FILTER_SLOT1_START_M])
-            result["filter_slot1_end"] = (frame[IDX_FILTER_SLOT1_END_H], frame[IDX_FILTER_SLOT1_END_M])
+            result["filter_slot1_start"] = (
+                raw_s1 & MASK_SLOT_HOUR,
+                frame[IDX_FILTER_SLOT1_START_M],
+            )
+            result["filter_slot1_end"] = (
+                frame[IDX_FILTER_SLOT1_END_H],
+                frame[IDX_FILTER_SLOT1_END_M],
+            )
             result["filter_slot1_enabled"] = bool(raw_s1 & MASK_SLOT_ENABLED)
-            result["filter_slot2_start"] = (raw_s2 & MASK_SLOT_HOUR, frame[IDX_FILTER_SLOT2_START_M])
-            result["filter_slot2_end"] = (frame[IDX_FILTER_SLOT2_END_H], frame[IDX_FILTER_SLOT2_END_M])
+            result["filter_slot2_start"] = (
+                raw_s2 & MASK_SLOT_HOUR,
+                frame[IDX_FILTER_SLOT2_START_M],
+            )
+            result["filter_slot2_end"] = (
+                frame[IDX_FILTER_SLOT2_END_H],
+                frame[IDX_FILTER_SLOT2_END_M],
+            )
             result["filter_slot2_enabled"] = bool(raw_s2 & MASK_SLOT_ENABLED)
 
         payload_end = max(0, len(frame) - 5)
@@ -223,6 +284,7 @@ class P23B32Adapter:
 
     def entity_descriptions(self) -> list[SpaEntityDescription]:
         from .p25b85 import _P25B85_ENTITIES
+
         base = [e for e in _P25B85_ENTITIES if e.key != "jets"]
         base.append(
             SpaEntityDescription(
@@ -265,20 +327,39 @@ class P23B32Adapter:
 
     def build_light_toggle_command(self, on: bool | None = None) -> bytes:
         from ..protocol import build_frame
+
         # P23B32 Discrete ON/OFF (17-byte):
         # ON: 01 30 10 3C A1 00 A1 00 00 00 40 40 02 04 00 00 81
         # OFF: 01 30 10 3C A1 00 A1 00 00 00 40 40 02 04 00 00 80
         last_byte = 0x81 if on else 0x80
-        payload = bytearray([
-            0x01, 0x30, 0x10, 0x3C, 0xA1, 0x00, 0xA1,
-            0x00, 0x00, 0x00, 0x40, 0x40, 0x02, 0x04, 0x00, 0x00, last_byte
-        ])
+        payload = bytearray(
+            [
+                0x01,
+                0x30,
+                0x10,
+                0x3C,
+                0xA1,
+                0x00,
+                0xA1,
+                0x00,
+                0x00,
+                0x00,
+                0x40,
+                0x40,
+                0x02,
+                0x04,
+                0x00,
+                0x00,
+                last_byte,
+            ]
+        )
         return build_frame(bytes(payload))
 
     def build_jets_command(self, jet_id: str, target: str) -> bytes | None:
         from ..protocol import build_frame
-        is_on = target in ("low", "high") # single speed treats low/high as ON
-        
+
+        is_on = target in ("low", "high", "on")  # single speed treats low/high/on as ON
+
         if jet_id == "jets_left":
             # ON: 01 30 10 3C A1 00 A1 06 04 00 00 02 04 00 00 00
             # OFF: 01 30 10 3C A1 00 A1 06 00 00 00 02 04 00 00 00
@@ -296,44 +377,111 @@ class P23B32Adapter:
         else:
             return None
 
-        payload = bytearray([
-            0x01, 0x30, 0x10, 0x3C, 0xA1, 0x00, 0xA1,
-            b7, b8, 0x00, 0x00, 0x02, 0x04, 0x00, 0x00, 0x00
-        ])
+        payload = bytearray(
+            [
+                0x01,
+                0x30,
+                0x10,
+                0x3C,
+                0xA1,
+                0x00,
+                0xA1,
+                b7,
+                b8,
+                0x00,
+                0x00,
+                0x02,
+                0x04,
+                0x00,
+                0x00,
+                0x00,
+            ]
+        )
         return build_frame(bytes(payload))
 
     def build_heater_command(self, on: bool) -> bytes:
         from ..protocol import build_frame
+
         # Expected ON: 01 30 10 3C A1 00 A1 00 00 08 18 02 04 00 00 00
         # Expected OFF: 01 30 10 3C A1 00 A1 00 00 08 11 02 04 00 00 00
         b10 = 0x18 if on else 0x11
-        payload = bytearray([
-            0x01, 0x30, 0x10, 0x3C, 0xA1, 0x00, 0xA1,
-            0x00, 0x00, 0x08, b10, 0x02, 0x04, 0x00, 0x00, 0x00
-        ])
+        payload = bytearray(
+            [
+                0x01,
+                0x30,
+                0x10,
+                0x3C,
+                0xA1,
+                0x00,
+                0xA1,
+                0x00,
+                0x00,
+                0x08,
+                b10,
+                0x02,
+                0x04,
+                0x00,
+                0x00,
+                0x00,
+            ]
+        )
         return build_frame(bytes(payload))
 
     def build_blower_command(self, on: bool) -> bytes:
         from ..protocol import build_frame
+
         # ON: 01 30 10 3C A1 00 A1 00 00 04 04 02 04 00 00 00
         # OFF: 01 30 10 3C A1 00 A1 00 00 04 00 02 04 00 00 00
         b10 = 0x04 if on else 0x00
-        payload = bytearray([
-            0x01, 0x30, 0x10, 0x3C, 0xA1, 0x00, 0xA1,
-            0x00, 0x00, 0x04, b10, 0x02, 0x04, 0x00, 0x00, 0x00
-        ])
+        payload = bytearray(
+            [
+                0x01,
+                0x30,
+                0x10,
+                0x3C,
+                0xA1,
+                0x00,
+                0xA1,
+                0x00,
+                0x00,
+                0x04,
+                b10,
+                0x02,
+                0x04,
+                0x00,
+                0x00,
+                0x00,
+            ]
+        )
         return build_frame(bytes(payload))
 
     def build_temp_command(self, target_celsius: int) -> bytes | None:
         from ..protocol import build_frame
+
         if target_celsius < TEMP_MIN_C or target_celsius > TEMP_MAX_C:
             return None
         target_f = _celsius_to_fahrenheit(target_celsius)
         # Direct Set: 01 30 10 3C A1 00 A1 00 00 80 80 02 04 00 [temp_f] 00
-        payload = bytearray([
-            0x01, 0x30, 0x10, 0x3C, 0xA1, 0x00, 0xA1,
-            0x00, 0x00, 0x80, 0x80, 0x02, 0x04, 0x00, target_f, 0x00
-        ])
+        payload = bytearray(
+            [
+                0x01,
+                0x30,
+                0x10,
+                0x3C,
+                0xA1,
+                0x00,
+                0xA1,
+                0x00,
+                0x00,
+                0x80,
+                0x80,
+                0x02,
+                0x04,
+                0x00,
+                target_f,
+                0x00,
+            ]
+        )
         return build_frame(bytes(payload))
 
     def build_ozone_mode_command(self, mode: str, setpoint_f: int = 0x62) -> bytes:
@@ -347,14 +495,31 @@ class P23B32Adapter:
 
     def build_ozone_manual_command(self, on: bool, setpoint_f: int = 0x62) -> bytes:
         from ..protocol import build_frame
+
         # Expected ON/OFF (16-byte):
         # ON: 01 30 10 3C A1 00 A1 00 00 01 01 02 04 00 00 00
         # OFF: 01 30 10 3C A1 00 A1 00 00 01 10 02 04 00 00 00
         b10 = 0x01 if on else 0x10
-        payload = bytearray([
-            0x01, 0x30, 0x10, 0x3C, 0xA1, 0x00, 0xA1,
-            0x00, 0x00, 0x01, b10, 0x02, 0x04, 0x00, 0x00, 0x00
-        ])
+        payload = bytearray(
+            [
+                0x01,
+                0x30,
+                0x10,
+                0x3C,
+                0xA1,
+                0x00,
+                0xA1,
+                0x00,
+                0x00,
+                0x01,
+                b10,
+                0x02,
+                0x04,
+                0x00,
+                0x00,
+                0x00,
+            ]
+        )
         return build_frame(bytes(payload))
 
     def build_schedule_command(
@@ -384,14 +549,26 @@ class P23B32Adapter:
 
         flags = table[(slot1_enabled, slot2_enabled)]
 
-        payload = bytearray([
-            0x01, 0x30, 0x10, 0x3C, cmd_type, 0x00, 0xA1,
-            flags,
-            slot1_start[0], slot1_start[1],
-            slot1_end[0], slot1_end[1],
-            slot2_start[0], slot2_start[1],
-            slot2_end[0], slot2_end[1],
-        ])
+        payload = bytearray(
+            [
+                0x01,
+                0x30,
+                0x10,
+                0x3C,
+                cmd_type,
+                0x00,
+                0xA1,
+                flags,
+                slot1_start[0],
+                slot1_start[1],
+                slot1_end[0],
+                slot1_end[1],
+                slot2_start[0],
+                slot2_start[1],
+                slot2_end[0],
+                slot2_end[1],
+            ]
+        )
         return build_frame(bytes(payload))
 
     def build_datetime_command(
@@ -408,18 +585,26 @@ class P23B32Adapter:
         from ..protocol import build_frame
 
         prefix = 0x05 if set_date else 0x50
-        payload = bytearray([
-            0x01, 0x30, 0x10, 0x3C, 0xA2, 0x00, 0xA1,
-            prefix,
-            year - 2000,
-            month,
-            day,
-            hour,
-            minute,
-            second,
-            0x00,
-            0x00,
-        ])
+        payload = bytearray(
+            [
+                0x01,
+                0x30,
+                0x10,
+                0x3C,
+                0xA2,
+                0x00,
+                0xA1,
+                prefix,
+                year - 2000,
+                month,
+                day,
+                hour,
+                minute,
+                second,
+                0x00,
+                0x00,
+            ]
+        )
         return build_frame(bytes(payload))
 
     def build_time_command(
@@ -432,8 +617,12 @@ class P23B32Adapter:
         day: int = 1,
     ) -> bytes:
         return self.build_datetime_command(
-            year=year, month=month, day=day,
-            hour=hour, minute=minute, second=second,
+            year=year,
+            month=month,
+            day=day,
+            hour=hour,
+            minute=minute,
+            second=second,
             set_date=False,
         )
 
@@ -447,7 +636,11 @@ class P23B32Adapter:
         second: int,
     ) -> bytes:
         return self.build_datetime_command(
-            year=year, month=month, day=day,
-            hour=hour, minute=minute, second=second,
+            year=year,
+            month=month,
+            day=day,
+            hour=hour,
+            minute=minute,
+            second=second,
             set_date=True,
         )

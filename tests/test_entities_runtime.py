@@ -249,7 +249,9 @@ async def test_heater_and_blower_switch_commands(entry: SimpleNamespace) -> None
 
 def test_fan_reports_power_features(entry: SimpleNamespace) -> None:
     coordinator = DummyCoordinator(data={"jets": "off"})
-    fan = SpaJetsFan(coordinator, entry, JetDescription(id="jets", name="Jets", type="dual"))
+    fan = SpaJetsFan(
+        coordinator, entry, JetDescription(id="jets", name="Jets", type="dual")
+    )
 
     assert fan.supported_features & FanEntityFeature.SET_SPEED
     assert fan.supported_features & FanEntityFeature.TURN_ON
@@ -423,7 +425,9 @@ async def test_heater_optimistic_state(entry: SimpleNamespace) -> None:
 async def test_fan_optimistic_percentage(entry: SimpleNamespace) -> None:
     """Fan shows optimistic percentage immediately after command send."""
     coordinator = DummyCoordinator(data={"jets": "off"})
-    fan = SpaJetsFan(coordinator, entry, JetDescription(id="jets", name="Jets", type="dual"))
+    fan = SpaJetsFan(
+        coordinator, entry, JetDescription(id="jets", name="Jets", type="dual")
+    )
     fan.hass = DummyHass()
     fan.async_write_ha_state = lambda: None
 
