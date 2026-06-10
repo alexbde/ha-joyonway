@@ -713,7 +713,7 @@ def test_parse_status_diagnostics(adapter: P25B85Adapter, logical_frame: bytes) 
     result = adapter.parse_status(logical_frame)
     assert isinstance(result, dict)
     assert result["heater_byte_raw"] == logical_frame[14]
-    assert result["pump_byte_raw"] == logical_frame[12]
+    assert result["jet_byte_raw"] == logical_frame[12]
     assert result["ozone_mode_byte_raw"] == logical_frame[13]
     assert result["activity_byte_raw"] == logical_frame[28]
     assert result["light_cycle_byte_raw"] == logical_frame[17]

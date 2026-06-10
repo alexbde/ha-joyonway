@@ -358,7 +358,7 @@ class DryRunSimulator:
 
             # Button Commands
             if cmd_type == 0xA1:
-                pump_b7 = logical[8]
+                jet_b7 = logical[8]
                 pump_b8 = logical[9]
                 btn_group = logical[10]
                 btn_action = logical[11]
@@ -367,14 +367,14 @@ class DryRunSimulator:
                 setpoint_f = logical[15]
 
                 # Jets
-                if (pump_b7, pump_b8) == (0x02, 0x02):
+                if (jet_b7, pump_b8) == (0x02, 0x02):
                     if self.jets == "high":
                         self.jets = "off"
                     else:
                         self.jets = "low"
-                elif (pump_b7, pump_b8) == (0x06, 0x04):
+                elif (jet_b7, pump_b8) == (0x06, 0x04):
                     self.jets = "high"
-                elif (pump_b7, pump_b8) == (0x04, 0x00):
+                elif (jet_b7, pump_b8) == (0x04, 0x00):
                     if self.jets == "high":
                         self.jets = "off"
                     # If low, ignored by hardware

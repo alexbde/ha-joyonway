@@ -7,7 +7,7 @@ from typing import Protocol
 
 
 @dataclass(frozen=True)
-class PumpDescription:
+class JetDescription:
     """Describes a pump exposed by a model adapter."""
 
     id: str  # e.g. "jets", "jets_left", "jets_right"
@@ -45,7 +45,7 @@ class ModelAdapter(Protocol):
     broadcast_signature: bytes
     unescape_full_frame: bool
     supports_writes: bool
-    pumps: list[PumpDescription]
+    jets: list[JetDescription]
 
     def parse_status(self, frame: bytes) -> dict | None:
         """Extract state dict from an unescaped broadcast frame.
@@ -62,7 +62,7 @@ class ModelAdapter(Protocol):
         """Derive heater enabled state from status if not explicitly present."""
         ...
 
-    def get_jets_state(self, data: dict, pump_id: str) -> str:
+    def get_jets_state(self, data: dict, jet_id: str) -> str:
         """Return current jets state as 'off', 'low', or 'high'."""
         ...
 
@@ -70,7 +70,7 @@ class ModelAdapter(Protocol):
         """Build a light toggle command."""
         ...
 
-    def build_jets_command(self, pump_id: str, target: str) -> bytes | None:
+    def build_jets_command(self, jet_id: str, target: str) -> bytes | None:
         """Build a jets command for the desired target state."""
         ...
 

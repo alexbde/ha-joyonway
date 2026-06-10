@@ -59,7 +59,7 @@
       },
       "spa_datetime": { "name": "Data i godzina" },
       "heater_byte_raw": { "name": "Bajt podgrzewacza (surowy)" },
-      "pump_byte_raw": { "name": "Bajt pompy (surowy)" },
+      "jet_byte_raw": { "name": "Bajt dyszy (surowy)" },
       "ozone_mode_byte_raw": { "name": "Bajt trybu ozonowania (surowy)" },
       "activity_byte_raw": { "name": "Bajt aktywności (surowy)" },
       "light_cycle_byte_raw": { "name": "Bajt światła/cyklu (surowy)" },

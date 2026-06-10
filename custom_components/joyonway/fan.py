@@ -1,6 +1,6 @@
 """Fan platform for Joyonway P25B85 — jets speed control.
 
-The spa has a single dual-speed pump (off / low / high).
+The spa has a single dual-speed jet (off / low / high).
 Exposed as a fan entity with speed percentage control.
 Uses optimistic state with snap-back on the next broadcast mismatch.
 Commands are submitted to the coordinator's intent queue.
@@ -19,7 +19,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import OPTIMISTIC_TIMEOUT_SECONDS
 from .coordinator import JoyonwayP25B85Coordinator, JoyonwayConfigEntry
 from .entity import JoyonwayCoordinatorEntity, device_info
-from .adapters.base import PumpDescription
+from .adapters.base import JetDescription
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -32,11 +32,11 @@ async def async_setup_entry(
     """Set up fan entities from a config entry."""
     coordinator = entry.runtime_data
     entities: list[FanEntity] = []
-    for pump in coordinator.adapter.pumps:
-        if pump.type == "dual":
-            entities.append(SpaJetsFan(coordinator, entry, pump))
-        elif pump.type == "single":
-            entities.append(SpaSingleSpeedFan(coordinator, entry, pump))
+    for jet in coordinator.adapter.jets:
+        if jet.type == "dual":
+            entities.append(SpaJetsFan(coordinator, entry, jet))
+        elif jet.type == "single":
+            entities.append(SpaSingleSpeedFan(coordinator, entry, jet))
     async_add_entities(entities)
 
 
@@ -56,13 +56,13 @@ class SpaJetsFan(JoyonwayCoordinatorEntity, FanEntity):
         self,
         coordinator: JoyonwayP25B85Coordinator,
         entry: JoyonwayConfigEntry,
-        pump: PumpDescription,
+        jet: JetDescription,
     ) -> None:
         """Initialize the jets fan."""
         super().__init__(coordinator)
-        self.pump = pump
-        self._attr_translation_key = pump.id
-        self._attr_unique_id = f"{entry.entry_id}_{pump.id}"
+        self.jet = jet
+        self._attr_translation_key = jet.id
+        self._attr_unique_id = f"{entry.entry_id}_{jet.id}"
         self._attr_device_info = device_info(entry)
         self._pending_state: str | None = None  # "off", "low", "high", or None
         self._pending_task: asyncio.Task | None = None
@@ -71,7 +71,7 @@ class SpaJetsFan(JoyonwayCoordinatorEntity, FanEntity):
     def _handle_coordinator_update(self) -> None:
         """Clear optimistic state or trigger intermediate transitions on update."""
         if self._pending_state is not None and self.coordinator.data is not None:
-            current = self.coordinator.adapter.get_jets_state(self.coordinator.data, self.pump.id)
+            current = self.coordinator.adapter.get_jets_state(self.coordinator.data, self.jet.id)
             if current == self._pending_state:
                 # Broadcast confirms the new value — clear optimistic state
                 self._cancel_pending_timeout()
@@ -120,7 +120,7 @@ class SpaJetsFan(JoyonwayCoordinatorEntity, FanEntity):
         """Return current jets state from pending or coordinator data."""
         if self._pending_state is not None:
             return self._pending_state
-        return self.coordinator.adapter.get_jets_state(self.coordinator.data or {}, self.pump.id)
+        return self.coordinator.adapter.get_jets_state(self.coordinator.data or {}, self.jet.id)
 
     @property
     def is_on(self) -> bool | None:
@@ -129,7 +129,7 @@ class SpaJetsFan(JoyonwayCoordinatorEntity, FanEntity):
             return self._pending_state != "off"
         if self.coordinator.data is None:
             return None
-        return self.coordinator.adapter.get_jets_state(self.coordinator.data, self.pump.id) != "off"
+        return self.coordinator.adapter.get_jets_state(self.coordinator.data, self.jet.id) != "off"
 
     @property
     def percentage(self) -> int | None:
@@ -177,7 +177,7 @@ class SpaJetsFan(JoyonwayCoordinatorEntity, FanEntity):
             return
 
         self._set_pending_state(target)
-        current = self.coordinator.adapter.get_jets_state(self.coordinator.data or {}, self.pump.id)
+        current = self.coordinator.adapter.get_jets_state(self.coordinator.data or {}, self.jet.id)
 
         # Determine the immediate next physical command we must send
         if current == "low" and target == "off":
@@ -204,8 +204,8 @@ class SpaJetsFan(JoyonwayCoordinatorEntity, FanEntity):
         coordinator = self.coordinator
 
         def _build_jets(overrides: dict, data: dict | None) -> bytes | None:
-            desired = overrides[self.pump.id]
-            cmd = coordinator.adapter.build_jets_command(self.pump.id, desired)
+            desired = overrides[self.jet.id]
+            cmd = coordinator.adapter.build_jets_command(self.jet.id, desired)
             if cmd is None:
                 _LOGGER.error("No jets command for target '%s'", desired)
             return cmd
@@ -222,14 +222,14 @@ class SpaJetsFan(JoyonwayCoordinatorEntity, FanEntity):
         )
         self._arm_pending_timeout()
         coordinator.intent_queue.submit(
-            group=self.pump.id,
-            overrides={self.pump.id: next_step},
+            group=self.jet.id,
+            overrides={self.jet.id: next_step},
             build_fn=_build_jets,
             on_failure=_on_failure,
         )
 
 class SpaSingleSpeedFan(JoyonwayCoordinatorEntity, FanEntity):
-    """Fan entity representing a single-speed spa pump (off / high)."""
+    """Fan entity representing a single-speed spa jet (off / high)."""
 
     _attr_has_entity_name = True
     _attr_icon = "mdi:weather-windy"
@@ -241,21 +241,21 @@ class SpaSingleSpeedFan(JoyonwayCoordinatorEntity, FanEntity):
         self,
         coordinator: JoyonwayP25B85Coordinator,
         entry: JoyonwayConfigEntry,
-        pump: PumpDescription,
+        jet: JetDescription,
     ) -> None:
         """Initialize the single-speed fan."""
         super().__init__(coordinator)
-        self.pump = pump
-        self._attr_translation_key = pump.id
-        self._attr_unique_id = f"{entry.entry_id}_{pump.id}"
+        self.jet = jet
+        self._attr_translation_key = jet.id
+        self._attr_unique_id = f"{entry.entry_id}_{jet.id}"
         self._attr_device_info = device_info(entry)
-        self._pending_state: str | None = None  # "off", "high", or None
+        self._pending_state: str | None = None  # "off", "on", or None
         self._pending_task: asyncio.Task | None = None
 
     @callback
     def _handle_coordinator_update(self) -> None:
         if self._pending_state is not None and self.coordinator.data is not None:
-            current = self.coordinator.adapter.get_jets_state(self.coordinator.data, self.pump.id)
+            current = self.coordinator.adapter.get_jets_state(self.coordinator.data, self.jet.id)
             if current == self._pending_state:
                 self._cancel_pending_timeout()
                 self._pending_state = None
@@ -282,7 +282,7 @@ class SpaSingleSpeedFan(JoyonwayCoordinatorEntity, FanEntity):
         await asyncio.sleep(OPTIMISTIC_TIMEOUT_SECONDS)
         _LOGGER.warning(
             "Jets %s: command not confirmed by spa within %ds, reverting state",
-            self.pump.id,
+            self.jet.id,
             int(OPTIMISTIC_TIMEOUT_SECONDS),
         )
         self._pending_state = None
@@ -299,7 +299,7 @@ class SpaSingleSpeedFan(JoyonwayCoordinatorEntity, FanEntity):
             return self._pending_state != "off"
         if self.coordinator.data is None:
             return None
-        return self.coordinator.adapter.get_jets_state(self.coordinator.data, self.pump.id) != "off"
+        return self.coordinator.adapter.get_jets_state(self.coordinator.data, self.jet.id) != "off"
 
     async def async_turn_on(
         self,
@@ -307,7 +307,7 @@ class SpaSingleSpeedFan(JoyonwayCoordinatorEntity, FanEntity):
         preset_mode: str | None = None,
         **kwargs: Any,
     ) -> None:
-        self._submit_jets_intent("high")
+        self._submit_jets_intent("on")
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         self._submit_jets_intent("off")
@@ -320,8 +320,8 @@ class SpaSingleSpeedFan(JoyonwayCoordinatorEntity, FanEntity):
         coordinator = self.coordinator
 
         def _build_jets(overrides: dict, data: dict | None) -> bytes | None:
-            desired = overrides[self.pump.id]
-            cmd = coordinator.adapter.build_jets_command(self.pump.id, desired)
+            desired = overrides[self.jet.id]
+            cmd = coordinator.adapter.build_jets_command(self.jet.id, desired)
             if cmd is None:
                 _LOGGER.error("No jets command for target '%s'", desired)
             return cmd
@@ -333,13 +333,13 @@ class SpaSingleSpeedFan(JoyonwayCoordinatorEntity, FanEntity):
 
         _LOGGER.debug(
             "Jets %s: sending intent (target: %s)",
-            self.pump.id,
+            self.jet.id,
             target,
         )
         self._arm_pending_timeout()
         coordinator.intent_queue.submit(
-            group=self.pump.id,
-            overrides={self.pump.id: target},
+            group=self.jet.id,
+            overrides={self.jet.id: target},
             build_fn=_build_jets,
             on_failure=_on_failure,
         )

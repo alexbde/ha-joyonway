@@ -18,7 +18,7 @@ try:
 except ImportError:
     dt_util = None  # type: ignore[assignment]
 
-from .base import PumpDescription, SpaEntityDescription
+from .base import JetDescription, SpaEntityDescription
 
 P23B32_SIGNATURE = bytes([0x1A, 0xFF, 0x01, 0x3C, 0xD2, 0xB4, 0xFF, 0x08, 0x02])
 
@@ -69,8 +69,8 @@ SCHED_FLAGS_TIME_WRITE_TABLE: dict[tuple[bool, bool], int] = {
     (False, False): 0x5A,
 }
 
-MASK_PUMP_LEFT = 0x04
-MASK_PUMP_RIGHT = 0x10
+MASK_JET_LEFT = 0x04
+MASK_JET_RIGHT = 0x10
 MASK_LIGHT = 0x01
 MASK_HEATING_CYCLE = 0x80
 MASK_ACTIVITY = 0x20
@@ -119,9 +119,9 @@ class P23B32Adapter:
     broadcast_signature: bytes = P23B32_SIGNATURE
     unescape_full_frame: bool = False
     supports_writes: bool = True
-    pumps: list[PumpDescription] = [
-        PumpDescription(id="jets_left", name="Jets Left", type="single"),
-        PumpDescription(id="jets_right", name="Jets Right", type="single"),
+    jets: list[JetDescription] = [
+        JetDescription(id="jets_left", name="Jets Left", type="single"),
+        JetDescription(id="jets_right", name="Jets Right", type="single"),
     ]
 
     def parse_status(self, frame: bytes) -> dict | None:
@@ -132,7 +132,7 @@ class P23B32Adapter:
 
         current_temp_f = frame[IDX_CURRENT_TEMP]
         setpoint_f = frame[IDX_SETPOINT]
-        pump_byte = frame[IDX_PUMP_BYTE]
+        jet_byte = frame[IDX_PUMP_BYTE]
         ozone_mode_byte = frame[IDX_OZONE_MODE]
         heater_byte = frame[IDX_HEATER_STATE]
         light_byte = frame[IDX_LIGHT_CYCLE]
@@ -151,8 +151,8 @@ class P23B32Adapter:
         result: dict = {
             "current_temperature": _fahrenheit_to_celsius(current_temp_f),
             "setpoint": _fahrenheit_to_celsius(setpoint_f),
-            "jets_left": "high" if (pump_byte & MASK_PUMP_LEFT) else "off",
-            "jets_right": "high" if (pump_byte & MASK_PUMP_RIGHT) else "off",
+            "jets_left": "on" if (jet_byte & MASK_JET_LEFT) else "off",
+            "jets_right": "on" if (jet_byte & MASK_JET_RIGHT) else "off",
             "light": bool(light_byte & MASK_LIGHT),
             "heater_active": heater_base in (HEATER_HEATING, HEATER_HEATING_ALT),
             "heater_enabled": bool(heater_byte & 0x10),
@@ -163,7 +163,7 @@ class P23B32Adapter:
             "heater_mode": "manual" if heater_mode_manual else "auto",
             "blower": bool(heater_byte & MASK_HEATER_BLOWER),
             "heater_byte_raw": heater_byte,
-            "pump_byte_raw": pump_byte,
+            "jet_byte_raw": jet_byte,
             "ozone_mode_byte_raw": ozone_mode_byte,
             "activity_byte_raw": activity_byte,
             "light_cycle_byte_raw": light_byte,
@@ -231,7 +231,7 @@ class P23B32Adapter:
                 name="Jets Left",
                 icon="mdi:weather-windy",
                 device_class="enum",
-                options=["off", "low", "high"],
+                options=["off", "on"],
             )
         )
         base.append(
@@ -241,7 +241,7 @@ class P23B32Adapter:
                 name="Jets Right",
                 icon="mdi:weather-windy",
                 device_class="enum",
-                options=["off", "low", "high"],
+                options=["off", "on"],
             )
         )
         return base
@@ -256,10 +256,10 @@ class P23B32Adapter:
                 val = status in ("standby", "circulation", "heating")
         return val
 
-    def get_jets_state(self, data: dict, pump_id: str) -> str:
-        if pump_id == "jets_left":
+    def get_jets_state(self, data: dict, jet_id: str) -> str:
+        if jet_id == "jets_left":
             return data.get("jets_left", "off")
-        elif pump_id == "jets_right":
+        elif jet_id == "jets_right":
             return data.get("jets_right", "off")
         return "off"
 
@@ -275,18 +275,18 @@ class P23B32Adapter:
         ])
         return build_frame(bytes(payload))
 
-    def build_jets_command(self, pump_id: str, target: str) -> bytes | None:
+    def build_jets_command(self, jet_id: str, target: str) -> bytes | None:
         from ..protocol import build_frame
         is_on = target in ("low", "high") # single speed treats low/high as ON
         
-        if pump_id == "jets_left":
+        if jet_id == "jets_left":
             # ON: 01 30 10 3C A1 00 A1 06 04 00 00 02 04 00 00 00
             # OFF: 01 30 10 3C A1 00 A1 06 00 00 00 02 04 00 00 00
             if is_on:
                 b7, b8 = 0x06, 0x04
             else:
                 b7, b8 = 0x06, 0x00
-        elif pump_id == "jets_right":
+        elif jet_id == "jets_right":
             # ON: 01 30 10 3C A1 00 A1 18 10 00 00 02 04 00 00 00
             # OFF: 01 30 10 3C A1 00 A1 18 00 00 00 02 04 00 00 00
             if is_on:

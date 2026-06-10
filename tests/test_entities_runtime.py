@@ -42,7 +42,7 @@ from custom_components.joyonway.const import (
 )
 from custom_components.joyonway.fan import SpaJetsFan
 from custom_components.joyonway.sensor import JoyonwaySensor
-from custom_components.joyonway.adapters.base import PumpDescription
+from custom_components.joyonway.adapters.base import JetDescription
 from custom_components.joyonway.switch import (
     SpaAutoClockSyncSwitch,
     SpaBlowerSwitch,
@@ -82,8 +82,8 @@ class DummyAdapter:
         return val
 
     @staticmethod
-    def get_jets_state(data: dict, pump_id: str) -> str:
-        return data.get(pump_id, "off")
+    def get_jets_state(data: dict, jet_id: str) -> str:
+        return data.get(jet_id, "off")
 
     @staticmethod
     def build_temp_command(target_celsius: int) -> bytes | None:
@@ -102,7 +102,7 @@ class DummyAdapter:
         return CMD_BLOWER_ON if on else CMD_BLOWER_OFF
 
     @staticmethod
-    def build_jets_command(pump_id: str, target: str) -> bytes | None:
+    def build_jets_command(jet_id: str, target: str) -> bytes | None:
         if target == "off":
             return CMD_JETS_OFF
         if target == "high":
@@ -249,7 +249,7 @@ async def test_heater_and_blower_switch_commands(entry: SimpleNamespace) -> None
 
 def test_fan_reports_power_features(entry: SimpleNamespace) -> None:
     coordinator = DummyCoordinator(data={"jets": "off"})
-    fan = SpaJetsFan(coordinator, entry, PumpDescription(id="jets", name="Jets", type="dual"))
+    fan = SpaJetsFan(coordinator, entry, JetDescription(id="jets", name="Jets", type="dual"))
 
     assert fan.supported_features & FanEntityFeature.SET_SPEED
     assert fan.supported_features & FanEntityFeature.TURN_ON
@@ -423,7 +423,7 @@ async def test_heater_optimistic_state(entry: SimpleNamespace) -> None:
 async def test_fan_optimistic_percentage(entry: SimpleNamespace) -> None:
     """Fan shows optimistic percentage immediately after command send."""
     coordinator = DummyCoordinator(data={"jets": "off"})
-    fan = SpaJetsFan(coordinator, entry, PumpDescription(id="jets", name="Jets", type="dual"))
+    fan = SpaJetsFan(coordinator, entry, JetDescription(id="jets", name="Jets", type="dual"))
     fan.hass = DummyHass()
     fan.async_write_ha_state = lambda: None
 

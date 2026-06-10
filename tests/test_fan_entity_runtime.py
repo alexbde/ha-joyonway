@@ -25,7 +25,7 @@ from homeassistant.components.fan import FanEntityFeature
 from homeassistant.const import CONF_HOST
 from custom_components.joyonway.adapters.p25b85 import P25B85Adapter
 from custom_components.joyonway.fan import SpaJetsFan
-from custom_components.joyonway.adapters.base import PumpDescription
+from custom_components.joyonway.adapters.base import JetDescription
 
 # Build real command frames
 _adapter = P25B85Adapter()
@@ -44,11 +44,11 @@ class DummyAdapter:
     """Minimal adapter stub used by the fan entity."""
 
     @staticmethod
-    def get_jets_state(data: dict, pump_id: str) -> str:
-        return data.get(pump_id, "off")
+    def get_jets_state(data: dict, jet_id: str) -> str:
+        return data.get(jet_id, "off")
 
     @staticmethod
-    def build_jets_command(pump_id: str, target: str) -> bytes | None:
+    def build_jets_command(jet_id: str, target: str) -> bytes | None:
         if target == "low":
             return CMD_JETS_LOW
         if target == "high":
@@ -90,7 +90,7 @@ def _make_entry() -> SimpleNamespace:
 
 def test_fan_supported_features_include_power_actions() -> None:
     coordinator = DummyCoordinator(data={"jets": "off"})
-    entity = SpaJetsFan(coordinator, _make_entry(), PumpDescription(id="jets", name="Jets", type="dual"))
+    entity = SpaJetsFan(coordinator, _make_entry(), JetDescription(id="jets", name="Jets", type="dual"))
 
     assert entity.supported_features & FanEntityFeature.SET_SPEED
     assert entity.supported_features & FanEntityFeature.TURN_ON
@@ -100,7 +100,7 @@ def test_fan_supported_features_include_power_actions() -> None:
 @pytest.mark.asyncio
 async def test_fan_turn_on_and_turn_off_paths() -> None:
     coordinator = DummyCoordinator(data={"jets": "off"})
-    entity = SpaJetsFan(coordinator, _make_entry(), PumpDescription(id="jets", name="Jets", type="dual"))
+    entity = SpaJetsFan(coordinator, _make_entry(), JetDescription(id="jets", name="Jets", type="dual"))
     entity.hass = DummyHass()
     entity.async_write_ha_state = lambda: None
 
@@ -127,7 +127,7 @@ async def test_fan_turn_on_and_turn_off_paths() -> None:
 @pytest.mark.asyncio
 async def test_fan_percentage_paths() -> None:
     coordinator = DummyCoordinator(data={"jets": "off"})
-    entity = SpaJetsFan(coordinator, _make_entry(), PumpDescription(id="jets", name="Jets", type="dual"))
+    entity = SpaJetsFan(coordinator, _make_entry(), JetDescription(id="jets", name="Jets", type="dual"))
     entity.hass = DummyHass()
     entity.async_write_ha_state = lambda: None
 
