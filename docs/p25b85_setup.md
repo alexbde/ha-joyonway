@@ -37,18 +37,15 @@ The diagram below shows the physical layout and network path:
 ```mermaid
 graph TD
     subgraph Home Network
-        HA["Home Assistant (Joyonway Integration)"] -- "TCP/IP (Port 8899)" --> Bridge["RS485-to-IP Bridge (e.g. Elfin EW11)"]
+        HA["Home Assistant\n(Joyonway Integration)"] -- "TCP/IP (Port 8899)" --> Bridge["RS485-to-IP Bridge\n(e.g. Elfin EW11)"]
     end
     
     subgraph Spa Hardware
-        Ctrl["Joyonway P25B85 Controller"] <--> "RS485 Bus" <--> Panel["PB554 Touchpad"]
-        Ctrl -- "Power/Control" --> Heater["Heater"]
-        Ctrl -- "Power/Control" --> Pumps["Pumps & Blower"]
-        Ctrl -- "Power/Control" --> Ozone["Ozone / UV"]
+        Ctrl["Spa Controller\n(e.g. P25B85)"] <--> Panel["Spa Touchpad\n(e.g. PB554)"]
+        Ctrl -- "Power/Control" --> Components["Heater, Jets, Light, Blower, Ozone, etc."]
     end
 
-    %% Cross-subgraph connections
-    Bridge <--> "RS485 Serial (38400 Baud, CN23/CN24)" <--> Ctrl
+    Bridge -- "RS485 Serial\n(38400 Baud, CN23/CN24)" <--> Ctrl
 ```
 
 ## Hardware Setup
