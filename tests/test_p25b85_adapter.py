@@ -69,7 +69,7 @@ def adapter() -> P25B85Adapter:
 
 @pytest.fixture
 def logical_frame() -> bytes:
-    return unescape_frame(KDY_RAW, full=True)
+    return unescape_frame(KDY_RAW, unescape_full=True)
 
 
 def test_find_frames_and_broadcast_validation() -> None:
@@ -94,7 +94,7 @@ def test_pseudo_unescape(raw: bytes, expected: bytes) -> None:
 
 
 def test_unescape_preserves_frame_delimiters() -> None:
-    logical = unescape_frame(KDY_RAW, full=True)
+    logical = unescape_frame(KDY_RAW, unescape_full=True)
     assert logical[0] == FRAME_START
     assert logical[-1] == FRAME_END
 
@@ -240,7 +240,7 @@ def test_parse_schedule_from_live_frame(adapter: P25B85Adapter) -> None:
         "0000004b000c00510012000000064d0000000000000000000000"
         "001a0517160e2506009db678a21d"
     )
-    unescaped = unescape_frame(frame, full=True)
+    unescaped = unescape_frame(frame, unescape_full=True)
     result = adapter.parse_status(unescaped)
 
     assert result["heat_slot1_start"] == (11, 0)
@@ -570,23 +570,23 @@ def test_build_light_toggle(adapter: P25B85Adapter) -> None:
 
 def test_build_jets_commands(adapter: P25B85Adapter) -> None:
     """Jets commands encode correct bytes 7-8 for each target state."""
-    f_low = adapter.build_jets_command("low")
+    f_low = adapter.build_jets_command("jets", "low")
     assert f_low is not None
     p_low = _frame_payload(f_low)
     assert p_low[7] == 0x02 and p_low[8] == 0x02
 
-    f_high = adapter.build_jets_command("high")
+    f_high = adapter.build_jets_command("jets", "high")
     assert f_high is not None
     p_high = _frame_payload(f_high)
     assert p_high[7] == 0x06 and p_high[8] == 0x04
 
-    f_off = adapter.build_jets_command("off")
+    f_off = adapter.build_jets_command("jets", "off")
     assert f_off is not None
     p_off = _frame_payload(f_off)
     assert p_off[7] == 0x04 and p_off[8] == 0x00
 
     # Invalid target returns None
-    assert adapter.build_jets_command("turbo") is None
+    assert adapter.build_jets_command("jets", "turbo") is None
 
 
 def test_build_heater_commands(adapter: P25B85Adapter) -> None:

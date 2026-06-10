@@ -17,19 +17,20 @@ if str(ROOT) not in sys.path:
 
 from custom_components.joyonway.config_flow import (
     JoyonwayP25B85ConfigFlow,
-    _test_connection,
+    _detect_model,
 )
 from custom_components.joyonway.const import (
     CONF_MODEL,
-    DEFAULT_MODEL,
 )
 from homeassistant.const import CONF_HOST, CONF_PORT
 
 
 @pytest.mark.asyncio
-async def test_test_connection_success() -> None:
+async def test_detect_model_success() -> None:
     """Test connection helper when TCP connection succeeds."""
+    from unittest.mock import AsyncMock
     mock_reader = MagicMock()
+    mock_reader.read = AsyncMock(return_value=bytes([0x1A, 0xFF, 0x01, 0x3C, 0xD2, 0xB4, 0xFF, 0x08, 0x03, 0x00]))
     mock_writer = MagicMock()
     mock_writer.close = MagicMock()
     mock_writer.wait_closed = AsyncMock()
@@ -37,21 +38,21 @@ async def test_test_connection_success() -> None:
     with patch(
         "asyncio.open_connection", return_value=(mock_reader, mock_writer)
     ) as mock_open:
-        result = await _test_connection("127.0.0.1", 8899)
-        assert result is True
+        result = await _detect_model("127.0.0.1", 8899)
+        assert result == "P25B85"
         mock_open.assert_called_once_with("127.0.0.1", 8899)
         mock_writer.close.assert_called_once()
         mock_writer.wait_closed.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_test_connection_failure() -> None:
+async def test_detect_model_failure() -> None:
     """Test connection helper when TCP connection fails."""
     with patch(
         "asyncio.open_connection", side_effect=OSError("connection refused")
     ) as mock_open:
-        result = await _test_connection("127.0.0.1", 8899)
-        assert result is False
+        result = await _detect_model("127.0.0.1", 8899)
+        assert result is None
         mock_open.assert_called_once_with("127.0.0.1", 8899)
 
 
@@ -83,8 +84,8 @@ async def test_config_flow_user_step_success() -> None:
     }
 
     with patch(
-        "custom_components.joyonway.config_flow._test_connection",
-        return_value=True,
+        "custom_components.joyonway.config_flow._detect_model",
+        return_value="P25B85",
     ) as mock_test:
         result = await flow.async_step_user(user_input)
 
@@ -93,7 +94,7 @@ async def test_config_flow_user_step_success() -> None:
         assert result["data"] == {
             CONF_HOST: "127.0.0.1",
             CONF_PORT: 8899,
-            CONF_MODEL: DEFAULT_MODEL,
+            CONF_MODEL: "P25B85",
         }
         mock_test.assert_called_once_with("127.0.0.1", 8899)
         flow.async_set_unique_id.assert_called_once_with("127.0.0.1:8899")
@@ -115,8 +116,8 @@ async def test_config_flow_user_step_cannot_connect() -> None:
     }
 
     with patch(
-        "custom_components.joyonway.config_flow._test_connection",
-        return_value=False,
+        "custom_components.joyonway.config_flow._detect_model",
+        return_value=None,
     ):
         result = await flow.async_step_user(user_input)
 
