@@ -190,7 +190,7 @@ class SpaLightSwitch(_SpaTargetStateSwitch):
                 # the intent is a no-op (user toggled ON→OFF or vice versa)
                 if data is not None and data.get("light") == overrides.get("light"):
                     return None
-                return coordinator.adapter.build_light_toggle_command()
+                return coordinator.adapter.build_light_toggle_command(on=target)
 
             _LOGGER.debug("Light: submitting toggle intent (target=%s)", target)
             coordinator.intent_queue.submit(

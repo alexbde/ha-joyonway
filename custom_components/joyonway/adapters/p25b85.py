@@ -33,7 +33,7 @@ try:
 except ImportError:  # standalone / test usage without HA
     dt_util = None  # type: ignore[assignment]
 
-from .base import SpaEntityDescription
+from .base import PumpDescription, SpaEntityDescription
 
 # Broadcast frame header signature for P25B85 (bytes 0-8)
 # byte[8] = 0x03 distinguishes P25B85 from P23B32 (0x02)
@@ -236,6 +236,9 @@ class P25B85Adapter:
     broadcast_signature: bytes = P25B85_SIGNATURE
     unescape_full_frame: bool = True
     supports_writes: bool = True
+    pumps: list[PumpDescription] = [
+        PumpDescription(id="jets", name="Jets", type="dual"),
+    ]
 
     # ── Broadcast parsing ─────────────────────────────────────
 
@@ -406,9 +409,11 @@ class P25B85Adapter:
 
     # ── Jets / pump helpers ───────────────────────────────────
 
-    def get_jets_state(self, data: dict) -> str:
+    def get_jets_state(self, data: dict, pump_id: str) -> str:
         """Return current jets state as 'off', 'low', or 'high'."""
-        return data.get("jets", "off")
+        if pump_id == "jets":
+            return data.get("jets", "off")
+        return "off"
 
     # ── Dynamic command builders ──────────────────────────────
     # All commands use build_frame() to compute CRC dynamically.
@@ -457,18 +462,18 @@ class P25B85Adapter:
         )
         return build_frame(bytes(payload))
 
-    def build_light_toggle_command(self) -> bytes:
+    def build_light_toggle_command(self, on: bool | None = None) -> bytes:
         """Build a light toggle command."""
         return self._build_button_command(btn_group=0x40, btn_action=0x40)
 
-    def build_jets_command(self, target: str) -> bytes | None:
+    def build_jets_command(self, pump_id: str, target: str) -> bytes | None:
         """Build a jets command for the desired target state.
 
         Note: the physical controller accepts these transition bytes based on
         its current state. Multi-step transitions must be handled at the entity level.
         Returns None if target is not a valid jets state.
         """
-        if target not in _PUMP_TARGET_BYTES:
+        if pump_id != "jets" or target not in _PUMP_TARGET_BYTES:
             return None
         b7, b8 = _PUMP_TARGET_BYTES[target]
         return self._build_button_command(pump_b7=b7, pump_b8=b8)
