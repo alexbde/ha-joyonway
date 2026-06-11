@@ -17,11 +17,14 @@
       "already_configured": "Diese Brücke ist bereits konfiguriert."
     }
   },
-
   "entity": {
     "sensor": {
-      "current_temperature": { "name": "Isttemperatur" },
-      "setpoint": { "name": "Solltemperatur" },
+      "current_temperature": {
+        "name": "Ist-Temperatur"
+      },
+      "setpoint": {
+        "name": "Soll-Temperatur"
+      },
       "status": {
         "name": "Status",
         "state": {
@@ -57,48 +60,112 @@
           "high": "Hoch"
         }
       },
-      "spa_datetime": { "name": "Datum & Uhrzeit" },
-      "heater_byte_raw": { "name": "Heizungs-Byte (roh)" },
-      "jets_byte_raw": { "name": "Düsen-Byte (roh)" },
-      "ozone_mode_byte_raw": { "name": "Ozon-Modus-Byte (roh)" },
-      "activity_byte_raw": { "name": "Aktivitäts-Byte (roh)" },
-      "light_cycle_byte_raw": { "name": "Licht/Zyklus-Byte (roh)" },
-      "frame_length": { "name": "Framelänge" },
-      "unmapped_bytes_hash": { "name": "Hash der nicht gemappten Bytes" }
+      "spa_datetime": {
+        "name": "Datum & Uhrzeit"
+      },
+      "heater_byte_raw": {
+        "name": "Heizungs-Byte (roh)"
+      },
+      "jets_byte_raw": {
+        "name": "Düsen-Byte (roh)"
+      },
+      "ozone_mode_byte_raw": {
+        "name": "Ozon-Modus-Byte (roh)"
+      },
+      "activity_byte_raw": {
+        "name": "Aktivitäts-Byte (roh)"
+      },
+      "light_cycle_byte_raw": {
+        "name": "Licht/Zyklus-Byte (roh)"
+      },
+      "frame_length": {
+        "name": "Framelänge"
+      },
+      "unmapped_bytes_hash": {
+        "name": "Hash der nicht gemappten Bytes"
+      }
     },
     "binary_sensor": {
-      "bridge_connectivity": { "name": "RS485-Bridge" }
+      "bridge_connectivity": {
+        "name": "RS485-Bridge"
+      }
     },
     "fan": {
-      "jets": { "name": "Düsen" },
-      "jets_left": { "name": "Düsen links" },
-      "jets_right": { "name": "Düsen rechts" }
+      "jets": {
+        "name": "Düsen"
+      },
+      "jets_left": {
+        "name": "Düsen links"
+      },
+      "jets_right": {
+        "name": "Düsen rechts"
+      }
     },
     "switch": {
-      "light": { "name": "Licht" },
-      "heater": { "name": "Heizung" },
-      "ozone": { "name": "Ozon" },
-      "blower": { "name": "Luftsprudler" },
-      "auto_sync_clock": { "name": "Uhr automatisch synchronisieren" },
-      "manual_ozone": { "name": "Ozon manuell" },
-      "manual_heating": { "name": "Heizung manuell" },
-      "heat_slot1_enabled": { "name": "Heiz-Slot 1" },
-      "heat_slot2_enabled": { "name": "Heiz-Slot 2" },
-      "filter_slot1_enabled": { "name": "Filter-Slot 1" },
-      "filter_slot2_enabled": { "name": "Filter-Slot 2" }
+      "light": {
+        "name": "Licht"
+      },
+      "heater": {
+        "name": "Heizung"
+      },
+      "ozone": {
+        "name": "Ozon"
+      },
+      "blower": {
+        "name": "Luftsprudler"
+      },
+      "auto_sync_clock": {
+        "name": "Uhr automatisch synchronisieren"
+      },
+      "manual_ozone": {
+        "name": "Ozon manuell"
+      },
+      "manual_heating": {
+        "name": "Heizung manuell"
+      },
+      "heat_slot1_enabled": {
+        "name": "Heiz-Slot 1"
+      },
+      "heat_slot2_enabled": {
+        "name": "Heiz-Slot 2"
+      },
+      "filter_slot1_enabled": {
+        "name": "Filter-Slot 1"
+      },
+      "filter_slot2_enabled": {
+        "name": "Filter-Slot 2"
+      }
     },
     "time": {
-      "heat_slot1_start": { "name": "Heiz-Slot 1 Beginn" },
-      "heat_slot1_end": { "name": "Heiz-Slot 1 Ende" },
-      "heat_slot2_start": { "name": "Heiz-Slot 2 Beginn" },
-      "heat_slot2_end": { "name": "Heiz-Slot 2 Ende" },
-      "filter_slot1_start": { "name": "Filter-Slot 1 Beginn" },
-      "filter_slot1_end": { "name": "Filter-Slot 1 Ende" },
-      "filter_slot2_start": { "name": "Filter-Slot 2 Beginn" },
-      "filter_slot2_end": { "name": "Filter-Slot 2 Ende" }
+      "heat_slot1_start": {
+        "name": "Heiz-Slot 1 Beginn"
+      },
+      "heat_slot1_end": {
+        "name": "Heiz-Slot 1 Ende"
+      },
+      "heat_slot2_start": {
+        "name": "Heiz-Slot 2 Beginn"
+      },
+      "heat_slot2_end": {
+        "name": "Heiz-Slot 2 Ende"
+      },
+      "filter_slot1_start": {
+        "name": "Filter-Slot 1 Beginn"
+      },
+      "filter_slot1_end": {
+        "name": "Filter-Slot 1 Ende"
+      },
+      "filter_slot2_start": {
+        "name": "Filter-Slot 2 Beginn"
+      },
+      "filter_slot2_end": {
+        "name": "Filter-Slot 2 Ende"
+      }
     },
     "climate": {
-      "thermostat": { "name": "Thermostat" }
+      "thermostat": {
+        "name": "Thermostat"
+      }
     }
   },
   "exceptions": {
