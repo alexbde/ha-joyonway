@@ -73,7 +73,7 @@ Broadcast frames are validated by computing the CRC over all unescaped bytes exc
 
 ### 3.3. Wire Frame Construction (Outbound)
 ```
-inner = payload[16 bytes] + crc[4 bytes LE]
+inner = payload[16 or 17 bytes] + crc[4 bytes LE]
 escaped = escape(inner)
 wire = 0x1A + escaped + 0x1D
 ```
@@ -97,12 +97,12 @@ The controller sends periodic broadcast frames (~2/sec) to report the spa state 
 | **Pump/Jets 2** | N/A | Byte 12, bit `0x10` [✅] | P23 single-speed Right Pump |
 | **Blower State** | Byte 14, bit `0x08` [✅] | Byte 14, bit `0x08` [✅] | Blower ON/OFF (both models). P25 also mirrors at Byte 28 bit 3. |
 | **Heater Active (Heating)** | Byte 14, bit `0x04` (states `0x54`/`0x55`/`0xD4`/`0xD5`) [✅] | Byte 14, bit `0x04` (states `0x54`/`0x55`/`0xD4`/`0xD5`) [✨] | Heating element is actively ON. |
-| **Heater Enabled (Armed)** | Byte 14, bit `0x10` (states `0x50`/`0x54`/`0xD0`/`0xD4`) [✅] | Byte 14, bit `0x10` (states `0x50`/`0x54`/`0xD0`/`0xD4`) [✅] | Heater thermostat is armed/enabled in menus (whether currently heating or in standby). |
+| **Heater Enabled (Armed)** | Byte 14, bit `0x10` (states `0x50`/`0x54`/`0xD0`/`0xD4`) [✅] | Byte 14, bit `0x10` (states `0x50`/`0x54`/`0xD0`/`0xD4`) [✅] | Heater thermostat is armed/enabled in menus (whether currently heating or in standby). Note: Bit `0x10` is NOT set when ozone state `0x41`/`0xC1` is active. |
 | **Circulation Pump**| Byte 17, bit `0x80` [✅] | Byte 17, bit `0x80` [✅] | Circle icon. Set during heating & filtration/ozone |
 | **Ozone Config Mode**| Byte 13, bit `0x80` [✅] | Byte 13, bit `0x80` [✨] | Lock flag: `1` = Manual, `0` = Auto. Confirmed supported in P23 manuals. |
 | **Heater Config Mode**| Byte 13, bit `0x10` [✅] | Byte 13, bit `0x10` [✨] | Lock flag: `1` = Manual, `0` = Auto. Confirmed supported in P23 manuals. |
 | **Ozone Active (Auto/Scheduled)** | Byte 14: state `0x41` [✅] | Byte 14: state `0x41` [✨] | Logical state machine state for auto/scheduled ozone cycle. |
-| **Ozone Active (Manual)** | Byte 14: state `0xC1` [✅] | Byte 14: state `0xC1` [✨] | Logical state machine state for manual ozone cycle. |
+| **Ozone Active (Manual)** | Byte 14: state `0xC1` [✅] | Byte 14: state `0xC1` [✨] | Logical state machine state for manual ozone cycle. Note: The state is exactly `0xC1` (or `0x41` for auto), mutually exclusive with standard heating codes and without bit `0x10` set. |
 | **Ozone Relay** | Byte 28, bit `0x20` [✅] | Byte 28, bit `0x20` [✨] | Physical ozone / UV hardware relay status. |
 | **System Date & Time**| Bytes 53–58 [✅] | Bytes 53–58 [✅] | Unescaped tail: Year, Month, Day, Hour, Min, Sec |
 | **Heat Schedule Slot 1**| Bytes 19–22 [✅] | Bytes 19–22 [✨] | Start/End hours & minutes (Hour \| 0x40 if enabled) |
@@ -155,7 +155,11 @@ This section summarizes how the CRC parameters were derived and confirmed:
 
 ## 7. Behavioral Notes
 
-*   **Light is a toggle (P25 only):** The P25 panel sends the same frame for ON and OFF. Software must track state and avoid sending when state is unknown. P23 has distinct ON/OFF frames.
+*   **Light command behavior differs by model:** The P25B85 panel sends the same toggle frame
+    regardless of ON or OFF intent — the integration's entity layer handles no-op detection by
+    tracking the current state. The P23B32 / P20B29 controllers use distinct ON and OFF command
+    frames (byte 16: `0x81` = ON, `0x80` = OFF). The adapter's `build_light_command(on: bool)`
+    method abstracts this difference.
 *   **Pump commands are state-dependent (P25):** The physical panel UI is a cycle (OFF → LOW → HIGH → OFF), and the controller's RS-485 transition commands reflect this. Direct commands for LOW → OFF and HIGH → LOW do not exist. The integration must execute sequenced transitions.
 *   **Pump auto-off (P25):** Pump high speed auto-stops after 20 minutes (hardware timer).
 *   **Setpoint byte echo (P25):** Byte index 14 in every button command is the CURRENT setpoint at time of capture, embedded as a state echo. The controller accepts commands regardless of this byte's value matching actual state.

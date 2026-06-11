@@ -41,9 +41,25 @@
           "high": "Élevé"
         }
       },
+      "jets_left": {
+        "name": "Jets gauche",
+        "state": {
+          "off": "Arrêt",
+          "low": "Faible",
+          "high": "Élevé"
+        }
+      },
+      "jets_right": {
+        "name": "Jets droit",
+        "state": {
+          "off": "Arrêt",
+          "low": "Faible",
+          "high": "Élevé"
+        }
+      },
       "spa_datetime": { "name": "Date & heure" },
       "heater_byte_raw": { "name": "Octet chauffage (brut)" },
-      "pump_byte_raw": { "name": "Octet pompe (brut)" },
+      "jets_byte_raw": { "name": "Octet jets (brut)" },
       "ozone_mode_byte_raw": { "name": "Octet mode ozone (brut)" },
       "activity_byte_raw": { "name": "Octet activité (brut)" },
       "light_cycle_byte_raw": { "name": "Octet lumière/cycle (brut)" },
@@ -54,7 +70,9 @@
       "bridge_connectivity": { "name": "Pont RS485" }
     },
     "fan": {
-      "jets": { "name": "Jets" }
+      "jets": { "name": "Jets" },
+      "jets_left": { "name": "Jets gauche" },
+      "jets_right": { "name": "Jets droit" }
     },
     "switch": {
       "light": { "name": "Lumière" },

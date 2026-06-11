@@ -20,7 +20,7 @@ This file contains instructions, coding conventions, architecture boundaries, an
 - **Type Annotations**: Strictly typed. Run `.venv/bin/mypy custom_components/joyonway/` to verify.
 - **Coordinators**: All entities must derive from `JoyonwayCoordinatorEntity`, which is generically typed:
   ```python
-  class JoyonwayCoordinatorEntity(CoordinatorEntity["JoyonwayP25B85Coordinator"]):
+  class JoyonwayCoordinatorEntity(CoordinatorEntity["JoyonwayCoordinator"]):
   ```
 - **Branding & Icons**: Keep icons simple and clean. Use standard Material Design Icons (`mdi:` prefix) as described in `ModelAdapter.entity_descriptions()`.
 - **Commit & PR Naming**: All commits and PR titles must follow Conventional Commits format, utilizing a lowercase prefix followed by a colon, a space, and a description starting with an uppercase verb (e.g., `feat: Add P31B69 model` or `chore: Update dependencies`). If a change spans multiple categories, the highest category in the list below must be used as the prefix (the "highest category wins" rule). Standard prefixes sorted from highest to lowest priority:
@@ -48,7 +48,7 @@ This file contains instructions, coding conventions, architecture boundaries, an
 - **Ozone & Heater Availability Lock**: Main `Ozone` and `Heater` switch entities are linked to their config switches (`Manual Ozone`, `Manual Heating`). They are unavailable (`available = False`) unless the corresponding config switch is enabled (meaning the spa is in Manual mode).
 - **Auto Clock Sync**: Clock sync is drift-triggered (>30s) and runs with a 1-hour cooldown (applying to both success and failure to prevent log spam), managed via a native CONFIG switch.
 - **Schedule Command Flags**: P25B85 schedule writes use two flag modes: `write_mode="state"` for enables (`0xAA/0x62/0x9A/0x52`) and `write_mode="time"` for time edits (`0xAA/0x6A/0x9A/0x5A`). The `0x6A`/`0x5A` force-write flags are critical to prevent write refusal issues when slot 2 is disabled.
-- **Diagnostics Redaction**: Config entry diagnostics (`diagnostics.py`) must redact sensitive keys (like `host`, `port`) and export raw byte states (`heater_byte_raw`, `pump_byte_raw`, etc.) for troubleshooting.
+- **Diagnostics Redaction**: Config entry diagnostics (`diagnostics.py`) must redact sensitive keys (like `host`, `port`) and export raw byte states (`heater_byte_raw`, `jets_byte_raw`, etc.) for troubleshooting.
 
 
 ## 4. Testing Requirements

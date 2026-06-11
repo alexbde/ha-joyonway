@@ -92,15 +92,15 @@ def pseudo_unescape(data: bytes) -> bytes:
     return bytes(result)
 
 
-def unescape_frame(frame: bytes, full: bool = True) -> bytes:
+def unescape_frame(frame: bytes, unescape_full: bool = True) -> bytes:
     """Apply unescape policy to a raw frame.
 
     Args:
         frame: Raw frame including start/end delimiters.
-        full: If True, unescape entire payload (P25B85 policy).
-              If False, unescape only tail bytes 55+ (P23B32 policy).
+        unescape_full: If True, unescape entire payload (P25B85 policy).
+                       If False, unescape only tail bytes 55+ (P23B32 policy).
     """
-    if full:
+    if unescape_full:
         # Unescape everything between start and end delimiters
         return frame[:1] + pseudo_unescape(frame[1:-1]) + frame[-1:]
     else:
@@ -115,7 +115,7 @@ def is_broadcast(frame: bytes) -> bool:
     return len(frame) > 1 and frame[1] == 0xFF
 
 
-def validate_frame(frame: bytes) -> bool:
+def validate_frame(frame: bytes, unescape_full: bool = True) -> bool:
     """Conservative frame validation.
 
     Checks delimiters and minimum size. Also validates CRC-32 if the frame
@@ -129,10 +129,11 @@ def validate_frame(frame: bytes) -> bool:
         return False
 
     # CRC validation for frames with enough payload (minimum 16 bytes payload + 4 bytes CRC)
-    unescaped = pseudo_unescape(frame[1:-1])
-    if len(unescaped) >= 20:
-        payload = unescaped[:-4]
-        crc_received = struct.unpack("<I", unescaped[-4:])[0]
+    unescaped = unescape_frame(frame, unescape_full=unescape_full)
+    inner = unescaped[1:-1]
+    if len(inner) >= 20:
+        payload = inner[:-4]
+        crc_received = struct.unpack("<I", inner[-4:])[0]
         crc_expected = compute_crc(payload)
         if crc_received != crc_expected:
             return False

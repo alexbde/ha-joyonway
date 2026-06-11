@@ -1,4 +1,4 @@
-"""Data update coordinator for Joyonway P25B85 spa integration.
+"""Data update coordinator for Joyonway spa integration.
 
 Maintains a persistent TCP connection to the RS485 bridge, continuously
 parsing broadcast frames. Commands are sent on the same socket.
@@ -85,7 +85,7 @@ class IntentQueue:
 
     def __init__(
         self,
-        coordinator: "JoyonwayP25B85Coordinator",
+        coordinator: "JoyonwayCoordinator",
         coalesce_seconds: float = INTENT_COALESCE_SECONDS,
     ) -> None:
         self._coordinator = coordinator
@@ -294,7 +294,7 @@ class IntentQueue:
             await self._drain_all()
 
 
-class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
+class JoyonwayCoordinator(DataUpdateCoordinator):
     """Coordinator with persistent TCP connection and background reader."""
 
     def __init__(
@@ -538,12 +538,16 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
                 self._handle_sync_frame()
                 continue
 
-            if not validate_frame(raw_frame):
-                continue
             if not is_broadcast(raw_frame):
                 continue
+            if not validate_frame(
+                raw_frame, unescape_full=self._adapter.unescape_full_frame
+            ):
+                continue
 
-            logical = unescape_frame(raw_frame, full=self._adapter.unescape_full_frame)
+            logical = unescape_frame(
+                raw_frame, unescape_full=self._adapter.unescape_full_frame
+            )
 
             try:
                 data = self._adapter.parse_status(logical)
@@ -731,4 +735,4 @@ class JoyonwayP25B85Coordinator(DataUpdateCoordinator):
             self._on_data_callbacks.remove(callback_fn)
 
 
-type JoyonwayConfigEntry = ConfigEntry[JoyonwayP25B85Coordinator]
+type JoyonwayConfigEntry = ConfigEntry[JoyonwayCoordinator]

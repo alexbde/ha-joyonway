@@ -1,4 +1,4 @@
-"""Config flow for Joyonway P25B85."""
+"""Config flow for Joyonway spa controllers."""
 
 from __future__ import annotations
 
@@ -21,6 +21,7 @@ from .const import (
     DEFAULT_PORT,
     DOMAIN,
 )
+from .protocol import find_frames_with_indices
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -32,22 +33,51 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 )
 
 
-async def _test_connection(host: str, port: int, timeout: float = 5.0) -> bool:
-    """Test TCP connection to the RS485 bridge."""
+async def _detect_model(host: str, port: int, timeout: float = 5.0) -> str | None:
+    """Test TCP connection and auto-detect the controller model from a broadcast frame."""
     try:
         reader, writer = await asyncio.wait_for(
             asyncio.open_connection(host, port), timeout=timeout
         )
+
+        # Read stream until we find a full broadcast frame
+        buf = bytearray()
+        detected_model = DEFAULT_MODEL
+        end_time = asyncio.get_running_loop().time() + timeout
+
+        while asyncio.get_running_loop().time() < end_time:
+            time_left = end_time - asyncio.get_running_loop().time()
+            if time_left <= 0:
+                break
+
+            chunk = await asyncio.wait_for(reader.read(1024), timeout=time_left)
+            if not chunk:
+                break
+
+            buf.extend(chunk)
+            frames = find_frames_with_indices(bytes(buf))
+            for raw_frame, _ in frames:
+                # Need at least 9 bytes to read index 8
+                if len(raw_frame) > 8 and raw_frame[1] == 0xFF:
+                    if raw_frame[8] == 0x02:
+                        detected_model = "P23B32"
+                    elif raw_frame[8] == 0x03:
+                        detected_model = "P25B85"
+
+                    writer.close()
+                    await writer.wait_closed()
+                    return detected_model
+
         writer.close()
         await writer.wait_closed()
-        return True
+        return None
     except (OSError, asyncio.TimeoutError) as err:
-        _LOGGER.debug("Connection test %s:%s failed: %s", host, port, err)
-        return False
+        _LOGGER.debug("Connection test and detect %s:%s failed: %s", host, port, err)
+        return None
 
 
-class JoyonwayP25B85ConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for Joyonway P25B85."""
+class JoyonwayConfigFlow(ConfigFlow, domain=DOMAIN):
+    """Handle a config flow for Joyonway spa controllers."""
 
     VERSION = 1
 
@@ -64,13 +94,14 @@ class JoyonwayP25B85ConfigFlow(ConfigFlow, domain=DOMAIN):
             await self.async_set_unique_id(f"{host}:{port}")
             self._abort_if_unique_id_configured()
 
-            if await _test_connection(host, port):
+            detected_model = await _detect_model(host, port)
+            if detected_model is not None:
                 return self.async_create_entry(
                     title=f"Joyonway Spa ({host})",
                     data={
                         CONF_HOST: host,
                         CONF_PORT: port,
-                        CONF_MODEL: DEFAULT_MODEL,
+                        CONF_MODEL: detected_model,
                     },
                 )
             errors["base"] = "cannot_connect"

@@ -1,4 +1,4 @@
-"""Time platform for Joyonway P25B85 — schedule time slot entities.
+"""Time platform for Joyonway spa controllers — schedule time slot entities.
 
 Exposes heat and filter schedule start/end times as TimeEntity with write support.
 When a time is changed, the full schedule command is sent to the spa controller.
@@ -22,7 +22,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import OPTIMISTIC_TIMEOUT_SECONDS
 from .coordinator import (
     IntentBuildError,
-    JoyonwayP25B85Coordinator,
+    JoyonwayCoordinator,
     JoyonwayConfigEntry,
 )
 from .entity import JoyonwayCoordinatorEntity, device_info
@@ -63,7 +63,7 @@ class SpaScheduleTime(JoyonwayCoordinatorEntity, TimeEntity):
 
     def __init__(
         self,
-        coordinator: JoyonwayP25B85Coordinator,
+        coordinator: JoyonwayCoordinator,
         entry: JoyonwayConfigEntry,
         key: str,
         schedule_type: str,

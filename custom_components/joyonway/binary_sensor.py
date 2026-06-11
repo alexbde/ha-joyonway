@@ -1,4 +1,4 @@
-"""Binary sensor platform for Joyonway P25B85.
+"""Binary sensor platform for Joyonway spa controllers.
 
 Entities are driven by the model adapter's entity_descriptions().
 Includes a bridge connectivity sensor.
@@ -15,7 +15,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .adapters.base import SpaEntityDescription
-from .coordinator import JoyonwayP25B85Coordinator, JoyonwayConfigEntry
+from .coordinator import JoyonwayCoordinator, JoyonwayConfigEntry
 from .entity import JoyonwayCoordinatorEntity, device_info
 
 
@@ -46,7 +46,7 @@ class JoyonwayBinarySensor(JoyonwayCoordinatorEntity, BinarySensorEntity):
 
     def __init__(
         self,
-        coordinator: JoyonwayP25B85Coordinator,
+        coordinator: JoyonwayCoordinator,
         entry: JoyonwayConfigEntry,
         description: SpaEntityDescription,
     ) -> None:
@@ -84,7 +84,7 @@ class JoyonwayBridgeConnectivity(JoyonwayCoordinatorEntity, BinarySensorEntity):
 
     def __init__(
         self,
-        coordinator: JoyonwayP25B85Coordinator,
+        coordinator: JoyonwayCoordinator,
         entry: JoyonwayConfigEntry,
     ) -> None:
         """Initialize the connectivity sensor."""

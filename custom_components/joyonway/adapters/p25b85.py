@@ -33,7 +33,7 @@ try:
 except ImportError:  # standalone / test usage without HA
     dt_util = None  # type: ignore[assignment]
 
-from .base import SpaEntityDescription
+from .base import JetDescription, JetType, SpaEntityDescription
 
 # Broadcast frame header signature for P25B85 (bytes 0-8)
 # byte[8] = 0x03 distinguishes P25B85 from P23B32 (0x02)
@@ -41,7 +41,7 @@ P25B85_SIGNATURE = bytes([0x1A, 0xFF, 0x01, 0x3C, 0xD2, 0xB4, 0xFF, 0x08, 0x03])
 
 # Byte positions in the logical (unescaped) broadcast frame (0-based)
 IDX_CURRENT_TEMP = 9  # Fahrenheit
-IDX_PUMP_BYTE = 12  # ✅ confirmed: 0x02=low, 0x04=high (KDy "byte 13")
+IDX_JET_BYTE = 12  # ✅ confirmed: 0x02=low, 0x04=high (KDy "byte 13")
 IDX_OZONE_MODE = 13  # ✅ bit 7: 0=Auto, 1=Manual (confirmed from phase 6 captures)
 IDX_HEATER_STATE = 14  # ✅ confirmed (KDy "byte 15")
 IDX_SETPOINT = 16  # Fahrenheit
@@ -100,9 +100,9 @@ SCHED_FLAGS_TIME_WRITE_TABLE: dict[tuple[bool, bool], int] = {
     (False, False): 0x5A,
 }
 
-# Pump masks
-MASK_PUMP_LOW = 0x02  # filtration / circulation ✅
-MASK_PUMP_HIGH = 0x04  # massage jets ✅
+# Jet masks
+MASK_JET_LOW = 0x02  # filtration / circulation ✅
+MASK_JET_HIGH = 0x04  # massage jets ✅
 
 # Light
 MASK_LIGHT = 0x01  # ✅ bit 0 at byte 17
@@ -129,7 +129,9 @@ MASK_HEATER_BLOWER = 0x08  # bit 3 on heater byte = blower running
 _TRAILER_LEN = 5  # CRC32 (4) + frame end delimiter (1)
 HEATER_OFF = 0x40  # Idle/off (KDy called this "cooldown") ✅ confirmed
 HEATER_STANDBY = 0x50  # Heater enabled/armed — waiting for temp drop ✅ confirmed
-HEATER_CIRCULATION = 0x51  # Pre/post-heat circulation (circle icon on panel) ✅ confirmed
+HEATER_CIRCULATION = (
+    0x51  # Pre/post-heat circulation (circle icon on panel) ✅ confirmed
+)
 HEATER_HEATING = 0x55  # Actively heating (flame icon) ✅ confirmed
 HEATER_HEATING_ALT = 0x54  # Actively heating (KDy's value, differs by bit 0)
 HEATER_OZONE = 0x41  # Ozone cycle — scheduled (our capture) ✅ confirmed
@@ -138,7 +140,7 @@ HEATER_OZONE_ALT = 0xC1  # Ozone cycle — manual / KDy variant ✅ Phase 6
 HEATER_STATE_MAP: dict[int, str] = {
     HEATER_OFF: "off",
     HEATER_STANDBY: "standby",  # heater armed, waiting for temp drop
-    HEATER_CIRCULATION: "circulation",  # pump running pre/post heat (circle icon)
+    HEATER_CIRCULATION: "circulation",  # jet running pre/post heat (circle icon)
     HEATER_HEATING: "heating",
     HEATER_HEATING_ALT: "heating",  # KDy variant
     HEATER_OZONE: "ozone",
@@ -193,13 +195,13 @@ _MAPPED_INDEXES = {
 # ──────────────────────────────────────────────────────────────
 
 
-# Pump transition encodings — (pump_b7, pump_b8)
+# Jet transition encodings — (jet_b7, jet_b8)
 # Captured transitions: off→low, low→high, high→off (panel button cycle).
 # Additional direct transitions use the same target-state bytes — the
-# Pump target commands — the controller accepts any target regardless of current
-# state. Bytes 7-8 encode the desired pump state, not a transition.
+# Jet target commands — the controller accepts any target regardless of current
+# state. Bytes 7-8 encode the desired jet state, not a transition.
 # Live confirmed: off→low ✅, off→high ✅, low→off ✅, high→off ✅ (sessions 2+5).
-_PUMP_TARGET_BYTES: dict[str, tuple[int, int]] = {
+_JET_TARGET_BYTES: dict[str, tuple[int, int]] = {
     "off": (0x04, 0x00),
     "low": (0x02, 0x02),
     "high": (0x06, 0x04),
@@ -236,6 +238,9 @@ class P25B85Adapter:
     broadcast_signature: bytes = P25B85_SIGNATURE
     unescape_full_frame: bool = True
     supports_writes: bool = True
+    jets: list[JetDescription] = [
+        JetDescription(id="jets", name="Jets", type=JetType.DUAL),
+    ]
 
     # ── Broadcast parsing ─────────────────────────────────────
 
@@ -252,7 +257,7 @@ class P25B85Adapter:
 
         current_temp_f = frame[IDX_CURRENT_TEMP]
         setpoint_f = frame[IDX_SETPOINT]
-        pump_byte = frame[IDX_PUMP_BYTE]
+        jet_byte = frame[IDX_JET_BYTE]
         ozone_mode_byte = frame[IDX_OZONE_MODE]
         heater_byte = frame[IDX_HEATER_STATE]
         light_byte = frame[IDX_LIGHT_CYCLE]
@@ -265,15 +270,15 @@ class P25B85Adapter:
 
         # Pre/post-heat circulation detection: when byte 14 is off (0x40) or
         # standby (0x50), but the heating cycle flag (byte 17 bit 7) is set,
-        # the pump is actively running circulation (pre-heating or post-heating).
+        # the jet/pump is actively running circulation (pre-heating or post-heating).
         heating_cycle_active = bool(light_byte & MASK_HEATING_CYCLE)
         if status in ("off", "standby") and heating_cycle_active:
             status = "circulation"
 
         # Derive jets state string
-        if pump_byte & MASK_PUMP_HIGH:
+        if jet_byte & MASK_JET_HIGH:
             jets = "high"
-        elif pump_byte & MASK_PUMP_LOW:
+        elif jet_byte & MASK_JET_LOW:
             jets = "low"
         else:
             jets = "off"
@@ -286,8 +291,8 @@ class P25B85Adapter:
         result: dict = {
             "current_temperature": _fahrenheit_to_celsius(current_temp_f),
             "setpoint": _fahrenheit_to_celsius(setpoint_f),
-            "pump_low": bool(pump_byte & MASK_PUMP_LOW),
-            "pump_high": bool(pump_byte & MASK_PUMP_HIGH),
+            "jet_low": bool(jet_byte & MASK_JET_LOW),
+            "jet_high": bool(jet_byte & MASK_JET_HIGH),
             "jets": jets,
             "light": bool(light_byte & MASK_LIGHT),
             "heater_active": heater_base in (HEATER_HEATING, HEATER_HEATING_ALT),
@@ -299,7 +304,7 @@ class P25B85Adapter:
             "heater_mode": "manual" if heater_mode_manual else "auto",
             "blower": bool(heater_byte & MASK_HEATER_BLOWER),
             "heater_byte_raw": heater_byte,
-            "pump_byte_raw": pump_byte,
+            "jets_byte_raw": jet_byte,
             "ozone_mode_byte_raw": ozone_mode_byte,
             "activity_byte_raw": activity_byte,
             "light_cycle_byte_raw": light_byte,
@@ -406,17 +411,19 @@ class P25B85Adapter:
 
     # ── Jets / pump helpers ───────────────────────────────────
 
-    def get_jets_state(self, data: dict) -> str:
+    def get_jets_state(self, data: dict, jet_id: str) -> str:
         """Return current jets state as 'off', 'low', or 'high'."""
-        return data.get("jets", "off")
+        if jet_id == "jets":
+            return data.get("jets", "off")
+        return "off"
 
     # ── Dynamic command builders ──────────────────────────────
     # All commands use build_frame() to compute CRC dynamically.
 
     def _build_button_command(
         self,
-        pump_b7: int = 0x00,
-        pump_b8: int = 0x00,
+        jet_b7: int = 0x00,
+        jet_b8: int = 0x00,
         btn_group: int = 0x00,
         btn_action: int = 0x00,
         modifier: int = 0x00,
@@ -426,7 +433,7 @@ class P25B85Adapter:
         """Build a type-0xA1 button command frame with CRC.
 
         Args:
-            pump_b7/b8: pump transition bytes (non-zero for pump commands)
+            jet_b7/jet_b8: jet transition bytes (non-zero for pump commands)
             btn_group: button group identifier
             btn_action: button action value
             modifier: modifier byte (0x80 for ozone mode)
@@ -444,8 +451,8 @@ class P25B85Adapter:
                 0xA1,
                 0x10,
                 0xA1,
-                pump_b7,
-                pump_b8,
+                jet_b7,
+                jet_b8,
                 btn_group,
                 btn_action,
                 modifier,
@@ -457,21 +464,21 @@ class P25B85Adapter:
         )
         return build_frame(bytes(payload))
 
-    def build_light_toggle_command(self) -> bytes:
-        """Build a light toggle command."""
+    def build_light_command(self, on: bool) -> bytes:
+        """Build a light command. P25B85 uses toggle; `on` is ignored."""
         return self._build_button_command(btn_group=0x40, btn_action=0x40)
 
-    def build_jets_command(self, target: str) -> bytes | None:
+    def build_jets_command(self, jet_id: str, target: str) -> bytes | None:
         """Build a jets command for the desired target state.
 
         Note: the physical controller accepts these transition bytes based on
         its current state. Multi-step transitions must be handled at the entity level.
         Returns None if target is not a valid jets state.
         """
-        if target not in _PUMP_TARGET_BYTES:
+        if jet_id != "jets" or target not in _JET_TARGET_BYTES:
             return None
-        b7, b8 = _PUMP_TARGET_BYTES[target]
-        return self._build_button_command(pump_b7=b7, pump_b8=b8)
+        b7, b8 = _JET_TARGET_BYTES[target]
+        return self._build_button_command(jet_b7=b7, jet_b8=b8)
 
     def build_heater_command(self, on: bool) -> bytes:
         """Build a heater ON or OFF command."""
@@ -787,8 +794,8 @@ _P25B85_ENTITIES: list[SpaEntityDescription] = [
     ),
     SpaEntityDescription(
         platform="sensor",
-        key="pump_byte_raw",
-        name="Pump byte (raw)",
+        key="jets_byte_raw",
+        name="Jets byte (raw)",
         icon="mdi:memory",
         entity_category="diagnostic",
         enabled_by_default=False,

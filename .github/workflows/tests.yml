@@ -48,4 +48,6 @@ jobs:
 
       - name: Run live verification suite (dry-run)
         run: |
-          python tests/live/test_spa_controls.py --non-interactive
+          python tests/live/test_spa_controls.py --non-interactive --model p25b85
+          python tests/live/test_spa_controls.py --non-interactive --model p23b32
+          python tests/live/test_spa_controls.py --non-interactive --model p20b29

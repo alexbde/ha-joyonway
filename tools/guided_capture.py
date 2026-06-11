@@ -63,7 +63,7 @@ def print_status(data: dict) -> None:
     status = data.get("status", "unknown")
     heater_enabled = "ON" if data.get("heater_enabled") else "OFF"
     h_byte = data.get("heater_byte_raw", 0)
-    p_byte = data.get("pump_byte_raw", 0)
+    p_byte = data.get("jets_byte_raw", 0)
     l_byte = data.get("light_cycle_byte_raw", 0)
 
     print(
@@ -97,7 +97,7 @@ def run_jets_sequence(
     # Runbook Step descriptions and trigger criteria
     def check_step_transition(step: int, data: dict) -> tuple[bool, str | None]:
         jets = data.get("jets")
-        p_raw = data.get("pump_byte_raw", 0)
+        p_raw = data.get("jets_byte_raw", 0)
 
         if step == 1:
             if jets == "off" or p_raw == 0x00:
@@ -233,7 +233,7 @@ def run_heating_sequence(
         status = data.get("status")
         heater_enabled = data.get("heater_enabled", False)
         h_raw = data.get("heater_byte_raw", 0)
-        p_raw = data.get("pump_byte_raw", 0)
+        p_raw = data.get("jets_byte_raw", 0)
         l_raw = data.get("light_cycle_byte_raw", 0)
 
         heater_base = h_raw & ~0x08

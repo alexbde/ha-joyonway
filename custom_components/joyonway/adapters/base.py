@@ -3,7 +3,24 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Protocol
+
+
+class JetType(StrEnum):
+    """Jet speed capability."""
+
+    SINGLE = "single"
+    DUAL = "dual"
+
+
+@dataclass(frozen=True)
+class JetDescription:
+    """Describes a jet/pump exposed by a model adapter."""
+
+    id: str  # e.g. "jets", "jets_left", "jets_right"
+    name: str
+    type: JetType
 
 
 @dataclass(frozen=True)
@@ -36,6 +53,7 @@ class ModelAdapter(Protocol):
     broadcast_signature: bytes
     unescape_full_frame: bool
     supports_writes: bool
+    jets: list[JetDescription]
 
     def parse_status(self, frame: bytes) -> dict | None:
         """Extract state dict from an unescaped broadcast frame.
@@ -52,15 +70,21 @@ class ModelAdapter(Protocol):
         """Derive heater enabled state from status if not explicitly present."""
         ...
 
-    def get_jets_state(self, data: dict) -> str:
+    def get_jets_state(self, data: dict, jet_id: str) -> str:
         """Return current jets state as 'off', 'low', or 'high'."""
         ...
 
-    def build_light_toggle_command(self) -> bytes:
-        """Build a light toggle command."""
+    def build_light_command(self, on: bool) -> bytes:
+        """Build a light ON or OFF command.
+
+        For toggle-only controllers (P25B85), this builds a toggle frame
+        regardless of the `on` value — the entity layer handles no-op detection.
+        For discrete-command controllers (P23B32), this builds the appropriate
+        ON or OFF frame.
+        """
         ...
 
-    def build_jets_command(self, target: str) -> bytes | None:
+    def build_jets_command(self, jet_id: str, target: str) -> bytes | None:
         """Build a jets command for the desired target state."""
         ...
 
