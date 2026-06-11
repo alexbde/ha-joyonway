@@ -101,7 +101,7 @@ class JoyonwaySensor(JoyonwayCoordinatorEntity, SensorEntity):
             value = self.coordinator.data.get(self._key)
             if value is not None and self._key in {
                 "heater_byte_raw",
-                "jet_byte_raw",
+                "jets_byte_raw",
                 "ozone_mode_byte_raw",
                 "activity_byte_raw",
                 "light_cycle_byte_raw",

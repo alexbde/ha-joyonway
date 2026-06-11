@@ -59,7 +59,7 @@
       },
       "spa_datetime": { "name": "Date & heure" },
       "heater_byte_raw": { "name": "Octet chauffage (brut)" },
-      "jet_byte_raw": { "name": "Octet jet (brut)" },
+      "jets_byte_raw": { "name": "Octet jets (brut)" },
       "ozone_mode_byte_raw": { "name": "Octet mode ozone (brut)" },
       "activity_byte_raw": { "name": "Octet activité (brut)" },
       "light_cycle_byte_raw": { "name": "Octet lumière/cycle (brut)" },

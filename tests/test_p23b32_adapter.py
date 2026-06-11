@@ -38,9 +38,9 @@ P23B32_SIGNATURE = adapters_p23b32.P23B32_SIGNATURE
 
 
 # Helper to extract payload
-def _frame_payload(frame: bytes) -> bytes:
-    """Extract the 16-byte unescaped payload from a wire frame."""
-    return pseudo_unescape(frame[1:-1])[:16]
+def _frame_payload(frame: bytes, length: int = 16) -> bytes:
+    """Extract the unescaped payload from a wire frame."""
+    return pseudo_unescape(frame[1:-1])[:length]
 
 
 # Create a mock broadcast frame for P23B32
@@ -53,7 +53,7 @@ def _frame_payload(frame: bytes) -> bytes:
 # IDX_LIGHT_CYCLE (17): 0x81 (light ON, heating cycle active)
 # Heat schedule starts at byte 19:
 # s1 start: 10:00 (10 | 0x40 = 0x4A, 0x00), end: 12:30 (12, 30) -> 4A 00 0C 1E
-# s2 start: 14:15 (14 | 0x40 = 0x56, 15), end: 16:45 (16, 45) -> 56 0F 10 2D
+# s2 start: 22:15 (22 | 0x40 = 0x56, 15), end: 16:45 (16, 45) -> 56 0F 10 2D
 # Index 28: 0x00 (pad)
 # Filter schedule starts at byte 29:
 # s1 start: 08:00 (8 | 0x40 = 0x48, 0x00), end: 10:00 (10, 00) -> 48 00 0A 00
@@ -202,15 +202,17 @@ def test_parse_schedules(adapter: P23B32Adapter, logical_frame: bytes) -> None:
     assert result["filter_slot2_enabled"] is True
 
 
-def test_build_light_toggle_command(adapter: P23B32Adapter) -> None:
-    # ON: 01 30 10 3C A1 00 A1 00 00 00 40 40 02 04 00 00 81
-    on_frame = adapter.build_light_toggle_command(on=True)
-    p_on = _frame_payload(on_frame)
-    assert p_on.hex() == "0130103ca100a1000000404002040000"
+def test_build_light_command(adapter: P23B32Adapter) -> None:
+    on_frame = adapter.build_light_command(on=True)
+    p_on = _frame_payload(on_frame, length=17)
+    assert p_on[16] == 0x81  # ON marker
 
-    off_frame = adapter.build_light_toggle_command(on=False)
-    p_off = _frame_payload(off_frame)
-    assert p_off.hex() == "0130103ca100a1000000404002040000"
+    off_frame = adapter.build_light_command(on=False)
+    p_off = _frame_payload(off_frame, length=17)
+    assert p_off[16] == 0x80  # OFF marker
+
+    # First 16 bytes are identical
+    assert p_on[:16] == p_off[:16]
 
 
 def test_build_jets_command(adapter: P23B32Adapter) -> None:

@@ -772,10 +772,7 @@ async def test_basic_controls(
     # 1. Light Toggle
     print("  Testing Light Toggle...")
     orig_light = state.get("light", False)
-    if MODEL in ("P23B32", "P20B29"):
-        cmd = adapter.build_light_toggle_command(not orig_light)
-    else:
-        cmd = adapter.build_light_toggle_command()
+    cmd = adapter.build_light_command(not orig_light)
     await send_raw_command(
         reader, writer, cmd, f"Light toggle (target: {not orig_light})"
     )
@@ -792,10 +789,7 @@ async def test_basic_controls(
 
     # Restore Light
     if converged:
-        if MODEL in ("P23B32", "P20B29"):
-            restore_cmd = adapter.build_light_toggle_command(orig_light)
-        else:
-            restore_cmd = cmd
+        restore_cmd = adapter.build_light_command(orig_light)
         await send_raw_command(
             reader, writer, restore_cmd, f"Restore Light (target: {orig_light})"
         )
@@ -1843,10 +1837,7 @@ async def test_intent_queue(
         print(f"      build_light: target={target}, current={current}")
         if target == current:
             return None
-        if MODEL in ("P23B32", "P20B29"):
-            return adapter.build_light_toggle_command(target)
-        else:
-            return adapter.build_light_toggle_command()
+        return adapter.build_light_command(on=target)
 
     def build_jets(overrides, data):
         if MODEL in ("P23B32", "P20B29"):
@@ -2244,12 +2235,9 @@ async def run_suite(option: int) -> None:
                     # 1. Restore Light
                     if current.get("light") != initial_state.get("light"):
                         print(f"    Restoring Light to {initial_state.get('light')}...")
-                        if MODEL in ("P23B32", "P20B29"):
-                            restore_cmd = adapter.build_light_toggle_command(
-                                initial_state.get("light")
-                            )
-                        else:
-                            restore_cmd = adapter.build_light_toggle_command()
+                        restore_cmd = adapter.build_light_command(
+                            on=bool(initial_state.get("light"))
+                        )
                         await send_raw_command(
                             restoration_reader,
                             restoration_writer,

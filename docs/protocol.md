@@ -73,7 +73,7 @@ Broadcast frames are validated by computing the CRC over all unescaped bytes exc
 
 ### 3.3. Wire Frame Construction (Outbound)
 ```
-inner = payload[16 bytes] + crc[4 bytes LE]
+inner = payload[16 or 17 bytes] + crc[4 bytes LE]
 escaped = escape(inner)
 wire = 0x1A + escaped + 0x1D
 ```
@@ -155,7 +155,11 @@ This section summarizes how the CRC parameters were derived and confirmed:
 
 ## 7. Behavioral Notes
 
-*   **Light is a toggle (P25 only):** The P25 panel sends the same frame for ON and OFF. Software must track state and avoid sending when state is unknown. P23 has distinct ON/OFF frames.
+*   **Light command behavior differs by model:** The P25B85 panel sends the same toggle frame
+    regardless of ON or OFF intent — the integration's entity layer handles no-op detection by
+    tracking the current state. The P23B32 / P20B29 controllers use distinct ON and OFF command
+    frames (byte 16: `0x81` = ON, `0x80` = OFF). The adapter's `build_light_command(on: bool)`
+    method abstracts this difference.
 *   **Pump commands are state-dependent (P25):** The physical panel UI is a cycle (OFF → LOW → HIGH → OFF), and the controller's RS-485 transition commands reflect this. Direct commands for LOW → OFF and HIGH → LOW do not exist. The integration must execute sequenced transitions.
 *   **Pump auto-off (P25):** Pump high speed auto-stops after 20 minutes (hardware timer).
 *   **Setpoint byte echo (P25):** Byte index 14 in every button command is the CURRENT setpoint at time of capture, embedded as a state echo. The controller accepts commands regardless of this byte's value matching actual state.

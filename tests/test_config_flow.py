@@ -32,7 +32,7 @@ async def test_detect_model_success() -> None:
 
     mock_reader = MagicMock()
     mock_reader.read = AsyncMock(
-        return_value=bytes([0x1A, 0xFF, 0x01, 0x3C, 0xD2, 0xB4, 0xFF, 0x08, 0x03, 0x00])
+        return_value=bytes([0x1A, 0xFF, 0x01, 0x3C, 0xD2, 0xB4, 0xFF, 0x08, 0x03, 0x1D])
     )
     mock_writer = MagicMock()
     mock_writer.close = MagicMock()
@@ -57,6 +57,26 @@ async def test_detect_model_failure() -> None:
         result = await _detect_model("127.0.0.1", 8899)
         assert result is None
         mock_open.assert_called_once_with("127.0.0.1", 8899)
+
+
+@pytest.mark.asyncio
+async def test_detect_model_empty_stream() -> None:
+    """Test connection helper when connection succeeds but stream returns no data."""
+    mock_reader = MagicMock()
+    mock_reader.read = AsyncMock(return_value=b"")
+    mock_writer = MagicMock()
+    mock_writer.close = MagicMock()
+    mock_writer.wait_closed = AsyncMock()
+
+    with patch(
+        "asyncio.open_connection", return_value=(mock_reader, mock_writer)
+    ) as mock_open:
+        result = await _detect_model("127.0.0.1", 8899)
+        assert result is None
+        mock_open.assert_called_once_with("127.0.0.1", 8899)
+        mock_writer.close.assert_called_once()
+        mock_writer.wait_closed.assert_awaited_once()
+
 
 
 @pytest.mark.asyncio

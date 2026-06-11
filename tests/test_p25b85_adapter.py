@@ -39,7 +39,7 @@ FRAME_END = protocol.FRAME_END
 P25B85Adapter = adapters_p25b85.P25B85Adapter
 P25B85_SIGNATURE = adapters_p25b85.P25B85_SIGNATURE
 IDX_HEATER_STATE = adapters_p25b85.IDX_HEATER_STATE
-IDX_PUMP_BYTE = adapters_p25b85.IDX_PUMP_BYTE
+IDX_JET_BYTE = adapters_p25b85.IDX_JET_BYTE
 IDX_DATETIME_START = adapters_p25b85.IDX_DATETIME_START
 HEATER_OFF = adapters_p25b85.HEATER_OFF
 HEATER_HEATING = adapters_p25b85.HEATER_HEATING
@@ -113,8 +113,8 @@ def test_parse_status_core_fields(adapter: P25B85Adapter, logical_frame: bytes) 
     assert result["setpoint"] == 40
     assert result["status"] == "off"
     assert result["heater_active"] is False
-    assert result["pump_high"] is True
-    assert result["pump_low"] is False
+    assert result["jet_high"] is True
+    assert result["jet_low"] is False
     assert result["light"] is True
     assert result["ozone_mode"] == "manual"
     assert result["heater_mode"] == "manual"
@@ -180,7 +180,7 @@ def test_standby_status_when_pump_off(
     """Status is 'standby' when heater byte is 0x50 (heater armed)."""
     modified = bytearray(logical_frame)
     modified[IDX_HEATER_STATE] = HEATER_STANDBY
-    modified[IDX_PUMP_BYTE] = 0x00
+    modified[IDX_JET_BYTE] = 0x00
     result = adapter.parse_status(bytes(modified))
     assert result["status"] == "standby"
 
@@ -192,7 +192,7 @@ def test_standby_status_even_when_jets_running(
     """Status is 'standby' when heater byte is 0x50 even with manual jets active."""
     modified = bytearray(logical_frame)
     modified[IDX_HEATER_STATE] = HEATER_STANDBY
-    modified[IDX_PUMP_BYTE] = 0x02  # manual jets low — independent of heater state
+    modified[IDX_JET_BYTE] = 0x02  # manual jets low — independent of heater state
     result = adapter.parse_status(bytes(modified))
     assert result["status"] == "standby"
 
@@ -558,9 +558,9 @@ def _frame_payload(frame: bytes) -> bytes:
     return pseudo_unescape(frame[1:-1])[:16]
 
 
-def test_build_light_toggle(adapter: P25B85Adapter) -> None:
-    """Light toggle command has correct structure."""
-    frame = adapter.build_light_toggle_command()
+def test_build_light(adapter: P25B85Adapter) -> None:
+    """Light command has correct structure."""
+    frame = adapter.build_light_command(on=True)
     assert frame[0] == 0x1A and frame[-1] == 0x1D
     p = _frame_payload(frame)
     assert p[4] == 0xA1  # button command type
@@ -713,7 +713,7 @@ def test_parse_status_diagnostics(adapter: P25B85Adapter, logical_frame: bytes) 
     result = adapter.parse_status(logical_frame)
     assert isinstance(result, dict)
     assert result["heater_byte_raw"] == logical_frame[14]
-    assert result["jet_byte_raw"] == logical_frame[12]
+    assert result["jets_byte_raw"] == logical_frame[12]
     assert result["ozone_mode_byte_raw"] == logical_frame[13]
     assert result["activity_byte_raw"] == logical_frame[28]
     assert result["light_cycle_byte_raw"] == logical_frame[17]

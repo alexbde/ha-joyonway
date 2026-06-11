@@ -49,7 +49,7 @@ For a detailed, step-by-step guide on how to wire the RS485 bridge and configure
 - **Jets/pumps control** — supports speed percentage control (0% / 50% / 100%) for dual-speed pumps (e.g. P25B85) or standard ON/OFF controls for models with independent single-speed pumps (e.g. P23B32 / P20B29)
 - **Manual ozone** switch (CONFIG category) to toggle between Auto and Manual ozone mode, unlocking the **Ozone** ON/OFF switch
 - **Manual heating** switch (CONFIG category) to toggle between Auto and Manual heating mode, unlocking the **Heating** ON/OFF switch
-- **Light** on/off via toggle command
+- **Light** on/off control
 - **Blower (air bubbler, optional hardware)** on/off
 - **Heat schedule** — 2 time slots with begin/end times and enable/disable
 - **Filter schedule** — 2 time slots with begin/end times and enable/disable
@@ -103,7 +103,7 @@ The integration exposes entities grouped under the standard Home Assistant devic
 | Entity | Platform | Description |
 |---|---|---|
 | **Thermostat** | Climate | Target setpoint control (10°C to 40°C) and heater armed state control via HVAC modes (`HEAT`/`OFF`) |
-| **Jets** | Fan | Pump speed control (0% / 50% / 100%) |
+| **Jets** | Fan | Jets / pump speed control |
 | **Heating** | Switch | Heating manual ON/OFF (available when **Manual heating** is ON) |
 | **Ozone** | Switch | Ozone ON/OFF (available when **Manual ozone** is ON) |
 | **Light** | Switch | Light ON/OFF (toggle command with state guard) |
@@ -141,7 +141,7 @@ These sensors monitor connection health and expose raw registers for advanced tr
 | **RS485 bridge** | Binary Sensor | Strict TCP connectivity to the IP bridge (enabled by default) |
 | **Date & time** | Sensor | Controller internal date/time as a timestamp sensor (disabled by default) |
 | **Heater byte (raw)** | Sensor | Raw byte 14 value shown as hex (e.g. `0x40`, disabled by default) |
-| **Pump byte (raw)** | Sensor | Raw byte 12 value shown as hex (e.g. `0x00`, disabled by default) |
+| **Jets byte (raw)** | Sensor | Raw byte 12 value shown as hex (e.g. `0x00`, disabled by default) |
 | **Ozone mode byte (raw)** | Sensor | Raw byte 13 value shown as hex (e.g. `0x80`, disabled by default) |
 | **Activity byte (raw)** | Sensor | Raw byte 28 value shown as hex (e.g. `0x08`, disabled by default) |
 | **Light/cycle byte (raw)** | Sensor | Raw byte 17 value shown as hex (e.g. `0x80`, disabled by default) |

@@ -57,7 +57,7 @@ from custom_components.joyonway.time import SpaScheduleTime
 
 # Build real command frames for assertion
 _adapter = P25B85Adapter()
-CMD_LIGHT_TOGGLE = _adapter.build_light_toggle_command()
+CMD_LIGHT_TOGGLE = _adapter.build_light_command(on=True)
 CMD_HEATER_ON = _adapter.build_heater_command(on=True)
 CMD_HEATER_OFF = _adapter.build_heater_command(on=False)
 CMD_BLOWER_ON = _adapter.build_blower_command(on=True)
@@ -90,7 +90,7 @@ class DummyAdapter:
         return b"\xaa" if 10 <= target_celsius <= 40 else None
 
     @staticmethod
-    def build_light_toggle_command(on: bool | None = None) -> bytes:
+    def build_light_command(on: bool) -> bytes:
         return CMD_LIGHT_TOGGLE
 
     @staticmethod

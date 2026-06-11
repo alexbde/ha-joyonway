@@ -1,10 +1,4 @@
-"""Fan platform for Joyonway P25B85 — jets speed control.
-
-The spa has a single dual-speed jet (off / low / high).
-Exposed as a fan entity with speed percentage control.
-Uses optimistic state with snap-back on the next broadcast mismatch.
-Commands are submitted to the coordinator's intent queue.
-"""
+"""Fan platform for Joyonway spa controllers — jets speed control."""
 
 from __future__ import annotations
 
@@ -19,7 +13,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import OPTIMISTIC_TIMEOUT_SECONDS
 from .coordinator import JoyonwayP25B85Coordinator, JoyonwayConfigEntry
 from .entity import JoyonwayCoordinatorEntity, device_info
-from .adapters.base import JetDescription
+from .adapters.base import JetDescription, JetType
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -33,9 +27,9 @@ async def async_setup_entry(
     coordinator = entry.runtime_data
     entities: list[FanEntity] = []
     for jet in coordinator.adapter.jets:
-        if jet.type == "dual":
+        if jet.type == JetType.DUAL:
             entities.append(SpaJetsFan(coordinator, entry, jet))
-        elif jet.type == "single":
+        elif jet.type == JetType.SINGLE:
             entities.append(SpaSingleSpeedFan(coordinator, entry, jet))
     async_add_entities(entities)
 
@@ -107,7 +101,8 @@ class SpaJetsFan(JoyonwayCoordinatorEntity, FanEntity):
     async def _pending_timeout(self) -> None:
         await asyncio.sleep(OPTIMISTIC_TIMEOUT_SECONDS)
         _LOGGER.warning(
-            "Jets: command not confirmed by spa within %ds, reverting state",
+            "Jets %s: command not confirmed by spa within %ds, reverting state",
+            self.jet.id,
             int(OPTIMISTIC_TIMEOUT_SECONDS),
         )
         self._pending_state = None
@@ -243,7 +238,12 @@ class SpaSingleSpeedFan(JoyonwayCoordinatorEntity, FanEntity):
 
     _attr_has_entity_name = True
     _attr_icon = "mdi:weather-windy"
-    _attr_supported_features = FanEntityFeature.TURN_ON | FanEntityFeature.TURN_OFF
+    _attr_supported_features = (
+        FanEntityFeature.SET_SPEED
+        | FanEntityFeature.TURN_ON
+        | FanEntityFeature.TURN_OFF
+    )
+    _attr_speed_count = 1
 
     def __init__(
         self,
@@ -303,16 +303,26 @@ class SpaSingleSpeedFan(JoyonwayCoordinatorEntity, FanEntity):
         await super().async_will_remove_from_hass()
         self._cancel_pending_timeout()
 
-    @property
-    def is_on(self) -> bool | None:
+    def _get_jets_state(self) -> str:
+        """Return current jets state from pending or coordinator data."""
         if self._pending_state is not None:
-            return self._pending_state != "off"
-        if self.coordinator.data is None:
-            return None
-        return (
-            self.coordinator.adapter.get_jets_state(self.coordinator.data, self.jet.id)
-            != "off"
+            return self._pending_state
+        return self.coordinator.adapter.get_jets_state(
+            self.coordinator.data or {}, self.jet.id
         )
+
+    @property
+    def percentage(self) -> int | None:
+        """Return the current speed percentage."""
+        state = self._get_jets_state()
+        return 100 if state != "off" else 0
+
+    async def async_set_percentage(self, percentage: int) -> None:
+        """Set the speed percentage of the fan."""
+        if percentage == 0:
+            await self.async_turn_off()
+        else:
+            await self.async_turn_on()
 
     async def async_turn_on(
         self,
@@ -320,6 +330,11 @@ class SpaSingleSpeedFan(JoyonwayCoordinatorEntity, FanEntity):
         preset_mode: str | None = None,
         **kwargs: Any,
     ) -> None:
+        """Turn jets on."""
+        del preset_mode, kwargs
+        if percentage is not None:
+            await self.async_set_percentage(percentage)
+            return
         self._submit_jets_intent("on")
 
     async def async_turn_off(self, **kwargs: Any) -> None:

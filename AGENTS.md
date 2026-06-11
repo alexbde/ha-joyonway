@@ -48,7 +48,7 @@ This file contains instructions, coding conventions, architecture boundaries, an
 - **Ozone & Heater Availability Lock**: Main `Ozone` and `Heater` switch entities are linked to their config switches (`Manual Ozone`, `Manual Heating`). They are unavailable (`available = False`) unless the corresponding config switch is enabled (meaning the spa is in Manual mode).
 - **Auto Clock Sync**: Clock sync is drift-triggered (>30s) and runs with a 1-hour cooldown (applying to both success and failure to prevent log spam), managed via a native CONFIG switch.
 - **Schedule Command Flags**: P25B85 schedule writes use two flag modes: `write_mode="state"` for enables (`0xAA/0x62/0x9A/0x52`) and `write_mode="time"` for time edits (`0xAA/0x6A/0x9A/0x5A`). The `0x6A`/`0x5A` force-write flags are critical to prevent write refusal issues when slot 2 is disabled.
-- **Diagnostics Redaction**: Config entry diagnostics (`diagnostics.py`) must redact sensitive keys (like `host`, `port`) and export raw byte states (`heater_byte_raw`, `jet_byte_raw`, etc.) for troubleshooting.
+- **Diagnostics Redaction**: Config entry diagnostics (`diagnostics.py`) must redact sensitive keys (like `host`, `port`) and export raw byte states (`heater_byte_raw`, `jets_byte_raw`, etc.) for troubleshooting.
 
 
 ## 4. Testing Requirements

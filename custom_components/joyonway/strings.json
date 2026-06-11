@@ -59,7 +59,7 @@
       },
       "spa_datetime": { "name": "Date & time" },
       "heater_byte_raw": { "name": "Heater byte (raw)" },
-      "jet_byte_raw": { "name": "Jet byte (raw)" },
+      "jets_byte_raw": { "name": "Jets byte (raw)" },
       "ozone_mode_byte_raw": { "name": "Ozone mode byte (raw)" },
       "activity_byte_raw": { "name": "Activity byte (raw)" },
       "light_cycle_byte_raw": { "name": "Light/cycle byte (raw)" },

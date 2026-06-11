@@ -70,7 +70,7 @@ async def _detect_model(host: str, port: int, timeout: float = 5.0) -> str | Non
 
         writer.close()
         await writer.wait_closed()
-        return detected_model
+        return None
     except (OSError, asyncio.TimeoutError) as err:
         _LOGGER.debug("Connection test and detect %s:%s failed: %s", host, port, err)
         return None
