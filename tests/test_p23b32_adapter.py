@@ -46,7 +46,7 @@ def _frame_payload(frame: bytes, length: int = 16) -> bytes:
 # Create a mock broadcast frame for P23B32
 # Signature: 1A FF 01 3C D2 B4 FF 08 02
 # IDX_CURRENT_TEMP (9): 0x64 (100°F -> 38°C)
-# IDX_PUMP_BYTE (12): 0x14 (jets_left ON, jets_right ON)
+# IDX_JET_BYTE (12): 0x14 (jets_left ON, jets_right ON)
 # IDX_OZONE_MODE (13): 0x90 (manual ozone, manual heating)
 # IDX_HEATER_STATE (14): 0x5D (HEATER_HEATING active, blower ON)
 # IDX_SETPOINT (16): 0x68 (104°F -> 40°C)

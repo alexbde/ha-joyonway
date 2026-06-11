@@ -1,5 +1,5 @@
 # ruff: noqa: E402
-"""Tests for the Joyonway P25B85 config flow and options flow."""
+"""Tests for the Joyonway config flow and options flow."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from custom_components.joyonway.config_flow import (
-    JoyonwayP25B85ConfigFlow,
+    JoyonwayConfigFlow,
     _detect_model,
 )
 from custom_components.joyonway.const import (
@@ -81,7 +81,7 @@ async def test_detect_model_empty_stream() -> None:
 @pytest.mark.asyncio
 async def test_config_flow_user_step_init() -> None:
     """Test config flow step user initializes with correct schema."""
-    flow = JoyonwayP25B85ConfigFlow()
+    flow = JoyonwayConfigFlow()
     flow.hass = MagicMock()
 
     result = await flow.async_step_user()
@@ -93,7 +93,7 @@ async def test_config_flow_user_step_init() -> None:
 @pytest.mark.asyncio
 async def test_config_flow_user_step_success() -> None:
     """Test config flow step user completes successfully on valid connection."""
-    flow = JoyonwayP25B85ConfigFlow()
+    flow = JoyonwayConfigFlow()
     flow.hass = MagicMock()
 
     # Mock unique ID methods
@@ -126,7 +126,7 @@ async def test_config_flow_user_step_success() -> None:
 @pytest.mark.asyncio
 async def test_config_flow_user_step_cannot_connect() -> None:
     """Test config flow step user returns error on connection failure."""
-    flow = JoyonwayP25B85ConfigFlow()
+    flow = JoyonwayConfigFlow()
     flow.hass = MagicMock()
 
     flow.async_set_unique_id = AsyncMock()

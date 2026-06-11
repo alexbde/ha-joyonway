@@ -106,7 +106,7 @@ The integration exposes entities grouped under the standard Home Assistant devic
 | **Jets** | Fan | Jets / pump speed control |
 | **Heating** | Switch | Heating manual ON/OFF (available when **Manual heating** is ON) |
 | **Ozone** | Switch | Ozone ON/OFF (available when **Manual ozone** is ON) |
-| **Light** | Switch | Light ON/OFF (toggle command with state guard) |
+| **Light** | Switch | Light ON/OFF |
 | **Blower** | Switch | Air blower / air bubbler ON/OFF (optional hardware) |
 
 ### Sensors

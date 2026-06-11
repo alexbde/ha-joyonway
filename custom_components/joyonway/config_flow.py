@@ -1,4 +1,4 @@
-"""Config flow for Joyonway P25B85."""
+"""Config flow for Joyonway spa controllers."""
 
 from __future__ import annotations
 
@@ -76,8 +76,8 @@ async def _detect_model(host: str, port: int, timeout: float = 5.0) -> str | Non
         return None
 
 
-class JoyonwayP25B85ConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for Joyonway P25B85."""
+class JoyonwayConfigFlow(ConfigFlow, domain=DOMAIN):
+    """Handle a config flow for Joyonway spa controllers."""
 
     VERSION = 1
 
