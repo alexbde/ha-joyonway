@@ -1,4 +1,4 @@
-"""Sensor platform for Joyonway P25B85.
+"""Sensor platform for Joyonway spa controllers.
 
 Entities are driven by the model adapter's entity_descriptions().
 """
@@ -19,7 +19,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
 from .adapters.base import SpaEntityDescription
-from .coordinator import JoyonwayP25B85Coordinator, JoyonwayConfigEntry
+from .coordinator import JoyonwayCoordinator, JoyonwayConfigEntry
 from .entity import JoyonwayCoordinatorEntity, device_info
 
 
@@ -28,11 +28,11 @@ async def async_setup_entry(
     entry: JoyonwayConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up sensor entities from config entry."""
+    """Set up sensor entities from a config entry."""
     coordinator = entry.runtime_data
     descriptions = coordinator.adapter.entity_descriptions()
 
-    entities = [
+    entities: list[SensorEntity] = [
         JoyonwaySensor(coordinator, entry, desc)
         for desc in descriptions
         if desc.platform == "sensor"
@@ -47,7 +47,7 @@ class JoyonwaySensor(JoyonwayCoordinatorEntity, SensorEntity):
 
     def __init__(
         self,
-        coordinator: JoyonwayP25B85Coordinator,
+        coordinator: JoyonwayCoordinator,
         entry: JoyonwayConfigEntry,
         description: SpaEntityDescription,
     ) -> None:

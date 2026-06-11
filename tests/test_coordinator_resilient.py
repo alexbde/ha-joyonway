@@ -30,7 +30,7 @@ from custom_components.joyonway.const import (
 )
 from custom_components.joyonway.coordinator import (
     IntentBuildError,
-    JoyonwayP25B85Coordinator,
+    JoyonwayCoordinator,
 )
 
 
@@ -72,7 +72,7 @@ def entry():
 
 @pytest.fixture
 def coordinator(hass, entry):
-    coord = JoyonwayP25B85Coordinator(hass, "127.0.0.1", 8899, "P25B85", entry)
+    coord = JoyonwayCoordinator(hass, "127.0.0.1", 8899, "P25B85", entry)
     coord._sync_timeout = 0.0
     return coord
 

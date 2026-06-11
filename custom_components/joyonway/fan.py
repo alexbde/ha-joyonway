@@ -11,7 +11,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import OPTIMISTIC_TIMEOUT_SECONDS
-from .coordinator import JoyonwayP25B85Coordinator, JoyonwayConfigEntry
+from .coordinator import JoyonwayCoordinator, JoyonwayConfigEntry
 from .entity import JoyonwayCoordinatorEntity, device_info
 from .adapters.base import JetDescription, JetType
 
@@ -48,7 +48,7 @@ class SpaJetsFan(JoyonwayCoordinatorEntity, FanEntity):
 
     def __init__(
         self,
-        coordinator: JoyonwayP25B85Coordinator,
+        coordinator: JoyonwayCoordinator,
         entry: JoyonwayConfigEntry,
         jet: JetDescription,
     ) -> None:
@@ -247,7 +247,7 @@ class SpaSingleSpeedFan(JoyonwayCoordinatorEntity, FanEntity):
 
     def __init__(
         self,
-        coordinator: JoyonwayP25B85Coordinator,
+        coordinator: JoyonwayCoordinator,
         entry: JoyonwayConfigEntry,
         jet: JetDescription,
     ) -> None:

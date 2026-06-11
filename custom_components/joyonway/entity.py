@@ -1,4 +1,4 @@
-"""Shared entity helpers for the Joyonway P25B85 integration."""
+"""Shared entity helpers for the Joyonway spa integration."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import CONF_MODEL, DEFAULT_MODEL, DOMAIN
 
 if TYPE_CHECKING:
-    from .coordinator import JoyonwayP25B85Coordinator  # noqa: F401
+    from .coordinator import JoyonwayCoordinator  # noqa: F401
 
 
 def device_info(entry: ConfigEntry) -> DeviceInfo:
@@ -27,7 +27,7 @@ def device_info(entry: ConfigEntry) -> DeviceInfo:
     )
 
 
-class JoyonwayCoordinatorEntity(CoordinatorEntity["JoyonwayP25B85Coordinator"]):
+class JoyonwayCoordinatorEntity(CoordinatorEntity["JoyonwayCoordinator"]):
     """Base entity that reads availability from coordinator grace logic."""
 
     @property

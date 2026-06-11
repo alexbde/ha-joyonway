@@ -1,4 +1,4 @@
-"""Joyonway P25B85 integration for Home Assistant."""
+"""Joyonway spa integration for Home Assistant."""
 
 from __future__ import annotations
 
@@ -12,18 +12,18 @@ from .const import (
     DEFAULT_MODEL,
     PLATFORMS,
 )
-from .coordinator import JoyonwayP25B85Coordinator, JoyonwayConfigEntry
+from .coordinator import JoyonwayCoordinator, JoyonwayConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: JoyonwayConfigEntry) -> bool:
-    """Set up Joyonway P25B85 from a config entry."""
+    """Set up Joyonway spa from a config entry."""
     host = entry.data[CONF_HOST]
     port = entry.data[CONF_PORT]
     model = entry.data.get(CONF_MODEL, DEFAULT_MODEL)
 
-    coordinator = JoyonwayP25B85Coordinator(hass, host, port, model, entry)
+    coordinator = JoyonwayCoordinator(hass, host, port, model, entry)
     await coordinator.async_setup()
     entry.runtime_data = coordinator
 

@@ -1,4 +1,4 @@
-"""Constants for the Joyonway P25B85 integration."""
+"""Constants for the Joyonway spa integration."""
 
 from __future__ import annotations
 

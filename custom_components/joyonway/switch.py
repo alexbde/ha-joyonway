@@ -15,7 +15,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import OZONE_MODE_MANUAL, OPTIMISTIC_TIMEOUT_SECONDS, OPT_AUTO_SYNC_CLOCK
 from .coordinator import (
     IntentBuildError,
-    JoyonwayP25B85Coordinator,
+    JoyonwayCoordinator,
     JoyonwayConfigEntry,
 )
 from .entity import JoyonwayCoordinatorEntity, device_info
@@ -52,7 +52,7 @@ class _SpaTargetStateSwitch(JoyonwayCoordinatorEntity, SwitchEntity):
 
     def __init__(
         self,
-        coordinator: JoyonwayP25B85Coordinator,
+        coordinator: JoyonwayCoordinator,
     ) -> None:
         super().__init__(coordinator)
         self._pending_state: bool | None = None
@@ -126,7 +126,7 @@ class SpaLightSwitch(_SpaTargetStateSwitch):
 
     def __init__(
         self,
-        coordinator: JoyonwayP25B85Coordinator,
+        coordinator: JoyonwayCoordinator,
         entry: JoyonwayConfigEntry,
     ) -> None:
         """Initialize the light switch."""
@@ -176,7 +176,7 @@ class SpaLightSwitch(_SpaTargetStateSwitch):
     async def _send_light_intent(self, target: bool) -> None:
         """Send the light command intent via intent queue."""
         async with self._cmd_lock:
-            coordinator: JoyonwayP25B85Coordinator = self.coordinator
+            coordinator: JoyonwayCoordinator = self.coordinator
             self._set_pending_state(target)
 
             def _build_light(overrides: dict, data: dict | None) -> bytes | None:
@@ -204,7 +204,7 @@ class SpaHeaterSwitch(_SpaTargetStateSwitch):
 
     def __init__(
         self,
-        coordinator: JoyonwayP25B85Coordinator,
+        coordinator: JoyonwayCoordinator,
         entry: JoyonwayConfigEntry,
     ) -> None:
         super().__init__(coordinator)
@@ -268,7 +268,7 @@ class SpaBlowerSwitch(_SpaTargetStateSwitch):
 
     def __init__(
         self,
-        coordinator: JoyonwayP25B85Coordinator,
+        coordinator: JoyonwayCoordinator,
         entry: JoyonwayConfigEntry,
     ) -> None:
         super().__init__(coordinator)
@@ -328,7 +328,7 @@ class SpaOzoneSwitch(_SpaTargetStateSwitch):
 
     def __init__(
         self,
-        coordinator: JoyonwayP25B85Coordinator,
+        coordinator: JoyonwayCoordinator,
         entry: JoyonwayConfigEntry,
     ) -> None:
         super().__init__(coordinator)
@@ -389,7 +389,7 @@ class SpaScheduleSlotSwitch(_SpaTargetStateSwitch):
 
     def __init__(
         self,
-        coordinator: JoyonwayP25B85Coordinator,
+        coordinator: JoyonwayCoordinator,
         entry: JoyonwayConfigEntry,
         schedule_type: str,
         slot: int,
@@ -531,7 +531,7 @@ class SpaAutoClockSyncSwitch(JoyonwayCoordinatorEntity, SwitchEntity):
 
     def __init__(
         self,
-        coordinator: JoyonwayP25B85Coordinator,
+        coordinator: JoyonwayCoordinator,
         entry: JoyonwayConfigEntry,
     ) -> None:
         super().__init__(coordinator)
@@ -572,7 +572,7 @@ class SpaManualOzoneSwitch(_SpaTargetStateSwitch):
 
     def __init__(
         self,
-        coordinator: JoyonwayP25B85Coordinator,
+        coordinator: JoyonwayCoordinator,
         entry: JoyonwayConfigEntry,
     ) -> None:
         super().__init__(coordinator)
@@ -635,7 +635,7 @@ class SpaManualHeaterSwitch(_SpaTargetStateSwitch):
 
     def __init__(
         self,
-        coordinator: JoyonwayP25B85Coordinator,
+        coordinator: JoyonwayCoordinator,
         entry: JoyonwayConfigEntry,
     ) -> None:
         super().__init__(coordinator)

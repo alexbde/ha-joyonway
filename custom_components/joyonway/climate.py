@@ -1,4 +1,4 @@
-"""Climate platform for Joyonway P25B85 — spa thermostat control.
+"""Climate platform for Joyonway spa controllers — spa thermostat control.
 
 Supports setpoint temperatures from 10°C to 40°C in 1°C steps.
 All command frames are built dynamically via CRC computation.
@@ -27,7 +27,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .adapters.p25b85 import TEMP_MAX_C, TEMP_MIN_C
 from .const import OPTIMISTIC_TIMEOUT_SECONDS
-from .coordinator import JoyonwayP25B85Coordinator, JoyonwayConfigEntry
+from .coordinator import JoyonwayCoordinator, JoyonwayConfigEntry
 from .entity import JoyonwayCoordinatorEntity, device_info
 
 _LOGGER = logging.getLogger(__name__)
@@ -77,7 +77,7 @@ class SpaClimate(JoyonwayCoordinatorEntity, ClimateEntity):
 
     def __init__(
         self,
-        coordinator: JoyonwayP25B85Coordinator,
+        coordinator: JoyonwayCoordinator,
         entry: JoyonwayConfigEntry,
     ) -> None:
         """Initialize the spa thermostat."""
@@ -296,7 +296,7 @@ class SpaClimate(JoyonwayCoordinatorEntity, ClimateEntity):
             if self._pending_temp != scheduled_target:
                 return
 
-            coordinator: JoyonwayP25B85Coordinator = self.coordinator
+            coordinator: JoyonwayCoordinator = self.coordinator
 
             def _build_temp(overrides: dict, data: dict | None) -> bytes | None:
                 target_c = overrides["setpoint"]
