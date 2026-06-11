@@ -78,7 +78,6 @@ async def test_detect_model_empty_stream() -> None:
         mock_writer.wait_closed.assert_awaited_once()
 
 
-
 @pytest.mark.asyncio
 async def test_config_flow_user_step_init() -> None:
     """Test config flow step user initializes with correct schema."""

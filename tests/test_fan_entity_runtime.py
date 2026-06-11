@@ -24,8 +24,8 @@ from homeassistant.components.fan import FanEntityFeature
 
 from homeassistant.const import CONF_HOST
 from custom_components.joyonway.adapters.p25b85 import P25B85Adapter
-from custom_components.joyonway.fan import SpaJetsFan
-from custom_components.joyonway.adapters.base import JetDescription
+from custom_components.joyonway.fan import SpaJetsFan, SpaSingleSpeedFan
+from custom_components.joyonway.adapters.base import JetDescription, JetType
 
 # Build real command frames
 _adapter = P25B85Adapter()
@@ -169,4 +169,59 @@ async def test_fan_percentage_paths() -> None:
     coordinator.async_send_command.assert_awaited_once_with(CMD_JETS_OFF)
     assert entity._pending_state == "off"
     assert entity.percentage == 0
+    entity._cancel_pending_timeout()
+
+
+@pytest.mark.asyncio
+async def test_single_speed_fan_percentage_paths() -> None:
+    coordinator = DummyCoordinator(data={"jets_left": "off"})
+    jet_desc = JetDescription(id="jets_left", name="Jets Left", type=JetType.SINGLE)
+    entity = SpaSingleSpeedFan(coordinator, _make_entry(), jet_desc)
+    entity.hass = DummyHass()
+    entity.async_write_ha_state = lambda: None
+
+    # Verify basic attributes
+    assert entity.speed_count == 1
+    assert entity.supported_features & FanEntityFeature.SET_SPEED
+    assert entity.supported_features & FanEntityFeature.TURN_ON
+    assert entity.supported_features & FanEntityFeature.TURN_OFF
+
+    # Initial percentage
+    assert entity.percentage == 0
+
+    # Turn on
+    await entity.async_turn_on()
+    await asyncio.sleep(0)
+    assert entity._pending_state == "on"
+    assert entity.percentage == 100
+
+    # Turn off
+    entity._pending_state = None
+    coordinator.data = {"jets_left": "on"}
+    await entity.async_turn_off()
+    await asyncio.sleep(0)
+    assert entity._pending_state == "off"
+    assert entity.percentage == 0
+
+    # Set percentage 100 -> ON
+    entity._pending_state = None
+    coordinator.data = {"jets_left": "off"}
+    await entity.async_set_percentage(100)
+    await asyncio.sleep(0)
+    assert entity._pending_state == "on"
+
+    # Set percentage 50 -> ON (non-zero speed percentage maps to turn on)
+    entity._pending_state = None
+    coordinator.data = {"jets_left": "off"}
+    await entity.async_set_percentage(50)
+    await asyncio.sleep(0)
+    assert entity._pending_state == "on"
+
+    # Set percentage 0 -> OFF
+    entity._pending_state = None
+    coordinator.data = {"jets_left": "on"}
+    await entity.async_set_percentage(0)
+    await asyncio.sleep(0)
+    assert entity._pending_state == "off"
+
     entity._cancel_pending_timeout()
