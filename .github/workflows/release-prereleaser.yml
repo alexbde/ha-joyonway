@@ -1,0 +1,103 @@
+name: Pre-Release Publisher
+
+on:
+  push:
+    branches:
+      - prerelease
+      - pre
+
+jobs:
+  publish-prerelease:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Verify branch synchronization
+        run: |
+          git fetch origin main
+          MAIN_SHA=$(git rev-parse origin/main)
+          BRANCH_SHA=$(git rev-parse HEAD)
+
+          echo "Main SHA: $MAIN_SHA"
+          echo "Branch SHA: $BRANCH_SHA"
+
+          if [ "$MAIN_SHA" != "$BRANCH_SHA" ]; then
+            echo "ERROR: The pre-release branch is out of sync with main! Aborting."
+            exit 1
+          fi
+
+      - name: Fetch next version details
+        id: drafter_info
+        uses: release-drafter/release-drafter@v7
+        with:
+          commitish: main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Calculate pre-release version
+        id: version
+        run: |
+          NEXT_TAG="${{ steps.drafter_info.outputs.tag_name }}"
+          NEXT_VERSION="${NEXT_TAG#v}"
+
+          git fetch --tags origin
+
+          HIGHEST_RC=$(
+            git tag -l "v${NEXT_VERSION}-rc*" "${NEXT_VERSION}-rc*" \
+            | grep -oP '(?<=-rc)\d+$' \
+            | sort -rn \
+            | head -1
+          )
+
+          NEXT_RC=$(( ${HIGHEST_RC:-0} + 1 ))
+          PRERELEASE_VERSION="${NEXT_VERSION}-rc${NEXT_RC}"
+          PRERELEASE_TAG="v${PRERELEASE_VERSION}"
+
+          echo "Resolved pre-release: ${PRERELEASE_TAG}"
+
+          echo "tag=${PRERELEASE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${PRERELEASE_VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare release notes
+        env:
+          CHANGELOG_BODY: ${{ steps.drafter_info.outputs.body }}
+          NEXT_TAG: ${{ steps.drafter_info.outputs.tag_name }}
+          PRERELEASE_TAG: ${{ steps.version.outputs.tag }}
+          PRERELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          NEXT_VERSION="${NEXT_TAG#v}"
+
+          NOTES="${CHANGELOG_BODY}"
+          NOTES="${NOTES//$NEXT_TAG/$PRERELEASE_TAG}"
+          NOTES="${NOTES//$NEXT_VERSION/$PRERELEASE_VERSION}"
+
+          printf "%s\n" "$NOTES" > release_notes.md
+
+      - name: Publish pre-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PRERELEASE_TAG="${{ steps.version.outputs.tag }}"
+
+          gh release create "$PRERELEASE_TAG" \
+            --title "$PRERELEASE_TAG" \
+            --notes-file release_notes.md \
+            --prerelease \
+            --target "${{ github.sha }}"
+
+      - name: Purge ephemeral pre-release branch
+        if: always()
+        run: |
+          if git ls-remote --heads origin "${{ github.ref_name }}" | grep -q "refs/heads/${{ github.ref_name }}"; then
+            echo "Cleaning up remote branch ${{ github.ref_name }}..."
+            git push origin --delete "${{ github.ref_name }}"
+          else
+            echo "Remote branch '${{ github.ref_name }}' was already cleaned up or does not exist."
+          fi
