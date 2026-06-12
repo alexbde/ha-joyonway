@@ -19,6 +19,20 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Verify branch synchronization
+        run: |
+          git fetch origin main
+          MAIN_SHA=$(git rev-parse origin/main)
+          BRANCH_SHA=$(git rev-parse HEAD)
+
+          echo "Main SHA: $MAIN_SHA"
+          echo "Branch SHA: $BRANCH_SHA"
+
+          if [ "$MAIN_SHA" != "$BRANCH_SHA" ]; then
+            echo "ERROR: The pre-release branch is out of sync with main! Aborting."
+            exit 1
+          fi
+
       - name: Fetch next version details
         id: drafter_info
         uses: release-drafter/release-drafter@v7
