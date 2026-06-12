@@ -58,25 +58,19 @@ jobs:
 
           NEXT_RC=$(( ${HIGHEST_RC:-0} + 1 ))
           PRERELEASE_VERSION="${NEXT_VERSION}-rc${NEXT_RC}"
-          PRERELEASE_TAG="v${PRERELEASE_VERSION}"
 
-          echo "Resolved pre-release: ${PRERELEASE_TAG}"
+          echo "Resolved pre-release: ${PRERELEASE_VERSION}"
 
-          echo "tag=${PRERELEASE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "tag=${PRERELEASE_VERSION}" >> "$GITHUB_OUTPUT"
           echo "version=${PRERELEASE_VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Prepare release notes
         env:
           CHANGELOG_BODY: ${{ steps.drafter_info.outputs.body }}
-          NEXT_TAG: ${{ steps.drafter_info.outputs.tag_name }}
-          PRERELEASE_TAG: ${{ steps.version.outputs.tag }}
+          NEXT_VERSION: ${{ steps.drafter_info.outputs.tag_name }}
           PRERELEASE_VERSION: ${{ steps.version.outputs.version }}
         run: |
-          NEXT_VERSION="${NEXT_TAG#v}"
-
-          NOTES="${CHANGELOG_BODY}"
-          NOTES="${NOTES//$NEXT_TAG/$PRERELEASE_TAG}"
-          NOTES="${NOTES//$NEXT_VERSION/$PRERELEASE_VERSION}"
+          NOTES="${CHANGELOG_BODY//$NEXT_VERSION/$PRERELEASE_VERSION}"
 
           printf "%s\n" "$NOTES" > release_notes.md
 
