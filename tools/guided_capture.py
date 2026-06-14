@@ -71,8 +71,8 @@ def is_sync_frame(frame: bytes) -> bool:
 
 
 def is_command_frame(frame: bytes) -> bool:
-    """Check if a frame is a command frame (destination != 0xFF)."""
-    return len(frame) > 1 and frame[0] == 0x1A and frame[1] != 0xFF
+    """Check if a frame is a command frame (starts with 0x1A 0x01)."""
+    return len(frame) > 1 and frame[0] == 0x1A and frame[1] == 0x01
 
 
 def print_status(data: dict) -> None:
@@ -583,16 +583,30 @@ def run_p25b37_capture(
     while current_step_idx < len(steps):
         step = steps[current_step_idx]
         print(f"\n\n[STEP {step['num']}/{len(steps)}] {step['desc']}")
-        print(
-            "  Waiting for action (press Ctrl+C to skip/force-advance)...",
-            end="",
-            flush=True,
-        )
 
         step_done = False
-        step_command_frames = []
+        step_command_frames: list[dict] = []
+        step_start_time = time.monotonic()
 
         while not step_done:
+            # Update progress line in-place
+            elapsed = int(time.monotonic() - step_start_time)
+            if last_parsed:
+                water = last_parsed.get("current_temperature")
+                setp = last_parsed.get("setpoint")
+                jets = last_parsed.get("jets", "unknown")
+                h_byte = last_parsed.get("heater_byte_raw", 0)
+                p_byte = last_parsed.get("jets_byte_raw", 0)
+                status_str = f"Temp: {water}°C/{setp}°C | Jets: {jets:<4} | (h=0x{h_byte:02X}, p=0x{p_byte:02X})"
+            else:
+                status_str = "Waiting for broadcast..."
+
+            print(
+                f"\r  [Step {step['num']}/{len(steps)}] {elapsed:>2}s | Cmds Captured: {len(step_command_frames):<2} | {status_str}",
+                end="",
+                flush=True,
+            )
+
             try:
                 try:
                     chunk = sock.recv(4096)
@@ -620,19 +634,16 @@ def run_p25b37_capture(
                             logical = unescape_frame(frame, unescape_full=True)
                             parsed = adapter.parse_status(logical)
                             if parsed:
-                                print_status(parsed)
                                 if last_parsed is not None:
                                     if step["check"](last_parsed, parsed):
                                         print(
-                                            f"\n\n  --> Detected transition to {step['target_desc']}!"
+                                            f"\n\n  --> Detected transition to {step['target_desc']}! (Captured {len(step_command_frames)} commands)"
                                         )
                                         step_done = True
                                 last_parsed = parsed
                         else:
                             # Non-broadcast (command frame)
-                            if is_sync_frame(frame):
-                                print(".", end="", flush=True)
-                            else:
+                            if is_command_frame(frame) and not is_sync_frame(frame):
                                 unescaped = unescape_frame(frame, unescape_full=True)
                                 inner = unescaped[1:-1]
                                 payload = inner[:-4] if len(inner) >= 4 else inner
@@ -655,13 +666,6 @@ def run_p25b37_capture(
                                         "%H:%M:%S.%f"
                                     )[:-3],
                                 }
-
-                                print(
-                                    f"\n  [Captured Command] {cmd_info['timestamp']} | Wire: {cmd_info['wire']}"
-                                )
-                                print(
-                                    f"                     Unescaped Payload: {cmd_info['payload']} (CRC: {'OK' if crc_ok else 'FAIL'})"
-                                )
                                 step_command_frames.append(cmd_info)
                 time.sleep(0.01)
 
