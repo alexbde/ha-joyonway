@@ -8,15 +8,38 @@
           "host": "Adresse IP",
           "port": "Port TCP"
         }
+      },
+      "model_confirm": {
+        "title": "Confirmer le modèle du spa",
+        "description": "✓ Auto-détecté : **{model}**. Confirmez ou modifiez ci-dessous.\n\n*Conseil : pour trouver votre modèle, accédez à **Menu** > **Set** > **About** sur l'écran de votre pavé tactile, et faites défiler vers le haut ou le bas de la page. Consultez [notre README](https://github.com/alexbde/ha-joyonway/blob/main/README.md) pour plus de détails.*\n\n*Si votre modèle n'est pas répertorié, veuillez [ouvrir un ticket GitHub](https://github.com/alexbde/ha-joyonway/issues) pour demander de l'aide.*",
+        "data": {
+          "model": "Modèle du contrôleur"
+        }
+      },
+      "model_confirm_manual": {
+        "title": "Confirmer le modèle du spa",
+        "description": "⚠️ Votre modèle de contrôleur n'a pas pu être identifié automatiquement. Veuillez le sélectionner manuellement.\n\n*Conseil : pour trouver votre modèle, accédez à **Menu** > **Set** > **About** sur l'écran de votre pavé tactile, et faites défiler vers le haut ou le bas de la page. Consultez [notre README](https://github.com/alexbde/ha-joyonway/blob/main/README.md) pour plus de détails.*\n\n*Si votre modèle n'est pas répertorié, veuillez [ouvrir un ticket GitHub](https://github.com/alexbde/ha-joyonway/issues) pour demander de l'aide.*",
+        "data": {
+          "model": "Modèle du contrôleur"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigurer le contrôleur du spa",
+        "description": "Mettre à jour le modèle configuré de votre contrôleur Joyonway.\n\n*Conseil : pour trouver votre modèle, accédez à **Menu** > **Set** > **About** sur l'écran de votre pavé tactile, et faites défiler vers le haut ou le bas de la page. Consultez [notre README](https://github.com/alexbde/ha-joyonway/blob/main/README.md) pour plus de détails.*\n\n*Si votre modèle n'est pas répertorié, veuillez [ouvrir un ticket GitHub](https://github.com/alexbde/ha-joyonway/issues) pour demander de l'aide.*",
+        "data": {
+          "model": "Modèle du contrôleur"
+        }
       }
     },
     "error": {
       "cannot_connect": "Impossible de se connecter au pont RS485. Vérifiez l'IP, le port et que le pont est allumé. Assurez-vous qu'aucun autre client (app téléphone, autre intégration) n'est connecté."
     },
     "abort": {
-      "already_configured": "Ce pont est déjà configuré."
+      "already_configured": "Ce pont est déjà configuré.",
+      "reconfigure_successful": "Modèle mis à jour avec succès."
     }
   },
+
 
   "entity": {
     "sensor": {

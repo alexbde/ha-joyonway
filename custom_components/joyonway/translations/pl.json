@@ -8,15 +8,38 @@
           "host": "Adres IP",
           "port": "Port TCP"
         }
+      },
+      "model_confirm": {
+        "title": "Potwierdź model spa",
+        "description": "✓ Automatycznie wykryto: **{model}**. Potwierdź lub zmień poniżej.\n\n*Wskazówka: Aby znaleźć swój model, przejdź do **Menu** > **Set** > **About** na ekranie panelu dotykowego i przewiń na samą górę lub dół strony. Zobacz [nasz plik README](https://github.com/alexbde/ha-joyonway/blob/main/README.md), aby uzyskać więcej informacji.*\n\n*Jeśli Twój model nie znajduje się na liście, [otwórz zgłoszenie w serwisie GitHub](https://github.com/alexbde/ha-joyonway/issues), aby poprosić o wsparcie.*",
+        "data": {
+          "model": "Model kontrolera"
+        }
+      },
+      "model_confirm_manual": {
+        "title": "Potwierdź model spa",
+        "description": "⚠️ Twój model kontrolera nie mógł zostać automatycznie zidentyfikowany. Wybierz go ręcznie.\n\n*Wskazówka: Aby znaleźć swój model, przejdź do **Menu** > **Set** > **About** na ekranie panelu dotykowego i przewiń na samą górę lub dół strony. Zobacz [nasz plik README](https://github.com/alexbde/ha-joyonway/blob/main/README.md), aby uzyskać więcej informacji.*\n\n*Jeśli Twój model nie znajduje się na liście, [otwórz zgłoszenie w serwisie GitHub](https://github.com/alexbde/ha-joyonway/issues), aby poprosić o wsparcie.*",
+        "data": {
+          "model": "Model kontrolera"
+        }
+      },
+      "reconfigure": {
+        "title": "Zmień konfigurację kontrolera spa",
+        "description": "Zaktualizuj skonfigurowany model swojego kontrolera Joyonway.\n\n*Wskazówka: Aby znaleźć swój model, przejdź do **Menu** > **Set** > **About** na ekranie panelu dotykowego i przewiń na samą górę lub dół strony. Zobacz [nasz plik README](https://github.com/alexbde/ha-joyonway/blob/main/README.md), aby uzyskać więcej informacji.*\n\n*Jeśli Twój model nie znajduje się na liście, [otwórz zgłoszenie w serwisie GitHub](https://github.com/alexbde/ha-joyonway/issues), aby poprosić o wsparcie.*",
+        "data": {
+          "model": "Model kontrolera"
+        }
       }
     },
     "error": {
       "cannot_connect": "Nie można połączyć się z mostkiem RS485. Sprawdź adres IP, port i czy mostek jest włączony. Upewnij się, że żaden inny klient (aplikacja na telefon, inna integracja) nie jest połączony."
     },
     "abort": {
-      "already_configured": "Ten mostek jest już skonfigurowany."
+      "already_configured": "Ten mostek jest już skonfigurowany.",
+      "reconfigure_successful": "Model zaktualizowany pomyślnie."
     }
   },
+
 
   "entity": {
     "sensor": {

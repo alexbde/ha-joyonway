@@ -8,15 +8,38 @@
           "host": "IP address",
           "port": "TCP port"
         }
+      },
+      "model_confirm": {
+        "title": "Confirm Spa Model",
+        "description": "✓ Auto-detected: **{model}**. Confirm or change below.\n\n*Hint: To find your model, navigate to **Menu** > **Set** > **About** on your touchpad screen, and scroll to the top or bottom of the page. See [our README](https://github.com/alexbde/ha-joyonway/blob/main/README.md) for more details.*\n\n*If your model is not listed, please [open a GitHub issue](https://github.com/alexbde/ha-joyonway/issues) to request support.*",
+        "data": {
+          "model": "Controller model"
+        }
+      },
+      "model_confirm_manual": {
+        "title": "Confirm Spa Model",
+        "description": "⚠️ Your controller model could not be automatically identified. Please select it manually.\n\n*Hint: To find your model, navigate to **Menu** > **Set** > **About** on your touchpad screen, and scroll to the top or bottom of the page. See [our README](https://github.com/alexbde/ha-joyonway/blob/main/README.md) for more details.*\n\n*If your model is not listed, please [open a GitHub issue](https://github.com/alexbde/ha-joyonway/issues) to request support.*",
+        "data": {
+          "model": "Controller model"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure Spa Controller",
+        "description": "Update the configured model of your Joyonway controller.\n\n*Hint: To find your model, navigate to **Menu** > **Set** > **About** on your touchpad screen, and scroll to the top or bottom of the page. See [our README](https://github.com/alexbde/ha-joyonway/blob/main/README.md) for more details.*\n\n*If your model is not listed, please [open a GitHub issue](https://github.com/alexbde/ha-joyonway/issues) to request support.*",
+        "data": {
+          "model": "Controller model"
+        }
       }
     },
     "error": {
       "cannot_connect": "Cannot connect to the RS485 bridge. Check IP, port and that the bridge is powered on. Make sure no other client (phone app, other integration) is connected."
     },
     "abort": {
-      "already_configured": "This bridge is already configured."
+      "already_configured": "This bridge is already configured.",
+      "reconfigure_successful": "Model updated successfully."
     }
   },
+
 
   "entity": {
     "sensor": {
