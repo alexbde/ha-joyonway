@@ -2,11 +2,32 @@
   "config": {
     "step": {
       "user": {
-        "title": "Joyonway Spa",
+        "title": "Joyonway Whirlpool",
         "description": "Geben Sie die IP-Adresse und den TCP-Port Ihrer RS485-Brücke ein.",
         "data": {
           "host": "IP-Adresse",
           "port": "TCP-Port"
+        }
+      },
+      "model_confirm": {
+        "title": "Whirlpool-Modell bestätigen",
+        "description": "✓ Automatisch erkannt: **{model}**. Unten bestätigen oder ändern.\n\n*Hinweis: Um Ihr Modell zu finden, navigieren Sie auf Ihrem Touchpad-Bildschirm zu **Menu** > **Set** > **About** und scrollen Sie zum Anfang oder Ende der Seite. Weitere Details finden Sie in [unserer README]({readme_url}).*\n\n*Wenn Ihr Modell nicht aufgeführt ist, [eröffnen Sie bitte ein GitHub-Issue]({issues_url}), um Unterstützung anzufordern.*",
+        "data": {
+          "model": "Steuerungsmodell"
+        }
+      },
+      "model_confirm_manual": {
+        "title": "Whirlpool-Modell bestätigen",
+        "description": "⚠️ Ihr Steuerungsmodell konnte nicht automatisch identifiziert werden. Bitte wählen Sie es manuell aus.\n\n*Hinweis: Um Ihr Modell zu finden, navigieren Sie auf Ihrem Touchpad-Bildschirm zu **Menu** > **Set** > **About** und scrollen Sie zum Anfang oder Ende der Seite. Weitere Details finden Sie in [unserer README]({readme_url}).*\n\n*Wenn Ihr Modell nicht aufgeführt ist, [eröffnen Sie bitte ein GitHub-Issue]({issues_url}), um Unterstützung anzufordern.*",
+        "data": {
+          "model": "Steuerungsmodell"
+        }
+      },
+      "reconfigure": {
+        "title": "Whirlpool-Steuerung neu konfigurieren",
+        "description": "Aktualisieren Sie das konfigurierte Modell Ihrer Joyonway-Steuerung.\n\n*Hinweis: Um Ihr Modell zu finden, navigieren Sie auf Ihrem Touchpad-Bildschirm zu **Menu** > **Set** > **About** und scrollen Sie zum Anfang oder Ende der Seite. Weitere Details finden Sie in [unserer README]({readme_url}).*\n\n*Wenn Ihr Modell nicht aufgeführt ist, [eröffnen Sie bitte ein GitHub-Issue]({issues_url}), um Unterstützung anzufordern.*",
+        "data": {
+          "model": "Steuerungsmodell"
         }
       }
     },
@@ -14,9 +35,11 @@
       "cannot_connect": "Verbindung zur RS485-Brücke nicht möglich. Überprüfen Sie IP, Port und ob die Brücke eingeschaltet ist. Stellen Sie sicher, dass kein anderer Client (Telefon-App, andere Integration) verbunden ist."
     },
     "abort": {
-      "already_configured": "Diese Brücke ist bereits konfiguriert."
+      "already_configured": "Diese Brücke ist bereits konfiguriert.",
+      "reconfigure_successful": "Modell erfolgreich aktualisiert."
     }
   },
+
   "entity": {
     "sensor": {
       "current_temperature": {
