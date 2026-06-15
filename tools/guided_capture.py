@@ -489,11 +489,13 @@ def run_heater_mode_sequence(
         return raw_buffer, False
 
 
-class CaptureStep(TypedDict):
+class CaptureStep(TypedDict, total=False):
     num: int
     desc: str
     check: Callable[[dict, dict], Any]
     target_desc: str
+    interactive: bool
+    user_color: str
 
 
 def run_p25b37_capture(
@@ -503,12 +505,13 @@ def run_p25b37_capture(
     print("\nStarting P25B37 Touchpad Command Capture Runbook:")
     print("  We will capture command frames sent by the physical PB554 touchpad.")
     print("  Make sure you are physically at the spa touchpad.")
-    print("  During each step, press the physical button on the touchpad.")
-    print("  The script will detect the change, display the captured command frame,")
     print(
-        "  and advance to the next step. If it doesn't auto-detect, you can press Ctrl+C"
+        "  For automatic steps, press the physical button on the touchpad and the script will detect the transition."
     )
-    print("  to skip or force-advance the step.")
+    print(
+        "  For interactive color steps, the script will capture for 4 seconds when you press the button,"
+    )
+    print("  then prompt you to confirm/input the color.")
     print("\nPress ENTER when you are ready to start.")
     try:
         input()
@@ -521,48 +524,96 @@ def run_p25b37_capture(
             "desc": "Ensure the Light is OFF. If it is ON, press the Light button to turn it OFF.",
             "check": lambda old, new: not new.get("light"),
             "target_desc": "Light OFF",
+            "interactive": False,
         },
         {
             "num": 2,
-            "desc": "Press the Light button to turn the Light ON.",
+            "desc": "Press the Light button to turn the Light ON (Auto Cycle).",
             "check": lambda old, new: new.get("light") and not old.get("light"),
-            "target_desc": "Light ON",
+            "target_desc": "Light ON (Auto)",
+            "interactive": False,
         },
         {
             "num": 3,
-            "desc": "Press the Light button again to turn the Light OFF.",
-            "check": lambda old, new: not new.get("light") and old.get("light"),
-            "target_desc": "Light OFF",
+            "desc": "Press the Light button briefly to change the color.",
+            "target_desc": "red",
+            "interactive": True,
         },
         {
             "num": 4,
-            "desc": "Ensure Jets/Pump are OFF. If they are running, press the Jets button until OFF.",
-            "check": lambda old, new: new.get("jets") == "off",
-            "target_desc": "Jets OFF",
+            "desc": "Press the Light button briefly to change the color.",
+            "target_desc": "green",
+            "interactive": True,
         },
         {
             "num": 5,
+            "desc": "Press the Light button briefly to change the color.",
+            "target_desc": "yellow",
+            "interactive": True,
+        },
+        {
+            "num": 6,
+            "desc": "Press the Light button briefly to change the color.",
+            "target_desc": "blue",
+            "interactive": True,
+        },
+        {
+            "num": 7,
+            "desc": "Press the Light button briefly to change the color.",
+            "target_desc": "purple",
+            "interactive": True,
+        },
+        {
+            "num": 8,
+            "desc": "Press the Light button briefly to change the color.",
+            "target_desc": "cyan",
+            "interactive": True,
+        },
+        {
+            "num": 9,
+            "desc": "Press the Light button briefly to change the color.",
+            "target_desc": "white",
+            "interactive": True,
+        },
+        {
+            "num": 10,
+            "desc": "Press and hold the Light button to turn the Light OFF.",
+            "target_desc": "off",
+            "interactive": True,
+        },
+        {
+            "num": 11,
+            "desc": "Ensure Jets/Pump are OFF. If they are running, press the Jets button until OFF.",
+            "check": lambda old, new: new.get("jets") == "off",
+            "target_desc": "Jets OFF",
+            "interactive": False,
+        },
+        {
+            "num": 12,
             "desc": "Press the Jets button to turn the Jets to LOW speed.",
             "check": lambda old, new: (
                 new.get("jets") == "low" and old.get("jets") == "off"
             ),
             "target_desc": "Jets LOW",
+            "interactive": False,
         },
         {
-            "num": 6,
+            "num": 13,
             "desc": "Press the Jets button to turn the Jets to HIGH speed.",
             "check": lambda old, new: (
                 new.get("jets") == "high" and old.get("jets") == "low"
             ),
             "target_desc": "Jets HIGH",
+            "interactive": False,
         },
         {
-            "num": 7,
+            "num": 14,
             "desc": "Press the Jets button to turn the Jets OFF.",
             "check": lambda old, new: (
                 new.get("jets") == "off" and old.get("jets") in ("low", "high")
             ),
             "target_desc": "Jets OFF",
+            "interactive": False,
         },
     ]
 
@@ -582,120 +633,253 @@ def run_p25b37_capture(
     current_step_idx = 0
     while current_step_idx < len(steps):
         step = steps[current_step_idx]
-        print(f"\n\n[STEP {step['num']}/{len(steps)}] {step['desc']}")
 
-        step_done = False
-        step_command_frames: list[dict] = []
-        step_start_time = time.monotonic()
-
-        while not step_done:
-            # Update progress line in-place
-            elapsed = int(time.monotonic() - step_start_time)
-            if last_parsed:
-                water = last_parsed.get("current_temperature")
-                setp = last_parsed.get("setpoint")
-                jets = last_parsed.get("jets", "unknown")
-                h_byte = last_parsed.get("heater_byte_raw", 0)
-                p_byte = last_parsed.get("jets_byte_raw", 0)
-                status_str = f"Temp: {water}°C/{setp}°C | Jets: {jets:<4} | (h=0x{h_byte:02X}, p=0x{p_byte:02X})"
-            else:
-                status_str = "Waiting for broadcast..."
-
+        if step.get("interactive"):
+            print(f"\n\n[STEP {step['num']}/{len(steps)}] {step['desc']}")
             print(
-                f"\r  [Step {step['num']}/{len(steps)}] {elapsed:>2}s | Cmds Captured: {len(step_command_frames):<2} | {status_str}",
-                end="",
-                flush=True,
+                f"  --> Action: Press physical Light button to change color (expected default: {step['target_desc']})"
             )
 
-            try:
+            step_done = False
+            while not step_done:
+                step_command_frames: list[dict] = []
+                # Clear socket buffer first
                 try:
-                    chunk = sock.recv(4096)
-                    if not chunk:
-                        print("\nConnection closed by bridge.")
-                        return raw_buffer, False
-                    raw_buffer.extend(chunk)
-                    stream_buffer.extend(chunk)
-                    last_read_time = time.monotonic()
+                    while sock.recv(4096):
+                        pass
                 except BlockingIOError:
-                    if time.monotonic() - last_read_time > 15.0:
-                        print("\nWarning: No data received from bridge for 15 seconds.")
-                        last_read_time = time.monotonic()
-                    time.sleep(0.05)
+                    pass
 
-                frames = find_frames(bytes(stream_buffer))
-                if frames:
-                    last_frame = frames[-1]
-                    idx = stream_buffer.rfind(last_frame)
-                    if idx != -1:
-                        del stream_buffer[: idx + len(last_frame)]
+                step_start_time = time.monotonic()
+                capture_duration = 4.0
+                print(f"  Capturing commands for {int(capture_duration)} seconds...")
 
-                    for frame in frames:
-                        if is_broadcast(frame):
-                            logical = unescape_frame(frame, unescape_full=True)
-                            parsed = adapter.parse_status(logical)
-                            if parsed:
-                                if last_parsed is not None:
-                                    if step["check"](last_parsed, parsed):
-                                        print(
-                                            f"\n\n  --> Detected transition to {step['target_desc']}! (Captured {len(step_command_frames)} commands)"
-                                        )
-                                        step_done = True
-                                last_parsed = parsed
-                        else:
-                            # Non-broadcast (command frame)
-                            if is_command_frame(frame) and not is_sync_frame(frame):
-                                unescaped = unescape_frame(frame, unescape_full=True)
-                                inner = unescaped[1:-1]
-                                payload = inner[:-4] if len(inner) >= 4 else inner
-                                crc_bytes = inner[-4:] if len(inner) >= 4 else b""
+                while time.monotonic() - step_start_time < capture_duration:
+                    elapsed = int(time.monotonic() - step_start_time)
+                    if last_parsed:
+                        water = last_parsed.get("current_temperature")
+                        setp = last_parsed.get("setpoint")
+                        jets = last_parsed.get("jets", "unknown")
+                        h_byte = last_parsed.get("heater_byte_raw", 0)
+                        p_byte = last_parsed.get("jets_byte_raw", 0)
+                        status_str = f"Temp: {water}°C/{setp}°C | Jets: {jets:<4} | (h=0x{h_byte:02X}, p=0x{p_byte:02X})"
+                    else:
+                        status_str = "Waiting for broadcast..."
 
-                                # Verify CRC
-                                crc_ok = False
-                                if len(inner) >= 4:
-                                    crc_expected = compute_crc(payload)
-                                    import struct
+                    print(
+                        f"\r  [Step {step['num']}/{len(steps)}] {elapsed:>2}s | Cmds Captured: {len(step_command_frames):<2} | {status_str}",
+                        end="",
+                        flush=True,
+                    )
 
-                                    crc_received = struct.unpack("<I", crc_bytes)[0]
-                                    crc_ok = crc_expected == crc_received
-
-                                cmd_info = {
-                                    "wire": frame.hex(),
-                                    "payload": payload.hex(),
-                                    "crc_ok": crc_ok,
-                                    "timestamp": datetime.datetime.now().strftime(
-                                        "%H:%M:%S.%f"
-                                    )[:-3],
-                                }
-                                step_command_frames.append(cmd_info)
-                time.sleep(0.01)
-
-            except KeyboardInterrupt:
-                print("\n  [Step Interrupted] Options:")
-                print("    s: Skip/Force-advance to next step")
-                print("    q: Abort and exit runbook")
-                choice = ""
-                while choice not in ("s", "q"):
                     try:
-                        choice = input("  Select option [s/q]: ").strip().lower()
-                    except KeyboardInterrupt:
-                        print()
-                        choice = "q"
-                if choice == "q":
+                        chunk = sock.recv(4096)
+                        if not chunk:
+                            print("\nConnection closed by bridge.")
+                            return raw_buffer, False
+                        raw_buffer.extend(chunk)
+                        stream_buffer.extend(chunk)
+                        last_read_time = time.monotonic()
+                    except BlockingIOError:
+                        if time.monotonic() - last_read_time > 15.0:
+                            print(
+                                "\nWarning: No data received from bridge for 15 seconds."
+                            )
+                            last_read_time = time.monotonic()
+                        time.sleep(0.05)
+
+                    frames = find_frames(bytes(stream_buffer))
+                    if frames:
+                        last_frame = frames[-1]
+                        idx = stream_buffer.rfind(last_frame)
+                        if idx != -1:
+                            del stream_buffer[: idx + len(last_frame)]
+
+                        for frame in frames:
+                            if is_broadcast(frame):
+                                logical = unescape_frame(frame, unescape_full=True)
+                                parsed = adapter.parse_status(logical)
+                                if parsed:
+                                    last_parsed = parsed
+                            else:
+                                # Non-broadcast (command frame)
+                                if is_command_frame(frame) and not is_sync_frame(frame):
+                                    unescaped = unescape_frame(
+                                        frame, unescape_full=True
+                                    )
+                                    inner = unescaped[1:-1]
+                                    payload = inner[:-4] if len(inner) >= 4 else inner
+                                    crc_bytes = inner[-4:] if len(inner) >= 4 else b""
+
+                                    # Verify CRC
+                                    crc_ok = False
+                                    if len(inner) >= 4:
+                                        crc_expected = compute_crc(payload)
+                                        import struct
+
+                                        crc_received = struct.unpack("<I", crc_bytes)[0]
+                                        crc_ok = crc_expected == crc_received
+
+                                    cmd_info = {
+                                        "wire": frame.hex(),
+                                        "payload": payload.hex(),
+                                        "crc_ok": crc_ok,
+                                        "timestamp": datetime.datetime.now().strftime(
+                                            "%H:%M:%S.%f"
+                                        )[:-3],
+                                    }
+                                    step_command_frames.append(cmd_info)
+                    time.sleep(0.01)
+
+                print("\n  --> Capture window closed.")
+                try:
+                    user_input = (
+                        input(
+                            f"  Enter the color name displayed [default: {step['target_desc']}, type 'retry' to capture again, or 'skip']: "
+                        )
+                        .strip()
+                        .lower()
+                    )
+                except KeyboardInterrupt:
                     print("\nRunbook aborted by user.")
                     return raw_buffer, False
+
+                if user_input == "retry":
+                    print("  Retrying capture window...")
+                    continue
+                elif user_input == "skip":
+                    print("  Skipping step.")
+                    step_done = True
                 else:
-                    print("  Skipping to next step...")
+                    color_name = step["target_desc"] if user_input == "" else user_input
+                    step["user_color"] = color_name
+                    captured_by_step[step["num"]].extend(step_command_frames)
                     step_done = True
 
-        captured_by_step[step["num"]].extend(step_command_frames)
-        current_step_idx += 1
+            current_step_idx += 1
+
+        else:
+            print(f"\n\n[STEP {step['num']}/{len(steps)}] {step['desc']}")
+
+            step_done = False
+            step_command_frames = []
+            step_start_time = time.monotonic()
+
+            while not step_done:
+                # Update progress line in-place
+                elapsed = int(time.monotonic() - step_start_time)
+                if last_parsed:
+                    water = last_parsed.get("current_temperature")
+                    setp = last_parsed.get("setpoint")
+                    jets = last_parsed.get("jets", "unknown")
+                    h_byte = last_parsed.get("heater_byte_raw", 0)
+                    p_byte = last_parsed.get("jets_byte_raw", 0)
+                    status_str = f"Temp: {water}°C/{setp}°C | Jets: {jets:<4} | (h=0x{h_byte:02X}, p=0x{p_byte:02X})"
+                else:
+                    status_str = "Waiting for broadcast..."
+
+                print(
+                    f"\r  [Step {step['num']}/{len(steps)}] {elapsed:>2}s | Cmds Captured: {len(step_command_frames):<2} | {status_str}",
+                    end="",
+                    flush=True,
+                )
+
+                try:
+                    try:
+                        chunk = sock.recv(4096)
+                        if not chunk:
+                            print("\nConnection closed by bridge.")
+                            return raw_buffer, False
+                        raw_buffer.extend(chunk)
+                        stream_buffer.extend(chunk)
+                        last_read_time = time.monotonic()
+                    except BlockingIOError:
+                        if time.monotonic() - last_read_time > 15.0:
+                            print(
+                                "\nWarning: No data received from bridge for 15 seconds."
+                            )
+                            last_read_time = time.monotonic()
+                        time.sleep(0.05)
+
+                    frames = find_frames(bytes(stream_buffer))
+                    if frames:
+                        last_frame = frames[-1]
+                        idx = stream_buffer.rfind(last_frame)
+                        if idx != -1:
+                            del stream_buffer[: idx + len(last_frame)]
+
+                        for frame in frames:
+                            if is_broadcast(frame):
+                                logical = unescape_frame(frame, unescape_full=True)
+                                parsed = adapter.parse_status(logical)
+                                if parsed:
+                                    if last_parsed is not None:
+                                        if step["check"](last_parsed, parsed):
+                                            print(
+                                                f"\n\n  --> Detected transition to {step['target_desc']}! (Captured {len(step_command_frames)} commands)"
+                                            )
+                                            step_done = True
+                                    last_parsed = parsed
+                            else:
+                                # Non-broadcast (command frame)
+                                if is_command_frame(frame) and not is_sync_frame(frame):
+                                    unescaped = unescape_frame(
+                                        frame, unescape_full=True
+                                    )
+                                    inner = unescaped[1:-1]
+                                    payload = inner[:-4] if len(inner) >= 4 else inner
+                                    crc_bytes = inner[-4:] if len(inner) >= 4 else b""
+
+                                    # Verify CRC
+                                    crc_ok = False
+                                    if len(inner) >= 4:
+                                        crc_expected = compute_crc(payload)
+                                        import struct
+
+                                        crc_received = struct.unpack("<I", crc_bytes)[0]
+                                        crc_ok = crc_expected == crc_received
+
+                                    cmd_info = {
+                                        "wire": frame.hex(),
+                                        "payload": payload.hex(),
+                                        "crc_ok": crc_ok,
+                                        "timestamp": datetime.datetime.now().strftime(
+                                            "%H:%M:%S.%f"
+                                        )[:-3],
+                                    }
+                                    step_command_frames.append(cmd_info)
+                    time.sleep(0.01)
+
+                except KeyboardInterrupt:
+                    print("\n  [Step Interrupted] Options:")
+                    print("    s: Skip/Force-advance to next step")
+                    print("    q: Abort and exit runbook")
+                    choice = ""
+                    while choice not in ("s", "q"):
+                        try:
+                            choice = input("  Select option [s/q]: ").strip().lower()
+                        except KeyboardInterrupt:
+                            print()
+                            choice = "q"
+                    if choice == "q":
+                        print("\nRunbook aborted by user.")
+                        return raw_buffer, False
+                    else:
+                        print("  Skipping to next step...")
+                        step_done = True
+
+            captured_by_step[step["num"]].extend(step_command_frames)
+            current_step_idx += 1
 
     # Print summary
     print("\n" + "=" * 80)
     print("                      P25B37 CAPTURED COMMANDS SUMMARY")
     print("=" * 80)
     for step in steps:
-        print(f"\nStep {step['num']}: {step['desc']}")
+        desc = step["desc"]
+        if step.get("interactive"):
+            desc = f"Press Light button briefly (Color Name: {step.get('user_color', 'unknown')})"
+        print(f"\nStep {step['num']}: {desc}")
         cmds = captured_by_step[step["num"]]
         if not cmds:
             print("  (No unique command frames captured in this step)")
