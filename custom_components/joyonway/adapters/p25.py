@@ -597,6 +597,21 @@ class P25B85Adapter(P25BaseAdapter):
         return self._build_button_command(btn_group=0x40, btn_action=0x40)
 
 
+class P25B37Adapter(P25BaseAdapter):
+    """Adapter for the Joyonway P25B37 controller."""
+
+    model = "P25B37"
+    _context_byte = 0x40
+
+    def build_light_command(self, on: bool) -> bytes:
+        """P25B37 uses discrete ON/OFF via payload byte 15."""
+        return self._build_button_command(
+            btn_group=0x40,
+            btn_action=0x40,
+            tail_byte=0x81 if on else 0x80,
+        )
+
+
 _P25_ENTITIES: list[SpaEntityDescription] = [
     # Sensors
     SpaEntityDescription(
