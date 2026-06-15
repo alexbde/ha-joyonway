@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 from datetime import datetime, timezone
+from typing import ClassVar
 
 try:
     from homeassistant.util import dt as dt_util
@@ -149,17 +150,16 @@ def _celsius_to_fahrenheit(c: int) -> int:
     return round(c * 9 / 5 + 32)
 
 
-class P23B32Adapter:
-    """Adapter for the Joyonway P23B32 controller."""
+class P23BaseAdapter:
+    """Base adapter for the Joyonway P23 model family."""
 
-    model: str = "P23B32"
-    broadcast_signature: bytes = P23B32_SIGNATURE
+    model: str
+    broadcast_signature: bytes
     unescape_full_frame: bool = False
     supports_writes: bool = True
-    jets: list[JetDescription] = [
-        JetDescription(id="jets_left", name="Jets Left", type=JetType.SINGLE),
-        JetDescription(id="jets_right", name="Jets Right", type=JetType.SINGLE),
-    ]
+    jets: list[JetDescription]
+
+    _context_byte: ClassVar[int] = 0x04
 
     def parse_status(self, frame: bytes) -> dict | None:
         if len(frame) < 30:
@@ -296,17 +296,26 @@ class P23B32Adapter:
         return val
 
     def get_jets_state(self, data: dict, jet_id: str) -> str:
-        if jet_id == "jets_left":
-            return data.get("jets_left", "off")
-        elif jet_id == "jets_right":
-            return data.get("jets_right", "off")
-        return "off"
+        return data.get(jet_id, "off")
 
-    def build_light_command(self, on: bool) -> bytes:
-        """Build a discrete light ON or OFF command for P23B32."""
+    def _build_button_command(
+        self,
+        jet_b7: int = 0x00,
+        jet_b8: int = 0x00,
+        btn_group: int = 0x00,
+        btn_action: int = 0x00,
+        modifier: int = 0x02,
+        context: int | None = None,
+        val_13: int = 0x00,
+        setpoint_f: int = 0x00,
+        tail_byte: int | None = None,
+    ) -> bytes:
+        """Build a button command for the P23 family."""
         from ..protocol import build_frame
 
-        last_byte = 0x81 if on else 0x80
+        if context is None:
+            context = self._context_byte
+
         payload = bytearray(
             [
                 0x01,
@@ -316,35 +325,35 @@ class P23B32Adapter:
                 0xA1,
                 0x00,
                 0xA1,
-                0x00,
-                0x00,
-                0x00,
-                0x40,
-                0x40,
-                0x02,
-                0x04,
-                0x00,
-                0x00,
-                last_byte,
+                jet_b7,
+                jet_b8,
+                btn_group,
+                btn_action,
+                modifier,
+                context,
+                val_13,
+                setpoint_f,
             ]
         )
+        if tail_byte is not None:
+            payload.extend([0x00, tail_byte])
+        else:
+            payload.append(0x00)
+
         return build_frame(bytes(payload))
 
-    def build_jets_command(self, jet_id: str, target: str) -> bytes | None:
-        from ..protocol import build_frame
+    def build_light_command(self, on: bool) -> bytes:
+        raise NotImplementedError
 
-        is_on = target in ("low", "high", "on")  # single speed treats low/high/on as ON
+    def build_jets_command(self, jet_id: str, target: str) -> bytes | None:
+        is_on = target in ("low", "high", "on")
 
         if jet_id == "jets_left":
-            # ON: 01 30 10 3C A1 00 A1 06 04 00 00 02 04 00 00 00
-            # OFF: 01 30 10 3C A1 00 A1 06 00 00 00 02 04 00 00 00
             if is_on:
                 b7, b8 = 0x06, 0x04
             else:
                 b7, b8 = 0x06, 0x00
         elif jet_id == "jets_right":
-            # ON: 01 30 10 3C A1 00 A1 18 10 00 00 02 04 00 00 00
-            # OFF: 01 30 10 3C A1 00 A1 18 00 00 00 02 04 00 00 00
             if is_on:
                 b7, b8 = 0x18, 0x10
             else:
@@ -352,150 +361,44 @@ class P23B32Adapter:
         else:
             return None
 
-        payload = bytearray(
-            [
-                0x01,
-                0x30,
-                0x10,
-                0x3C,
-                0xA1,
-                0x00,
-                0xA1,
-                b7,
-                b8,
-                0x00,
-                0x00,
-                0x02,
-                0x04,
-                0x00,
-                0x00,
-                0x00,
-            ]
-        )
-        return build_frame(bytes(payload))
+        return self._build_button_command(jet_b7=b7, jet_b8=b8)
 
     def build_heater_command(self, on: bool) -> bytes:
-        from ..protocol import build_frame
-
-        # Expected ON: 01 30 10 3C A1 00 A1 00 00 08 18 02 04 00 00 00
-        # Expected OFF: 01 30 10 3C A1 00 A1 00 00 08 11 02 04 00 00 00
         b10 = 0x18 if on else 0x11
-        payload = bytearray(
-            [
-                0x01,
-                0x30,
-                0x10,
-                0x3C,
-                0xA1,
-                0x00,
-                0xA1,
-                0x00,
-                0x00,
-                0x08,
-                b10,
-                0x02,
-                0x04,
-                0x00,
-                0x00,
-                0x00,
-            ]
+        return self._build_button_command(
+            btn_group=0x08,
+            btn_action=b10,
         )
-        return build_frame(bytes(payload))
 
     def build_blower_command(self, on: bool) -> bytes:
-        from ..protocol import build_frame
-
-        # ON: 01 30 10 3C A1 00 A1 00 00 04 04 02 04 00 00 00
-        # OFF: 01 30 10 3C A1 00 A1 00 00 04 00 02 04 00 00 00
         b10 = 0x04 if on else 0x00
-        payload = bytearray(
-            [
-                0x01,
-                0x30,
-                0x10,
-                0x3C,
-                0xA1,
-                0x00,
-                0xA1,
-                0x00,
-                0x00,
-                0x04,
-                b10,
-                0x02,
-                0x04,
-                0x00,
-                0x00,
-                0x00,
-            ]
+        return self._build_button_command(
+            btn_group=0x04,
+            btn_action=b10,
         )
-        return build_frame(bytes(payload))
 
     def build_temp_command(self, target_celsius: int) -> bytes | None:
-        from ..protocol import build_frame
-
         if target_celsius < TEMP_MIN_C or target_celsius > TEMP_MAX_C:
             return None
         target_f = _celsius_to_fahrenheit(target_celsius)
-        # Direct Set: 01 30 10 3C A1 00 A1 00 00 80 80 02 04 00 [temp_f] 00
-        payload = bytearray(
-            [
-                0x01,
-                0x30,
-                0x10,
-                0x3C,
-                0xA1,
-                0x00,
-                0xA1,
-                0x00,
-                0x00,
-                0x80,
-                0x80,
-                0x02,
-                0x04,
-                0x00,
-                target_f,
-                0x00,
-            ]
+        return self._build_button_command(
+            btn_group=0x80,
+            btn_action=0x80,
+            setpoint_f=target_f,
         )
-        return build_frame(bytes(payload))
 
     def build_ozone_mode_command(self, mode: str, setpoint_f: int = 0x62) -> bytes:
-        # Fallback to empty command for now since protocol.md doesn't document
-        # the exact frame for P23 config mode switch.
         return b""
 
     def build_heater_mode_command(self, mode: str, setpoint_f: int = 0x62) -> bytes:
-        # Fallback to empty command
         return b""
 
     def build_ozone_manual_command(self, on: bool, setpoint_f: int = 0x62) -> bytes:
-        from ..protocol import build_frame
-
-        # Expected ON/OFF (16-byte):
-        # ON: 01 30 10 3C A1 00 A1 00 00 01 01 02 04 00 00 00
-        # OFF: 01 30 10 3C A1 00 A1 00 00 01 10 02 04 00 00 00
         b10 = 0x01 if on else 0x10
-        payload = bytearray(
-            [
-                0x01,
-                0x30,
-                0x10,
-                0x3C,
-                0xA1,
-                0x00,
-                0xA1,
-                0x00,
-                0x00,
-                0x01,
-                b10,
-                0x02,
-                0x04,
-                0x00,
-                0x00,
-                0x00,
-            ]
+        return self._build_button_command(
+            btn_group=0x01,
+            btn_action=b10,
         )
-        return build_frame(bytes(payload))
 
     def build_schedule_command(
         self,
@@ -618,6 +521,32 @@ class P23B32Adapter:
             minute=minute,
             second=second,
             set_date=True,
+        )
+
+
+class P23B32Adapter(P23BaseAdapter):
+    """Adapter for the Joyonway P23B32 controller."""
+
+    model: str = "P23B32"
+    broadcast_signature: bytes = P23B32_SIGNATURE
+    unescape_full_frame: bool = False
+    supports_writes: bool = True
+    jets: list[JetDescription] = [
+        JetDescription(id="jets_left", name="Jets Left", type=JetType.SINGLE),
+        JetDescription(id="jets_right", name="Jets Right", type=JetType.SINGLE),
+    ]
+
+    _context_byte = 0x04
+
+    def build_light_command(self, on: bool) -> bytes:
+        """Build a discrete light ON or OFF command for P23B32."""
+        return self._build_button_command(
+            btn_group=0x00,
+            btn_action=0x40,
+            modifier=0x40,
+            context=0x02,
+            val_13=0x04,
+            tail_byte=0x81 if on else 0x80,
         )
 
 

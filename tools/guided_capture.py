@@ -27,14 +27,14 @@ try:
         unescape_frame,
         is_broadcast,
     )
-    from custom_components.joyonway.adapters.p25b85 import P25B85Adapter
+    from custom_components.joyonway.adapters.p25 import P25B85Adapter
 except ImportError:
     print(
         "Error: Could not import custom component. Make sure you run this script from the repository root."
     )
     sys.path.insert(0, str(ROOT / "custom_components"))
     from joyonway.protocol import find_frames, unescape_frame, is_broadcast
-    from joyonway.adapters.p25b85 import P25B85Adapter
+    from joyonway.adapters.p25 import P25B85Adapter
 
 
 # Load .env if present

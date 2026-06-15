@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from .base import ModelAdapter, SpaEntityDescription
-from .p25b85 import P25B85Adapter
-from .p23b32 import P23B32Adapter
+from .p25 import P25B85Adapter
+from .p23 import P23B32Adapter
 
 # Registry of available model adapters
 ADAPTERS: dict[str, type] = {

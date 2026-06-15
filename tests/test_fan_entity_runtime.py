@@ -23,7 +23,7 @@ if str(ROOT) not in sys.path:
 from homeassistant.components.fan import FanEntityFeature
 
 from homeassistant.const import CONF_HOST
-from custom_components.joyonway.adapters.p25b85 import P25B85Adapter
+from custom_components.joyonway.adapters.p25 import P25B85Adapter
 from custom_components.joyonway.fan import SpaJetsFan, SpaSingleSpeedFan
 from custom_components.joyonway.adapters.base import JetDescription, JetType
 

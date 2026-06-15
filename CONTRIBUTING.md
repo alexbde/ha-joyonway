@@ -40,7 +40,7 @@ We use [Ruff](https://docs.astral.sh/ruff/) for linting and formatting:
 
 New controller models are supported by adding an adapter under `custom_components/joyonway/adapters/`.
 
-1. Create `custom_components/joyonway/adapters/<model_id>.py` (e.g. `p23b32.py`).
+1. Create or extend `custom_components/joyonway/adapters/<family>.py` (e.g. `p25.py` or `p23.py`).
 2. Implement the `ModelAdapter` interface from `adapters/base.py`:
    - `parse_status(frame: bytes) -> dict | None` — extract state dict from broadcast frame
    - `entity_descriptions() -> list[SpaEntityDescription]` — define exposed entities
@@ -49,7 +49,7 @@ New controller models are supported by adding an adapter under `custom_component
 3. Register the adapter in `adapters/__init__.py`'s `get_adapter()` factory.
 4. Add entity translations for each new entity key to all locale files in `translations/`.
 
-Use [P25B85Adapter](custom_components/joyonway/adapters/p25b85.py) as a reference implementation and
+Use [P25B85Adapter](custom_components/joyonway/adapters/p25.py) as a reference implementation and
 [docs/protocol.md](docs/protocol.md) for RS485 framing details.
 
 ## How to Reverse Engineer & Capture Telemetry

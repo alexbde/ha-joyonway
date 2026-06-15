@@ -1,6 +1,6 @@
 # Joyonway Spa RS-485 Protocol Reference
 
-This document serves as the canonical reference for the RS-485 serial communication protocol used by Joyonway spa controllers, extracted from physical touchpad-to-controller buses. It consolidates details for the **Joyonway P25B85** (paired with PB554 keypads) and the **Joyonway P23B32 / P20B29** (paired with PB554/PB555 keypads).
+This document serves as the canonical reference for the RS-485 serial communication protocol used by Joyonway spa controllers, extracted from physical touchpad-to-controller buses. It consolidates details for the **Joyonway P25B85** and **P25B37** (paired with PB554 keypads) and the **Joyonway P23B32 / P20B29** (paired with PB554/PB555 keypads).
 
 ## 1. Physical Layer & Framing
 
@@ -36,7 +36,7 @@ To prevent payload bytes from colliding with delimiter control bytes, the protoc
 
 The unescaping behavior differs between controller firmware families, which is critical to avoid frame parsing issues:
 
-*   **P25B85:** The entire frame payload is unescaped before parsing (`unescape_full_frame = True`).
+*   **P25B85 / P25B37:** The entire frame payload is unescaped before parsing (`unescape_full_frame = True`).
 *   **P23B32 / P20B29:** Only tail bytes (indices 55 and higher) should be unescaped. Unescaping indices 0–54 can corrupt payload parsing, because binary status bytes in the header may accidentally match escape sequences (e.g., a status byte of `0x1B` followed by `0x11` is not an escape code, but raw data).
 
 ## 3. CRC-32 Specification
@@ -82,7 +82,7 @@ wire = 0x1A + escaped + 0x1D
 
 The controller sends periodic broadcast frames (~2/sec) to report the spa state to the touchpad display. Broadcast frames are prefixed with destination address `0xFF` and the model ID signature byte at index 8.
 
-*   **P25B85 Header Signature:** `1A FF 01 3C D2 B4 FF 08 03` (Model ID `0x03` at index 8)
+*   **P25B85 / P25B37 Header Signature:** `1A FF 01 3C D2 B4 FF 08 03` (Model ID `0x03` at index 8)
 *   **P23B32 / P20B29 Header Signature:** `1A FF 01 3C D2 B4 FF 08 02` (Model ID `0x02` at index 8)
 
 ### 4.1. Broadcast State Map (0-indexed logical frame positions)
@@ -118,26 +118,26 @@ The controller sends periodic broadcast frames (~2/sec) to report the spa state 
 
 ## 5. Command Frames
 
-Command frames are constructed with a payload (typically 16 or 17 bytes; 8 bytes for the All Off emergency command) and a 4-byte CRC-32. The common command header prefix defines the panel source address (`0x20` for P25B85 vs. `0x30` for P23B32/P20B29).
+Command frames are constructed with a payload (typically 16 or 17 bytes; 8 bytes for the All Off emergency command) and a 4-byte CRC-32. The common command header prefix defines the panel source address (`0x20` for P25 family vs. `0x30` for P23 family).
 
-*   **P25B85 Command Prefix:** `01 20 10 3C [Type] 10 A1`
+*   **P25B85 / P25B37 Command Prefix:** `01 20 10 3C [Type] 10 A1`
 *   **P23B32 / P20B29 Command Prefix:** `01 30 10 3C [Type] 00 A1`
 
 ### 5.1. Command Payload Mappings (Unescaped Payload Bytes)
 
-| Command Function | P25B85 Payload Layout | P23B32 / P20B29 Payload Layout | Status & Notes |
+| Command Function | P25 family Payload Layout | P23B32 / P20B29 Payload Layout | Status & Notes |
 | :--- | :--- | :--- | :--- |
-| **Light Control** | **Toggle Command:**<br>`01 20 10 3C A1 10 A1 00 00 40 40 00 C0 00 [setpoint] 00` [✅]<br><br>**Discrete ON/OFF:**<br>• ON: `01 20 10 3C A1 10 A1 00 00 00 40 40 02 04 00 00 81` [❌]<br>• OFF: `01 20 10 3C A1 10 A1 00 00 00 40 40 02 04 00 00 80` [❌] | **Discrete ON/OFF (17-byte):**<br>• ON: `01 30 10 3C A1 00 A1 00 00 00 40 40 02 04 00 00 81` [✅]<br>• OFF: `01 30 10 3C A1 00 A1 00 00 00 40 40 02 04 00 00 80` [✅] | P25 default panel sends toggle; discrete frames are NOT supported by the P25 controller (verified via physical test). |
-| **Pump/Jets 1** | **Cycle (OFF → LOW → HIGH):**<br>• LOW: `... 02 02 00 00 00 C0 ...` [✅]<br>• HIGH: `... 06 04 00 00 00 C0 ...` [✅]<br>• OFF: `... 04 00 00 00 00 C0 ...` [✅] | **Left Pump ON/OFF (16-byte):**<br>• ON: `01 30 10 3C A1 00 A1 06 04 00 00 02 04 00 00 00` [✅]<br>• OFF: `01 30 10 3C A1 00 A1 06 00 00 00 02 04 00 00 00` [✅] | P25 uses cycle transitions; P23 has independent pump controls. |
+| **Light Control** | **Toggle Command (P25B85):**<br>`01 20 10 3C A1 10 A1 00 00 40 40 00 C0 00 [setpoint] 00` [✅]<br><br>**Discrete ON/OFF (P25B37):**<br>• ON: `01 20 10 3C A1 10 A1 00 00 40 40 00 40 00 00 81` [✅]<br>• OFF: `01 20 10 3C A1 10 A1 00 00 40 40 00 40 00 00 80` [✅] | **Discrete ON/OFF (17-byte):**<br>• ON: `01 30 10 3C A1 00 A1 00 00 00 40 40 02 04 00 00 81` [✅]<br>• OFF: `01 30 10 3C A1 00 A1 00 00 00 40 40 02 04 00 00 80` [✅] | P25B85 sends toggle; discrete commands are NOT supported by P25B85 (verified via physical test). P25B37 sends discrete commands. |
+| **Pump/Jets 1** | **Cycle (OFF → LOW → HIGH):**<br>• LOW: `... 02 02 00 00 00 [context] ...` [✅]<br>• HIGH: `... 06 04 00 00 00 [context] ...` [✅]<br>• OFF: `... 04 00 00 00 00 [context] ...` [✅] | **Left Pump ON/OFF (16-byte):**<br>• ON: `01 30 10 3C A1 00 A1 06 04 00 00 02 04 00 00 00` [✅]<br>• OFF: `01 30 10 3C A1 00 A1 06 00 00 00 02 04 00 00 00` [✅] | P25 family uses cycle transitions; P23 has independent pump controls. Context: `0xC0` for P25B85, `0x40` for P25B37. |
 | **Pump/Jets 2** | N/A | **Right Pump ON/OFF (16-byte):**<br>• ON: `01 30 10 3C A1 00 A1 18 10 00 00 02 04 00 00 00` [✅]<br>• OFF: `01 30 10 3C A1 00 A1 18 00 00 00 02 04 00 00 00` [✅] | P23 specific second pump command. |
-| **Blower Control** | **Discrete ON/OFF (16-byte):**<br>• ON: `... A1 10 A1 00 00 04 0C 00 C0 00 [setpoint] 00` [✅]<br>• OFF: `... A1 10 A1 00 00 04 00 00 C0 00 [setpoint] 00` [✅] | **Discrete ON/OFF (16-byte):**<br>• ON: `01 30 10 3C A1 00 A1 00 00 04 04 02 04 00 00 00` [✅]<br>• OFF: `01 30 10 3C A1 00 A1 00 00 04 00 02 04 00 00 00` [✅] | Blower commands. Note that index 14 is a state echo of the current setpoint on P25. |
-| **Setpoint Temperature**| **Direct Set (16-byte):**<br>`01 20 10 3C A1 10 A1 00 00 80 98 00 C0 00 [temp_f] 00` [✅] | **Direct Set (16-byte):**<br>`01 30 10 3C A1 00 A1 00 00 80 80 02 04 00 [temp_f] 00` [✅] | P25 uses variant byte `0x98` (confirmed working; `0x80` does NOT work on P25). P23 uses `0x80`. |
-| **Manual Heater Toggle**| **Discrete ON/OFF (16-byte):**<br>• ON: `... A1 10 A1 00 00 08 18 00 C0 ...` [✅]<br>• OFF: `... A1 10 A1 00 00 08 11 00 C0 ...` [✅] | **Expected ON/OFF (16-byte):**<br>• ON: `01 30 10 3C A1 00 A1 00 00 08 18 02 04 00 00 00` [✨]<br>• OFF: `01 30 10 3C A1 00 A1 00 00 08 11 02 04 00 00 00` [✨] | P25 has two confirmed btn_action variants: `0x18`/`0x11` (Phase 6) and `0x08`/`0x00` (Session 1). Both accepted by controller. |
-| **Manual Ozone Toggle**| **Discrete ON/OFF (16-byte):**<br>• ON: `... A1 10 A1 00 00 01 01 00 40 ...` [✅]<br>• OFF: `... A1 10 A1 00 00 01 10 00 40 ...` [✅] | **Expected ON/OFF (16-byte):**<br>• ON: `01 30 10 3C A1 00 A1 00 00 01 01 02 04 00 00 00` [✨]<br>• OFF: `01 30 10 3C A1 00 A1 00 00 01 10 02 04 00 00 00` [✨] | Confirmed supported by P23 manuals; expected command layout. |
+| **Blower Control** | **Discrete ON/OFF (16-byte):**<br>• ON: `... A1 10 A1 00 00 04 0C 00 [context] 00 [setpoint] 00` [✅]<br>• OFF: `... A1 10 A1 00 00 04 00 00 [context] 00 [setpoint] 00` [✅] | **Discrete ON/OFF (16-byte):**<br>• ON: `01 30 10 3C A1 00 A1 00 00 04 04 02 04 00 00 00` [✅]<br>• OFF: `01 30 10 3C A1 00 A1 00 00 04 00 02 04 00 00 00` [✅] | Blower commands. Context: `0xC0` for P25B85, `0x40` for P25B37. |
+| **Setpoint Temperature**| **Direct Set (16-byte):**<br>`01 20 10 3C A1 10 A1 00 00 80 98 00 [context] 00 [temp_f] 00` [✅] | **Direct Set (16-byte):**<br>`01 30 10 3C A1 00 A1 00 00 80 80 02 04 00 [temp_f] 00` [✅] | P25 uses variant byte `0x98`. P23 uses `0x80`. Context: `0xC0` for P25B85, `0x40` for P25B37. |
+| **Manual Heater Toggle**| **Discrete ON/OFF (16-byte):**<br>• ON: `... A1 10 A1 00 00 08 18 00 [context] ...` [✅]<br>• OFF: `... A1 10 A1 00 00 08 11 00 [context] ...` [✅] | **Expected ON/OFF (16-byte):**<br>• ON: `01 30 10 3C A1 00 A1 00 00 08 18 02 04 00 00 00` [✨]<br>• OFF: `01 30 10 3C A1 00 A1 00 00 08 11 02 04 00 00 00` [✨] | P25 heater toggle. Context: `0xC0` for P25B85, `0x40` for P25B37. |
+| **Manual Ozone Toggle**| **Discrete ON/OFF (16-byte):**<br>• ON: `... A1 10 A1 00 00 01 01 00 40 ...` [✅]<br>• OFF: `... A1 10 A1 00 00 01 10 00 40 ...` [✅] | **Expected ON/OFF (16-byte):**<br>• ON: `01 30 10 3C A1 00 A1 00 00 01 01 02 04 00 00 00` [✨]<br>• OFF: `01 30 10 3C A1 00 A1 00 00 01 10 02 04 00 00 00` [✨] | ozone toggle. Uses context `0x40` for both P25B85 and P25B37. |
 | **Set System DateTime** | **DateTime Command (16-byte Type 0xA2):**<br>`01 20 10 3C A2 10 A1 [prefix] [yy] [mm] [dd] [hh] [mm] [ss] 00 00` [✅] | **Expected DateTime Command (Type 0xA2):**<br>`01 30 10 3C A2 00 A1 [prefix] [yy] [mm] [dd] [hh] [mm] [ss] 00 00` [✨] | Prefix: `0x05` = date + time; `0x50` = time only. |
 | **Heat Schedule Set** | **Schedule Command (16-byte Type 0xA3):**<br>`01 20 10 3C A3 10 A1 [flags] [slot1...] [slot2...]` [✅] | **Expected Schedule Command (Type 0xA3):**<br>`01 30 10 3C A3 00 A1 [flags] [slot1...] [slot2...]` [✨] | Schedule flags and hours mapping matches P25. |
 | **Filter Schedule Set** | **Schedule Command (16-byte Type 0xA4):**<br>`01 20 10 3C A4 10 A1 [flags] [slot1...] [slot2...]` [✅] | **Schedule Command (16-byte Type 0xA4):**<br>`01 30 10 3C A4 00 A1 [flags] [slot1...] [slot2...]` [✅]<br>Example: `... A4 00 A1 62 05 00 16 00 17 00 06 00` | Staged slot hours: slot 1 start/end, slot 2 start/end. |
-| **All Off Emergency** | **Expected (8-byte):**<br>`01 20 08 3C AA 00 02 13` [❌] | **Discrete (8-byte):**<br>`01 30 08 3C AA 00 02 13` [✅] | Short emergency shutoff command. NOT supported by P25 (verified via physical test). |
+| **All Off Emergency** | **Expected (8-byte):**<br>`01 20 08 3C AA 00 02 13` [❌] | **Discrete (8-byte):**<br>`01 30 08 3C AA 00 02 13` [✅] | Short emergency shutoff command. NOT supported by P25 family (verified via physical test). |
 
 **Status Legend:**
 *   `[✅]` **Confirmed:** Tested and verified on physical hardware.
@@ -157,9 +157,12 @@ This section summarizes how the CRC parameters were derived and confirmed:
 
 *   **Light command behavior differs by model:** The P25B85 panel sends the same toggle frame
     regardless of ON or OFF intent — the integration's entity layer handles no-op detection by
-    tracking the current state. The P23B32 / P20B29 controllers use distinct ON and OFF command
-    frames (byte 16: `0x81` = ON, `0x80` = OFF). The adapter's `build_light_command(on: bool)`
-    method abstracts this difference.
+    tracking the current state. The P25B37, P23B32, and P20B29 controllers use distinct discrete
+    ON and OFF command frames (for P25B37 payload byte 15: `0x81` = ON, `0x80` = OFF; for P23/P20 payload
+    byte 16: `0x81` = ON, `0x80` = OFF). The adapter's `build_light_command(on: bool)` method abstracts this.
+*   **Command context bytes vary by P25 model variant:** Command frames sent to P25 controllers contain
+    a context byte at index 12. P25B85 uses `0xC0`, whereas P25B37 uses `0x40`. Specifying the incorrect
+    context byte for a model variant will result in commands being ignored by the controller.
 *   **Pump commands are state-dependent (P25):** The physical panel UI is a cycle (OFF → LOW → HIGH → OFF), and the controller's RS-485 transition commands reflect this. Direct commands for LOW → OFF and HIGH → LOW do not exist. The integration must execute sequenced transitions.
 *   **Pump auto-off (P25):** Pump high speed auto-stops after 20 minutes (hardware timer).
 *   **Setpoint byte echo (P25):** Byte index 14 in every button command is the CURRENT setpoint at time of capture, embedded as a state echo. The controller accepts commands regardless of this byte's value matching actual state.
