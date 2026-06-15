@@ -11,21 +11,21 @@
       },
       "model_confirm": {
         "title": "Confirm Spa Model",
-        "description": "✓ Auto-detected: **{model}**. Confirm or change below.\n\n*Hint: To find your model, navigate to **Menu** > **Set** > **About** on your touchpad screen, and scroll to the top or bottom of the page. See [our README](https://github.com/alexbde/ha-joyonway/blob/main/README.md) for more details.*\n\n*If your model is not listed, please [open a GitHub issue](https://github.com/alexbde/ha-joyonway/issues) to request support.*",
+        "description": "✓ Auto-detected: **{model}**. Confirm or change below.\n\n*Hint: To find your model, navigate to **Menu** > **Set** > **About** on your touchpad screen, and scroll to the top or bottom of the page. See [our README]({readme_url}) for more details.*\n\n*If your model is not listed, please [open a GitHub issue]({issues_url}) to request support.*",
         "data": {
           "model": "Controller model"
         }
       },
       "model_confirm_manual": {
         "title": "Confirm Spa Model",
-        "description": "⚠️ Your controller model could not be automatically identified. Please select it manually.\n\n*Hint: To find your model, navigate to **Menu** > **Set** > **About** on your touchpad screen, and scroll to the top or bottom of the page. See [our README](https://github.com/alexbde/ha-joyonway/blob/main/README.md) for more details.*\n\n*If your model is not listed, please [open a GitHub issue](https://github.com/alexbde/ha-joyonway/issues) to request support.*",
+        "description": "⚠️ Your controller model could not be automatically identified. Please select it manually.\n\n*Hint: To find your model, navigate to **Menu** > **Set** > **About** on your touchpad screen, and scroll to the top or bottom of the page. See [our README]({readme_url}) for more details.*\n\n*If your model is not listed, please [open a GitHub issue]({issues_url}) to request support.*",
         "data": {
           "model": "Controller model"
         }
       },
       "reconfigure": {
         "title": "Reconfigure Spa Controller",
-        "description": "Update the configured model of your Joyonway controller.\n\n*Hint: To find your model, navigate to **Menu** > **Set** > **About** on your touchpad screen, and scroll to the top or bottom of the page. See [our README](https://github.com/alexbde/ha-joyonway/blob/main/README.md) for more details.*\n\n*If your model is not listed, please [open a GitHub issue](https://github.com/alexbde/ha-joyonway/issues) to request support.*",
+        "description": "Update the configured model of your Joyonway controller.\n\n*Hint: To find your model, navigate to **Menu** > **Set** > **About** on your touchpad screen, and scroll to the top or bottom of the page. See [our README]({readme_url}) for more details.*\n\n*If your model is not listed, please [open a GitHub issue]({issues_url}) to request support.*",
         "data": {
           "model": "Controller model"
         }

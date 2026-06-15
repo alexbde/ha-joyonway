@@ -52,7 +52,6 @@ def _model_schema(default: str | None = None) -> vol.Schema:
         SelectSelectorConfig(
             options=options,
             mode=SelectSelectorMode.DROPDOWN,
-            translation_key="model",
         )
     )
     field = (
@@ -159,7 +158,11 @@ class JoyonwayConfigFlow(ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="model_confirm",
             data_schema=_model_schema(default=self._detected_model),
-            description_placeholders={"model": self._detected_model or ""},
+            description_placeholders={
+                "model": self._detected_model or "",
+                "readme_url": "https://github.com/alexbde/ha-joyonway/blob/main/README.md",
+                "issues_url": "https://github.com/alexbde/ha-joyonway/issues",
+            },
         )
 
     async def async_step_model_confirm_manual(
@@ -172,6 +175,10 @@ class JoyonwayConfigFlow(ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="model_confirm_manual",
             data_schema=_model_schema(default=None),
+            description_placeholders={
+                "readme_url": "https://github.com/alexbde/ha-joyonway/blob/main/README.md",
+                "issues_url": "https://github.com/alexbde/ha-joyonway/issues",
+            },
         )
 
     def _create_entry_for_model(self, model: str) -> ConfigFlowResult:
@@ -201,4 +208,8 @@ class JoyonwayConfigFlow(ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="reconfigure",
             data_schema=_model_schema(default=current_model),
+            description_placeholders={
+                "readme_url": "https://github.com/alexbde/ha-joyonway/blob/main/README.md",
+                "issues_url": "https://github.com/alexbde/ha-joyonway/issues",
+            },
         )

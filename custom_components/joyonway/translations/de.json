@@ -11,21 +11,21 @@
       },
       "model_confirm": {
         "title": "Whirlpool-Modell bestätigen",
-        "description": "✓ Automatisch erkannt: **{model}**. Unten bestätigen oder ändern.\n\n*Hinweis: Um Ihr Modell zu finden, navigieren Sie auf Ihrem Touchpad-Bildschirm zu **Menu** > **Set** > **About** und scrollen Sie zum Anfang oder Ende der Seite. Weitere Details finden Sie in [unserer README](https://github.com/alexbde/ha-joyonway/blob/main/README.md).*\n\n*Wenn Ihr Modell nicht aufgeführt ist, [eröffnen Sie bitte ein GitHub-Issue](https://github.com/alexbde/ha-joyonway/issues), um Unterstützung anzufordern.*",
+        "description": "✓ Automatisch erkannt: **{model}**. Unten bestätigen oder ändern.\n\n*Hinweis: Um Ihr Modell zu finden, navigieren Sie auf Ihrem Touchpad-Bildschirm zu **Menu** > **Set** > **About** und scrollen Sie zum Anfang oder Ende der Seite. Weitere Details finden Sie in [unserer README]({readme_url}).*\n\n*Wenn Ihr Modell nicht aufgeführt ist, [eröffnen Sie bitte ein GitHub-Issue]({issues_url}), um Unterstützung anzufordern.*",
         "data": {
           "model": "Steuerungsmodell"
         }
       },
       "model_confirm_manual": {
         "title": "Whirlpool-Modell bestätigen",
-        "description": "⚠️ Ihr Steuerungsmodell konnte nicht automatisch identifiziert werden. Bitte wählen Sie es manuell aus.\n\n*Hinweis: Um Ihr Modell zu finden, navigieren Sie auf Ihrem Touchpad-Bildschirm zu **Menu** > **Set** > **About** und scrollen Sie zum Anfang oder Ende der Seite. Weitere Details finden Sie in [unserer README](https://github.com/alexbde/ha-joyonway/blob/main/README.md).*\n\n*Wenn Ihr Modell nicht aufgeführt ist, [eröffnen Sie bitte ein GitHub-Issue](https://github.com/alexbde/ha-joyonway/issues), um Unterstützung anzufordern.*",
+        "description": "⚠️ Ihr Steuerungsmodell konnte nicht automatisch identifiziert werden. Bitte wählen Sie es manuell aus.\n\n*Hinweis: Um Ihr Modell zu finden, navigieren Sie auf Ihrem Touchpad-Bildschirm zu **Menu** > **Set** > **About** und scrollen Sie zum Anfang oder Ende der Seite. Weitere Details finden Sie in [unserer README]({readme_url}).*\n\n*Wenn Ihr Modell nicht aufgeführt ist, [eröffnen Sie bitte ein GitHub-Issue]({issues_url}), um Unterstützung anzufordern.*",
         "data": {
           "model": "Steuerungsmodell"
         }
       },
       "reconfigure": {
         "title": "Whirlpool-Steuerung neu konfigurieren",
-        "description": "Aktualisieren Sie das konfigurierte Modell Ihrer Joyonway-Steuerung.\n\n*Hinweis: Um Ihr Modell zu finden, navigieren Sie auf Ihrem Touchpad-Bildschirm zu **Menu** > **Set** > **About** und scrollen Sie zum Anfang oder Ende der Seite. Weitere Details finden Sie in [unserer README](https://github.com/alexbde/ha-joyonway/blob/main/README.md).*\n\n*Wenn Ihr Modell nicht aufgeführt ist, [eröffnen Sie bitte ein GitHub-Issue](https://github.com/alexbde/ha-joyonway/issues), um Unterstützung anzufordern.*",
+        "description": "Aktualisieren Sie das konfigurierte Modell Ihrer Joyonway-Steuerung.\n\n*Hinweis: Um Ihr Modell zu finden, navigieren Sie auf Ihrem Touchpad-Bildschirm zu **Menu** > **Set** > **About** und scrollen Sie zum Anfang oder Ende der Seite. Weitere Details finden Sie in [unserer README]({readme_url}).*\n\n*Wenn Ihr Modell nicht aufgeführt ist, [eröffnen Sie bitte ein GitHub-Issue]({issues_url}), um Unterstützung anzufordern.*",
         "data": {
           "model": "Steuerungsmodell"
         }

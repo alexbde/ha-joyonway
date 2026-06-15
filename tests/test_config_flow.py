@@ -117,6 +117,14 @@ async def test_config_flow_user_step_success() -> None:
         assert flow._port == 8899
         assert flow._detected_model == "P25B85"
         assert result["description_placeholders"]["model"] == "P25B85"
+        assert (
+            result["description_placeholders"]["readme_url"]
+            == "https://github.com/alexbde/ha-joyonway/blob/main/README.md"
+        )
+        assert (
+            result["description_placeholders"]["issues_url"]
+            == "https://github.com/alexbde/ha-joyonway/issues"
+        )
         mock_test.assert_called_once_with("127.0.0.1", 8899)
         flow.async_set_unique_id.assert_called_once_with("127.0.0.1:8899")
         flow._abort_if_unique_id_configured.assert_called_once()
