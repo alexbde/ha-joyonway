@@ -30,10 +30,12 @@ autolabeler:
   - label: 'chore'
     title:
       - '/^chore(\(.+\))?:/i'
+  - label: 'refactoring'
+    title:
       - '/^refactor(\(.+\))?:/i'
-      - '/^style(\(.+\))?:/i'
+  - label: 'test'
+    title:
       - '/^test(\(.+\))?:/i'
-      - '/^perf(\(.+\))?:/i'
   - label: 'documentation'
     title:
       - '/^docs(\(.+\))?:/i'
@@ -53,7 +55,7 @@ categories:
     labels:
       - 'chore'
       - 'dependencies'
-      - 'refactor'
+      - 'refactoring'
       - 'style'
       - 'test'
   - title: '📖 Documentation'
