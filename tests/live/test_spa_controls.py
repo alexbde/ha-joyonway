@@ -73,7 +73,7 @@ _load("joyonway.protocol", _comp_dir / "protocol.py")
 _load("joyonway.coordinator", _comp_dir / "coordinator.py")
 
 
-from joyonway.adapters.p25 import P25B85Adapter
+from joyonway.adapters.p25 import P25B85Adapter, P25B37Adapter
 from joyonway.adapters.p23 import P23B32Adapter
 from joyonway.protocol import (
     compute_crc,
@@ -2436,7 +2436,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model",
         default="p25b85",
-        choices=["p25b85", "p23b32", "p20b29"],
+        choices=["p25b85", "p25b37", "p23b32", "p20b29"],
         help="Spa model to test/simulate",
     )
     args = parser.parse_args()
@@ -2445,7 +2445,9 @@ if __name__ == "__main__":
     is_interactive = sys.stdin.isatty() and not args.non_interactive
 
     MODEL = args.model.upper()
-    if MODEL in ("P23B32", "P20B29"):
+    if MODEL == "P25B37":
+        adapter = P25B37Adapter()
+    elif MODEL in ("P23B32", "P20B29"):
         adapter = P23B32Adapter()
     else:
         adapter = P25B85Adapter()
