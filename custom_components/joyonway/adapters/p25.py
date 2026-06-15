@@ -83,7 +83,7 @@ MASK_JET_LOW = 0x02
 MASK_JET_HIGH = 0x04
 
 # Light
-MASK_LIGHT = 0x01
+MASK_LIGHT = 0x0F  # ✅ lower 4 bits of byte 17 represent the light color/mode index (1-8 = ON, 0 = OFF)
 
 # Heating cycle active flag at byte 17 (bit 7).
 MASK_HEATING_CYCLE = 0x80
