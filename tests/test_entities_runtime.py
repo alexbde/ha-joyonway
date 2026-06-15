@@ -28,7 +28,7 @@ from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.joyonway.adapters.base import SpaEntityDescription
-from custom_components.joyonway.adapters.p25b85 import P25B85Adapter
+from custom_components.joyonway.adapters.p25 import P25B85Adapter
 from custom_components.joyonway.binary_sensor import (
     JoyonwayBinarySensor,
     JoyonwayBridgeConnectivity,

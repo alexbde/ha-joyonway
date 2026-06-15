@@ -67,14 +67,14 @@ sys.modules["joyonway.adapters"] = _adapters_pkg
 # Load the adapters package first (will populate sys.modules correctly)
 _load("joyonway.adapters", _comp_dir / "adapters" / "__init__.py")
 _load("joyonway.adapters.base", _comp_dir / "adapters" / "base.py")
-_load("joyonway.adapters.p25b85", _comp_dir / "adapters" / "p25b85.py")
-_load("joyonway.adapters.p23b32", _comp_dir / "adapters" / "p23b32.py")
+_load("joyonway.adapters.p25", _comp_dir / "adapters" / "p25.py")
+_load("joyonway.adapters.p23", _comp_dir / "adapters" / "p23.py")
 _load("joyonway.protocol", _comp_dir / "protocol.py")
 _load("joyonway.coordinator", _comp_dir / "coordinator.py")
 
 
-from joyonway.adapters.p25b85 import P25B85Adapter
-from joyonway.adapters.p23b32 import P23B32Adapter
+from joyonway.adapters.p25 import P25B85Adapter
+from joyonway.adapters.p23 import P23B32Adapter
 from joyonway.protocol import (
     compute_crc,
     find_frames,

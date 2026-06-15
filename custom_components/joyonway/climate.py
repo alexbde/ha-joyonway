@@ -25,7 +25,7 @@ from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature, PRECISION_W
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from .adapters.p25b85 import TEMP_MAX_C, TEMP_MIN_C
+from .adapters.p25 import TEMP_MAX_C, TEMP_MIN_C
 from .const import OPTIMISTIC_TIMEOUT_SECONDS
 from .coordinator import JoyonwayCoordinator, JoyonwayConfigEntry
 from .entity import JoyonwayCoordinatorEntity, device_info

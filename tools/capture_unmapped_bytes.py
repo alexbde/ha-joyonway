@@ -30,7 +30,7 @@ if env_path.exists():
 HOST = os.environ.get("SPA_BRIDGE_HOST")
 PORT_RAW = os.environ.get("SPA_BRIDGE_PORT", "8899")
 
-# Exactly matches the mapped indexes in p25b85.py
+# Exactly matches the mapped indexes in p25.py
 _MAPPED_INDEXES = {
     0,
     1,

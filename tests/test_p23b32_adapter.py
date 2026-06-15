@@ -16,25 +16,21 @@ PKG_DIR = ROOT / "custom_components" / "joyonway"
 
 protocol = load_module("joyonway.protocol", PKG_DIR / "protocol.py")
 adapters_base = load_module("joyonway.adapters.base", PKG_DIR / "adapters" / "base.py")
-adapters_p25b85 = load_module(
-    "joyonway.adapters.p25b85", PKG_DIR / "adapters" / "p25b85.py"
-)
+adapters_p25 = load_module("joyonway.adapters.p25", PKG_DIR / "adapters" / "p25.py")
 
 adapters_pkg_mod = types.ModuleType("joyonway.adapters")
 adapters_pkg_mod.base = adapters_base
-adapters_pkg_mod.p25b85 = adapters_p25b85
+adapters_pkg_mod.p25 = adapters_p25
 adapters_pkg_mod.SpaEntityDescription = adapters_base.SpaEntityDescription
 sys.modules["joyonway.adapters"] = adapters_pkg_mod
-sys.modules["joyonway.adapters.p25b85"] = adapters_p25b85
+sys.modules["joyonway.adapters.p25"] = adapters_p25
 
-adapters_p23b32 = load_module(
-    "joyonway.adapters.p23b32", PKG_DIR / "adapters" / "p23b32.py"
-)
+adapters_p23 = load_module("joyonway.adapters.p23", PKG_DIR / "adapters" / "p23.py")
 
 unescape_frame = protocol.unescape_frame
 pseudo_unescape = protocol.pseudo_unescape
-P23B32Adapter = adapters_p23b32.P23B32Adapter
-P23B32_SIGNATURE = adapters_p23b32.P23B32_SIGNATURE
+P23B32Adapter = adapters_p23.P23B32Adapter
+P23B32_SIGNATURE = adapters_p23.P23B32_SIGNATURE
 
 
 # Helper to extract payload
@@ -44,22 +40,6 @@ def _frame_payload(frame: bytes, length: int = 16) -> bytes:
 
 
 # Create a mock broadcast frame for P23B32
-# Signature: 1A FF 01 3C D2 B4 FF 08 02
-# IDX_CURRENT_TEMP (9): 0x64 (100°F -> 38°C)
-# IDX_JET_BYTE (12): 0x14 (jets_left ON, jets_right ON)
-# IDX_OZONE_MODE (13): 0x90 (manual ozone, manual heating)
-# IDX_HEATER_STATE (14): 0x5D (HEATER_HEATING active, blower ON)
-# IDX_SETPOINT (16): 0x68 (104°F -> 40°C)
-# IDX_LIGHT_CYCLE (17): 0x81 (light ON, heating cycle active)
-# Heat schedule starts at byte 19:
-# s1 start: 10:00 (10 | 0x40 = 0x4A, 0x00), end: 12:30 (12, 30) -> 4A 00 0C 1E
-# s2 start: 22:15 (22 | 0x40 = 0x56, 15), end: 16:45 (16, 45) -> 56 0F 10 2D
-# Index 28: 0x00 (pad)
-# Filter schedule starts at byte 29:
-# s1 start: 08:00 (8 | 0x40 = 0x48, 0x00), end: 10:00 (10, 00) -> 48 00 0A 00
-# s2 start: 18:00 (18 | 0x40 = 0x52, 0x00), end: 20:00 (20, 00) -> 52 00 14 00
-# DateTime starts at byte 53: 26 06 0A 15 1E 00 (2026-06-10 21:30:00)
-# End byte: 0x1D
 MOCK_P23_RAW = bytes(
     [0x1A, 0xFF, 0x01, 0x3C, 0xD2, 0xB4, 0xFF, 0x08, 0x02, 0x64, 0x00, 0x00]  # 0-11
     + [0x14, 0x90, 0x5D, 0x00, 0x68, 0x81, 0x00]  # 12-18
