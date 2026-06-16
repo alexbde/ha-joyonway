@@ -201,6 +201,7 @@ class P25BaseAdapter:
         JetDescription(id="jets", name="Jets", type=JetType.DUAL),
     ]
     supported_light_colors: list[str] = []
+    has_blower: bool = True
 
     _context_byte: ClassVar[int]
 
@@ -628,6 +629,7 @@ class P25B37Adapter(P25BaseAdapter):
 
     model = "P25B37"
     _context_byte = 0x40
+    has_blower = False
     supported_light_colors = [
         "auto",
         "red",

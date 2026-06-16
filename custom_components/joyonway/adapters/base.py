@@ -55,6 +55,7 @@ class ModelAdapter(Protocol):
     supports_writes: bool
     jets: list[JetDescription]
     supported_light_colors: list[str]
+    has_blower: bool
 
     def parse_status(self, frame: bytes) -> dict | None:
         """Extract state dict from an unescaped broadcast frame.

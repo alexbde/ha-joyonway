@@ -61,6 +61,7 @@ def test_p25b37_adapter_properties(b37_adapter: P25B37Adapter) -> None:
     assert b37_adapter._context_byte == 0x40
     assert b37_adapter.unescape_full_frame is True
     assert b37_adapter.supports_writes is True
+    assert b37_adapter.has_blower is False
 
 
 def test_p25b37_build_light_command(b37_adapter: P25B37Adapter) -> None:
