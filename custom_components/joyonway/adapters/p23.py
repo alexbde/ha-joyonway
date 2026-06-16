@@ -159,6 +159,7 @@ class P23BaseAdapter:
     supports_writes: bool = True
     jets: list[JetDescription]
     supported_light_colors: list[str] = []
+    has_blower: bool = False
 
     _context_byte: ClassVar[int] = 0x04
 
@@ -532,6 +533,7 @@ class P23B32Adapter(P23BaseAdapter):
     broadcast_signature: bytes = P23B32_SIGNATURE
     unescape_full_frame: bool = False
     supports_writes: bool = True
+    has_blower = True
     jets: list[JetDescription] = [
         JetDescription(id="jets_left", name="Jets Left", type=JetType.SINGLE),
         JetDescription(id="jets_right", name="Jets Right", type=JetType.SINGLE),

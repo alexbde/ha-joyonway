@@ -71,6 +71,7 @@ class DummyAdapter:
     """Small adapter stub used by several entities."""
 
     supported_light_colors: list[str] = []
+    has_blower: bool = True
 
     @staticmethod
     def is_heater_enabled(data: dict | None) -> bool | None:

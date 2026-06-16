@@ -101,6 +101,7 @@ def test_adapter_properties(b85_adapter: P25B85Adapter, logical_frame: bytes) ->
     assert b85_adapter.model == "P25B85"
     assert b85_adapter.unescape_full_frame is True
     assert b85_adapter.supports_writes is True
+    assert b85_adapter.has_blower is True
     assert logical_frame[: len(P25_SIGNATURE)] == P25_SIGNATURE
 
 
