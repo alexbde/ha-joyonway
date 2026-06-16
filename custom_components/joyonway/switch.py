@@ -33,7 +33,6 @@ async def async_setup_entry(
 
     entities: list[SwitchEntity] = [
         SpaHeaterSwitch(coordinator, entry),
-        SpaLightSwitch(coordinator, entry),
         SpaOzoneSwitch(coordinator, entry),
         SpaBlowerSwitch(coordinator, entry),
         SpaAutoClockSyncSwitch(coordinator, entry),
@@ -112,87 +111,6 @@ class _SpaTargetStateSwitch(JoyonwayCoordinatorEntity, SwitchEntity):
         self._pending_state = None
         self._cancel_pending_timeout()
         self.async_write_ha_state()
-
-
-class SpaLightSwitch(_SpaTargetStateSwitch):
-    """Switch entity for spa light (light ON/OFF command).
-
-    Uses command-lock guard: double-clicks are ignored while a command is in-flight.
-    """
-
-    _attr_has_entity_name = True
-    _attr_translation_key = "light"
-    _attr_icon = "mdi:lightbulb"
-
-    def __init__(
-        self,
-        coordinator: JoyonwayCoordinator,
-        entry: JoyonwayConfigEntry,
-    ) -> None:
-        """Initialize the light switch."""
-        super().__init__(coordinator)
-        self._attr_unique_id = f"{entry.entry_id}_light_switch"
-        self._attr_device_info = device_info(entry)
-        self._cmd_lock = asyncio.Lock()
-
-    def _broadcast_confirms_pending(self) -> bool:
-        if self.coordinator.data is None:
-            return False
-        return self.coordinator.data.get("light") == self._pending_state
-
-    @property
-    def is_on(self) -> bool | None:
-        """Return True if the light is on."""
-        if self._pending_state is not None:
-            return self._pending_state
-        if self.coordinator.data is None:
-            return None
-        return self.coordinator.data.get("light")
-
-    async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn the light on (send light ON command)."""
-        if self._cmd_lock.locked():
-            return  # command already in-flight
-        state = self.is_on
-        if state is None:
-            raise HomeAssistantError(
-                "Light state is unknown; retry after the next broadcast"
-            )
-        if not state:
-            await self._send_light_intent(target=True)
-
-    async def async_turn_off(self, **kwargs: Any) -> None:
-        """Turn the light off (send light OFF command)."""
-        if self._cmd_lock.locked():
-            return  # command already in-flight
-        state = self.is_on
-        if state is None:
-            raise HomeAssistantError(
-                "Light state is unknown; retry after the next broadcast"
-            )
-        if state:
-            await self._send_light_intent(target=False)
-
-    async def _send_light_intent(self, target: bool) -> None:
-        """Send the light command intent via intent queue."""
-        async with self._cmd_lock:
-            coordinator: JoyonwayCoordinator = self.coordinator
-            self._set_pending_state(target)
-
-            def _build_light(overrides: dict, data: dict | None) -> bytes | None:
-                # Intent coalescing: if the current state already matches the target,
-                # then this light command intent is a no-op.
-                if data is not None and data.get("light") == overrides.get("light"):
-                    return None
-                return coordinator.adapter.build_light_command(on=target)
-
-            _LOGGER.debug("Light: submitting light intent (target=%s)", target)
-            coordinator.intent_queue.submit(
-                group="light",
-                overrides={"light": target},
-                build_fn=_build_light,
-                on_failure=self._clear_pending_on_failure,
-            )
 
 
 class SpaHeaterSwitch(_SpaTargetStateSwitch):

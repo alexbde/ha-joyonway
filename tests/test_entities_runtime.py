@@ -47,12 +47,12 @@ from custom_components.joyonway.switch import (
     SpaAutoClockSyncSwitch,
     SpaBlowerSwitch,
     SpaHeaterSwitch,
-    SpaLightSwitch,
     SpaManualHeaterSwitch,
     SpaManualOzoneSwitch,
     SpaOzoneSwitch,
     SpaScheduleSlotSwitch,
 )
+from custom_components.joyonway.light import JoyonwayLight
 from custom_components.joyonway.time import SpaScheduleTime
 
 # Build real command frames for assertion
@@ -69,6 +69,8 @@ CMD_JETS_OFF = _adapter.build_jets_command("jets", "off")
 
 class DummyAdapter:
     """Small adapter stub used by several entities."""
+
+    supported_light_colors: list[str] = []
 
     @staticmethod
     def is_heater_enabled(data: dict | None) -> bool | None:
@@ -193,18 +195,18 @@ def test_binary_sensor_and_connectivity_sensor(entry: SimpleNamespace) -> None:
 
 
 @pytest.mark.asyncio
-async def test_light_switch_unknown_state_raises(entry: SimpleNamespace) -> None:
+async def test_light_unknown_state_raises(entry: SimpleNamespace) -> None:
     coordinator = DummyCoordinator(data={})
-    entity = SpaLightSwitch(coordinator, entry)
+    entity = JoyonwayLight(coordinator, entry)
 
     with pytest.raises(HomeAssistantError):
         await entity.async_turn_on()
 
 
 @pytest.mark.asyncio
-async def test_light_switch_sends_toggle(entry: SimpleNamespace) -> None:
+async def test_light_sends_toggle(entry: SimpleNamespace) -> None:
     coordinator = DummyCoordinator(data={"light": False})
-    entity = SpaLightSwitch(coordinator, entry)
+    entity = JoyonwayLight(coordinator, entry)
     entity.hass = DummyHass()
     entity.async_write_ha_state = lambda: None
 
@@ -392,7 +394,7 @@ async def test_climate_debounced_set_temperature_sends_command(
 async def test_light_double_click_blocked(entry: SimpleNamespace) -> None:
     """Light toggle-lock guard: second click is ignored while in-flight."""
     coordinator = DummyCoordinator(data={"light": False})
-    entity = SpaLightSwitch(coordinator, entry)
+    entity = JoyonwayLight(coordinator, entry)
     entity.hass = DummyHass()
     entity.async_write_ha_state = lambda: None
 

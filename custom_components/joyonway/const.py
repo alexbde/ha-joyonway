@@ -50,4 +50,5 @@ PLATFORMS: list[Platform] = [
     Platform.FAN,
     Platform.CLIMATE,
     Platform.TIME,
+    Platform.LIGHT,
 ]

@@ -125,9 +125,6 @@
       }
     },
     "switch": {
-      "light": {
-        "name": "Licht"
-      },
       "heater": {
         "name": "Heizung"
       },
@@ -188,6 +185,26 @@
     "climate": {
       "thermostat": {
         "name": "Thermostat"
+      }
+    },
+    "light": {
+      "light": {
+        "name": "Licht",
+        "state_attributes": {
+          "effect": {
+            "name": "Effekt",
+            "state": {
+              "auto": "Automatisch",
+              "red": "Rot",
+              "green": "Grün",
+              "yellow": "Gelb",
+              "blue": "Blau",
+              "purple": "Lila",
+              "cyan": "Cyan",
+              "white": "Weiß"
+            }
+          }
+        }
       }
     }
   },

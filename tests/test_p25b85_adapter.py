@@ -362,10 +362,26 @@ def _frame_payload(frame: bytes) -> bytes:
 
 
 def test_build_light(b85_adapter: P25B85Adapter) -> None:
-    frame = b85_adapter.build_light_command(on=True)
-    p = _frame_payload(frame)
-    assert p[9] == 0x40
-    assert p[10] == 0x40
+    # ON command -> context=0x40, tail_byte=0x81
+    frame_on = b85_adapter.build_light_command(on=True)
+    p_on = _frame_payload(frame_on)
+    assert p_on[9] == 0x40  # btn_group
+    assert p_on[10] == 0x40  # btn_action
+    assert p_on[12] == 0x40  # context is 0x40 for light commands
+    assert p_on[15] == 0x81  # tail_byte for ON (Auto)
+
+    # OFF command -> context=0x40, tail_byte=0x80
+    frame_off = b85_adapter.build_light_command(on=False)
+    p_off = _frame_payload(frame_off)
+    assert p_off[9] == 0x40
+    assert p_off[10] == 0x40
+    assert p_off[12] == 0x40
+    assert p_off[15] == 0x80  # tail_byte for OFF
+
+    # Verify colors not supported
+    assert b85_adapter.supported_light_colors == []
+    with pytest.raises(ValueError):
+        b85_adapter.build_light_command(on=True, color="red")
 
 
 def test_build_jets_commands(b85_adapter: P25B85Adapter) -> None:

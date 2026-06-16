@@ -98,7 +98,6 @@
       "jets_right": { "name": "Jets Right" }
     },
     "switch": {
-      "light": { "name": "Light" },
       "heater": { "name": "Heating" },
       "ozone": { "name": "Ozone" },
       "blower": { "name": "Blower" },
@@ -122,6 +121,26 @@
     },
     "climate": {
       "thermostat": { "name": "Thermostat" }
+    },
+    "light": {
+      "light": {
+        "name": "Light",
+        "state_attributes": {
+          "effect": {
+            "name": "Effect",
+            "state": {
+              "auto": "Auto",
+              "red": "Red",
+              "green": "Green",
+              "yellow": "Yellow",
+              "blue": "Blue",
+              "purple": "Purple",
+              "cyan": "Cyan",
+              "white": "White"
+            }
+          }
+        }
+      }
     }
   },
   "exceptions": {

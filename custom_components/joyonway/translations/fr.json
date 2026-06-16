@@ -98,7 +98,6 @@
       "jets_right": { "name": "Jets droit" }
     },
     "switch": {
-      "light": { "name": "Lumière" },
       "heater": { "name": "Chauffage" },
       "ozone": { "name": "Ozone" },
       "blower": { "name": "Souffleur d'air" },
@@ -122,6 +121,26 @@
     },
     "climate": {
       "thermostat": { "name": "Thermostat" }
+    },
+    "light": {
+      "light": {
+        "name": "Lumière",
+        "state_attributes": {
+          "effect": {
+            "name": "Effet",
+            "state": {
+              "auto": "Automatique",
+              "red": "Rouge",
+              "green": "Vert",
+              "yellow": "Jaune",
+              "blue": "Bleu",
+              "purple": "Violet",
+              "cyan": "Cyan",
+              "white": "Blanc"
+            }
+          }
+        }
+      }
     }
   },
   "exceptions": {

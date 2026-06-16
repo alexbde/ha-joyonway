@@ -44,7 +44,7 @@ New controller models are supported by adding an adapter under `custom_component
 2. Implement the `ModelAdapter` interface from `adapters/base.py`:
    - `parse_status(frame: bytes) -> dict | None` — extract state dict from broadcast frame
    - `entity_descriptions() -> list[SpaEntityDescription]` — define exposed entities
-   - `build_light_command(on: bool) -> bytes` and other `build_*_command()` methods — construct command frames
+   - `build_light_command(on: bool, color: str | None = None) -> bytes` and other `build_*_command()` methods — construct command frames
    - `jets: list[JetDescription]` — declare jet/pump configurations with `JetType` enum
 3. Register the adapter in `adapters/__init__.py`'s `get_adapter()` factory.
 4. Add entity translations for each new entity key to all locale files in `translations/`.
