@@ -54,6 +54,7 @@ class ModelAdapter(Protocol):
     unescape_full_frame: bool
     supports_writes: bool
     jets: list[JetDescription]
+    supported_light_colors: list[str]
 
     def parse_status(self, frame: bytes) -> dict | None:
         """Extract state dict from an unescaped broadcast frame.
@@ -74,13 +75,11 @@ class ModelAdapter(Protocol):
         """Return current jets state as 'off', 'low', or 'high'."""
         ...
 
-    def build_light_command(self, on: bool) -> bytes:
+    def build_light_command(self, on: bool, color: str | None = None) -> bytes:
         """Build a light ON or OFF command.
 
-        For toggle-only controllers (P25B85), this builds a toggle frame
-        regardless of the `on` value — the entity layer handles no-op detection.
-        For discrete-command controllers (P23B32), this builds the appropriate
-        ON or OFF frame.
+        For controllers supporting discrete color presets, this builds the
+        command corresponding to the requested color name.
         """
         ...
 

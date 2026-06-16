@@ -85,6 +85,20 @@ MASK_JET_HIGH = 0x04
 # Light
 MASK_LIGHT = 0x0F  # ✅ lower 4 bits of byte 17 represent the light color/mode index (1-8 = ON, 0 = OFF)
 
+LIGHT_COLOR_INDEX_TO_NAME: dict[int, str] = {
+    1: "auto",
+    2: "red",
+    3: "green",
+    4: "yellow",
+    5: "blue",
+    6: "purple",
+    7: "cyan",
+    8: "white",
+}
+LIGHT_COLOR_NAME_TO_INDEX: dict[str, int] = {
+    v: k for k, v in LIGHT_COLOR_INDEX_TO_NAME.items()
+}
+
 # Heating cycle active flag at byte 17 (bit 7).
 MASK_HEATING_CYCLE = 0x80
 
@@ -186,6 +200,7 @@ class P25BaseAdapter:
     jets: list[JetDescription] = [
         JetDescription(id="jets", name="Jets", type=JetType.DUAL),
     ]
+    supported_light_colors: list[str] = []
 
     _context_byte: ClassVar[int]
 
@@ -232,6 +247,7 @@ class P25BaseAdapter:
             "jet_high": bool(jet_byte & MASK_JET_HIGH),
             "jets": jets,
             "light": bool(light_byte & MASK_LIGHT),
+            "light_color_index": light_byte & MASK_LIGHT,
             "heater_active": heater_base in (HEATER_HEATING, HEATER_HEATING_ALT),
             "heater_enabled": bool(heater_byte & 0x10),
             "status": status,
@@ -383,9 +399,23 @@ class P25BaseAdapter:
         )
         return build_frame(bytes(payload))
 
-    def build_light_command(self, on: bool) -> bytes:
+    def build_light_command(self, on: bool, color: str | None = None) -> bytes:
         """Build a light command."""
-        raise NotImplementedError
+        if not on:
+            tail = 0x80
+        elif color is not None:
+            if color not in self.supported_light_colors:
+                raise ValueError(f"Unsupported light color: {color}")
+            tail = 0x80 + LIGHT_COLOR_NAME_TO_INDEX[color]
+        else:
+            tail = 0x81  # Default to auto-cycle ON
+
+        return self._build_button_command(
+            btn_group=0x40,
+            btn_action=0x40,
+            context=0x40,  # Light color commands on P25 use context 0x40
+            tail_byte=tail,
+        )
 
     def build_jets_command(self, jet_id: str, target: str) -> bytes | None:
         """Build a jets command for the desired target state."""
@@ -592,24 +622,22 @@ class P25B85Adapter(P25BaseAdapter):
     model = "P25B85"
     _context_byte = 0xC0
 
-    def build_light_command(self, on: bool) -> bytes:
-        """P25B85 uses a toggle command; `on` is ignored."""
-        return self._build_button_command(btn_group=0x40, btn_action=0x40)
-
 
 class P25B37Adapter(P25BaseAdapter):
     """Adapter for the Joyonway P25B37 controller."""
 
     model = "P25B37"
     _context_byte = 0x40
-
-    def build_light_command(self, on: bool) -> bytes:
-        """P25B37 uses discrete ON/OFF via payload byte 15."""
-        return self._build_button_command(
-            btn_group=0x40,
-            btn_action=0x40,
-            tail_byte=0x81 if on else 0x80,
-        )
+    supported_light_colors = [
+        "auto",
+        "red",
+        "green",
+        "yellow",
+        "blue",
+        "purple",
+        "cyan",
+        "white",
+    ]
 
 
 _P25_ENTITIES: list[SpaEntityDescription] = [

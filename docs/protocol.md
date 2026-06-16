@@ -127,7 +127,7 @@ Command frames are constructed with a payload (typically 16 or 17 bytes; 8 bytes
 
 | Command Function | P25 family Payload Layout | P23B32 / P20B29 Payload Layout | Status & Notes |
 | :--- | :--- | :--- | :--- |
-| **Light Control** | **Toggle Command (P25B85):**<br>`01 20 10 3C A1 10 A1 00 00 40 40 00 C0 00 [setpoint] 00` [✅]<br><br>**Discrete ON/OFF (P25B37):**<br>• ON: `01 20 10 3C A1 10 A1 00 00 40 40 00 40 00 00 81` [✅]<br>• OFF: `01 20 10 3C A1 10 A1 00 00 40 40 00 40 00 00 80` [✅] | **Discrete ON/OFF (17-byte):**<br>• ON: `01 30 10 3C A1 00 A1 00 00 00 40 40 02 04 00 00 81` [✅]<br>• OFF: `01 30 10 3C A1 00 A1 00 00 00 40 40 02 04 00 00 80` [✅] | P25B85 sends toggle; discrete commands are NOT supported by P25B85 (verified via physical test). P25B37 sends discrete commands. |
+| **Light Control** | **Discrete ON/OFF (P25 family):**<br>• ON: `01 20 10 3C A1 10 A1 00 00 40 40 00 40 00 00 81` [✅]<br>• OFF: `01 20 10 3C A1 10 A1 00 00 40 40 00 40 00 00 80` [✅]<br>• Colors (P25B37 only): `01 20 10 3C A1 10 A1 00 00 40 40 00 40 00 00 [0x80+idx]` [✅]<br><br>**Toggle Command (P25B85 Legacy):**<br>`01 20 10 3C A1 10 A1 00 00 40 40 00 C0 00 [setpoint] 00` [✅] | **Discrete ON/OFF (17-byte):**<br>• ON: `01 30 10 3C A1 00 A1 00 00 00 40 40 02 04 00 00 81` [✅]<br>• OFF: `01 30 10 3C A1 00 A1 00 00 00 40 40 02 04 00 00 80` [✅] | Both P25B85 and P25B37 support discrete ON/OFF (which the integration uses). P25B85 also supports/sends a legacy toggle command with context `0xC0`. Colors are supported on P25B37 only. |
 | **Pump/Jets 1** | **Cycle (OFF → LOW → HIGH):**<br>• LOW: `... 02 02 00 00 00 [context] ...` [✅]<br>• HIGH: `... 06 04 00 00 00 [context] ...` [✅]<br>• OFF: `... 04 00 00 00 00 [context] ...` [✅] | **Left Pump ON/OFF (16-byte):**<br>• ON: `01 30 10 3C A1 00 A1 06 04 00 00 02 04 00 00 00` [✅]<br>• OFF: `01 30 10 3C A1 00 A1 06 00 00 00 02 04 00 00 00` [✅] | P25 family uses cycle transitions; P23 has independent pump controls. Context: `0xC0` for P25B85, `0x40` for P25B37. |
 | **Pump/Jets 2** | N/A | **Right Pump ON/OFF (16-byte):**<br>• ON: `01 30 10 3C A1 00 A1 18 10 00 00 02 04 00 00 00` [✅]<br>• OFF: `01 30 10 3C A1 00 A1 18 00 00 00 02 04 00 00 00` [✅] | P23 specific second pump command. |
 | **Blower Control** | **Discrete ON/OFF (16-byte):**<br>• ON: `... A1 10 A1 00 00 04 0C 00 [context] 00 [setpoint] 00` [✅]<br>• OFF: `... A1 10 A1 00 00 04 00 00 [context] 00 [setpoint] 00` [✅] | **Discrete ON/OFF (16-byte):**<br>• ON: `01 30 10 3C A1 00 A1 00 00 04 04 02 04 00 00 00` [✅]<br>• OFF: `01 30 10 3C A1 00 A1 00 00 04 00 02 04 00 00 00` [✅] | Blower commands. Context: `0xC0` for P25B85, `0x40` for P25B37. |
@@ -155,11 +155,7 @@ This section summarizes how the CRC parameters were derived and confirmed:
 
 ## 7. Behavioral Notes
 
-*   **Light command behavior differs by model:** The P25B85 panel sends the same toggle frame
-    regardless of ON or OFF intent — the integration's entity layer handles no-op detection by
-    tracking the current state. The P25B37, P23B32, and P20B29 controllers use distinct discrete
-    ON and OFF command frames (for P25B37 payload byte 15: `0x81` = ON, `0x80` = OFF; for P23/P20 payload
-    byte 16: `0x81` = ON, `0x80` = OFF). The adapter's `build_light_command(on: bool)` method abstracts this.
+*   **Light commands are discrete:** Both P25 and P23/P20 controllers support discrete ON and OFF command frames. For P25 models, payload byte 15 acts as the light command byte (`0x80` = OFF, `0x81` = ON/Auto, `0x82`-`0x88` for colors, with context `0x40`). For P23/P20, payload byte 16 acts as the command byte (`0x80` = OFF, `0x81` = ON). The adapter's `build_light_command(on: bool, color: str | None = None)` method abstracts this. Note that P25B85 also supports/sends a legacy toggle-style command via context `0xC0` with `0x00` as the tail/action byte.
 *   **Command context bytes vary by P25 model variant:** Command frames sent to P25 controllers contain
     a context byte at index 12. P25B85 uses `0xC0`, whereas P25B37 uses `0x40`. Specifying the incorrect
     context byte for a model variant will result in commands being ignored by the controller.

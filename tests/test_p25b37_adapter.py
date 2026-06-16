@@ -80,6 +80,18 @@ def test_p25b37_build_light_command(b37_adapter: P25B37Adapter) -> None:
     assert p_off[12] == 0x40
     assert p_off[15] == 0x80  # tail_byte for OFF
 
+    # Color command -> tail_byte = 0x83 (green)
+    frame_color = b37_adapter.build_light_command(on=True, color="green")
+    p_color = _frame_payload(frame_color)
+    assert p_color[9] == 0x40
+    assert p_color[10] == 0x40
+    assert p_color[12] == 0x40
+    assert p_color[15] == 0x83
+
+    # Test invalid color raises
+    with pytest.raises(ValueError):
+        b37_adapter.build_light_command(on=True, color="invalid_color")
+
 
 def test_p25b37_build_jets_command(b37_adapter: P25B37Adapter) -> None:
     frame = b37_adapter.build_jets_command("jets", "low")

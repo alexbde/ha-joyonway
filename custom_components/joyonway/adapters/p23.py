@@ -158,6 +158,7 @@ class P23BaseAdapter:
     unescape_full_frame: bool = False
     supports_writes: bool = True
     jets: list[JetDescription]
+    supported_light_colors: list[str] = []
 
     _context_byte: ClassVar[int] = 0x04
 
@@ -342,7 +343,7 @@ class P23BaseAdapter:
 
         return build_frame(bytes(payload))
 
-    def build_light_command(self, on: bool) -> bytes:
+    def build_light_command(self, on: bool, color: str | None = None) -> bytes:
         raise NotImplementedError
 
     def build_jets_command(self, jet_id: str, target: str) -> bytes | None:
@@ -538,7 +539,7 @@ class P23B32Adapter(P23BaseAdapter):
 
     _context_byte = 0x04
 
-    def build_light_command(self, on: bool) -> bytes:
+    def build_light_command(self, on: bool, color: str | None = None) -> bytes:
         """Build a discrete light ON or OFF command for P23B32."""
         return self._build_button_command(
             btn_group=0x00,
