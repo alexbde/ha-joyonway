@@ -8,7 +8,6 @@ from typing import Any
 
 from homeassistant.components.light import (
     ATTR_EFFECT,
-    ATTR_HS_COLOR,
     ColorMode,
     LightEntity,
     LightEntityFeature,
@@ -22,42 +21,6 @@ from .coordinator import JoyonwayCoordinator, JoyonwayConfigEntry
 from .entity import JoyonwayCoordinatorEntity, device_info
 
 _LOGGER = logging.getLogger(__name__)
-
-# Preset colors and their approximate HS values
-LIGHT_COLOR_MAP: dict[str, tuple[float, float]] = {
-    "red": (0.0, 100.0),
-    "yellow": (60.0, 100.0),
-    "green": (120.0, 100.0),
-    "cyan": (180.0, 100.0),
-    "blue": (240.0, 100.0),
-    "purple": (300.0, 100.0),
-    "white": (0.0, 0.0),
-}
-
-
-def map_hs_to_preset(hs_color: tuple[float, float]) -> str:
-    """Map arbitrary HS color from color picker to closest preset."""
-    hue, sat = hs_color
-    if sat < 15.0:
-        return "white"
-
-    presets = {
-        "red": 0.0,
-        "yellow": 60.0,
-        "green": 120.0,
-        "cyan": 180.0,
-        "blue": 240.0,
-        "purple": 300.0,
-    }
-    best_color = "red"
-    min_diff = 360.0
-    for name, angle in presets.items():
-        diff = abs(hue - angle)
-        diff = min(diff, 360.0 - diff)
-        if diff < min_diff:
-            min_diff = diff
-            best_color = name
-    return best_color
 
 
 async def async_setup_entry(
@@ -94,11 +57,10 @@ class JoyonwayLight(JoyonwayCoordinatorEntity, LightEntity):
 
         # Determine features based on adapter support
         self._supported_colors = coordinator.adapter.supported_light_colors
+        self._attr_supported_color_modes = {ColorMode.ONOFF}
         if self._supported_colors:
-            self._attr_supported_color_modes = {ColorMode.HS}
             self._attr_supported_features = LightEntityFeature.EFFECT
         else:
-            self._attr_supported_color_modes = {ColorMode.ONOFF}
             self._attr_supported_features = LightEntityFeature(0)
 
     @callback
@@ -186,20 +148,7 @@ class JoyonwayLight(JoyonwayCoordinatorEntity, LightEntity):
     @property
     def color_mode(self) -> ColorMode | None:
         """Return the color mode of the light."""
-        if self._supported_colors:
-            return ColorMode.HS
         return ColorMode.ONOFF
-
-    @property
-    def hs_color(self) -> tuple[float, float] | None:
-        """Return the hs color value."""
-        if not self._supported_colors:
-            return None
-
-        effect = self.effect
-        if effect in LIGHT_COLOR_MAP:
-            return LIGHT_COLOR_MAP[effect]
-        return None
 
     @property
     def effect_list(self) -> list[str] | None:
@@ -245,8 +194,6 @@ class JoyonwayLight(JoyonwayCoordinatorEntity, LightEntity):
             target_effect = kwargs[ATTR_EFFECT]
             if target_effect not in self._supported_colors:
                 raise HomeAssistantError(f"Unsupported effect: {target_effect}")
-        elif ATTR_HS_COLOR in kwargs:
-            target_effect = map_hs_to_preset(kwargs[ATTR_HS_COLOR])
 
         async with self._cmd_lock:
             coordinator = self.coordinator
