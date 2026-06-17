@@ -79,3 +79,52 @@ The following command frames (complete with CRC-32 and framing delimiters) have 
   `1a 01 30 10 3c a1 00 a1 00 00 80 80 02 04 00 32 00 34 22 13 8e 1d`
   * *Unescaped Payload:* `01 30 10 3c a1 00 a1 00 00 80 80 02 04 00 32 00` (temp byte `0x32` = 50)
   * *CRC-32:* `34 22 13 8e`
+
+### 3.5. Light & Color Control
+Unlike the basic P23B32 model which uses simple toggle bits, the P20B29 supports discrete color commands and automatic cycle modes via index suffix bytes (like the P25B37).
+* **Light ON / Auto Mode:**
+  `1a 01 30 10 3c a1 00 a1 00 00 40 40 02 04 00 00 81 ed ba a0 1b 14 1d`
+  * *Unescaped Payload:* `01 30 10 3c a1 00 a1 00 00 40 40 02 04 00 00 81` (action byte `0x81` = auto-cycle)
+  * *CRC-32:* `ed ba a0 1d` (wire representation escapes the final `0x1D` as `1b 14`)
+* **Light OFF:**
+  `1a 01 30 10 3c a1 00 a1 00 00 40 40 02 04 00 00 80 5a 20 cd c1 1d`
+  * *Unescaped Payload:* `01 30 10 3c a1 00 a1 00 00 40 40 02 04 00 00 80` (action byte `0x80` = OFF)
+  * *CRC-32:* `5a 20 cd c1`
+* **Color Preset (White):**
+  `1a 01 30 10 3c a1 00 a1 00 00 40 40 02 04 00 00 87 31 de 4f dd 1d`
+  * *Unescaped Payload:* `01 30 10 3c a1 00 a1 00 00 40 40 02 04 00 00 87` (action byte `0x87` = index 7, White)
+  * *CRC-32:* `31 de 4f dd`
+
+### 3.6. Ozone (Filtration) Pump Control
+* **Ozone (Filtration) ON:**
+  `1a 01 30 10 3c a1 00 a1 80 80 00 00 02 04 00 00 00 79 54 80 d8 1d`
+  * *Unescaped Payload:* `01 30 10 3c a1 00 a1 80 80 00 00 02 04 00 00 00`
+  * *CRC-32:* `79 54 80 d8`
+* **Ozone (Filtration) OFF:**
+  `1a 01 30 10 3c a1 00 a1 80 00 00 00 02 04 00 00 00 c5 52 14 d5 1d`
+  * *Unescaped Payload:* `01 30 10 3c a1 00 a1 80 00 00 00 02 04 00 00 00`
+  * *CRC-32:* `c5 52 14 d5`
+
+## 4. Logical Broadcast State Registers
+The unescaped broadcast frame (prefix `1A FF 01 3C D2 B4 FF 08 01`) maps directly to the following state registers:
+* **Byte 9**: Water Temperature in °F (standard integer).
+* **Byte 12**: Jets Status:
+  * Bit `0x04`: Left Pump ON.
+  * Bit `0x10`: Right Pump ON.
+* **Byte 14**: Heater & Blower Status:
+  * Bit `0x08`: Blower Relay ON.
+  * Bit `0x04`: Heater Relay active.
+  * Bit `0x01`: Ozone Relay active.
+* **Byte 16**: Setpoint Temperature in °F (standard integer).
+* **Byte 17**: Light & Circulation Pump Status:
+  * Bit `0x80`: Circulation pump ON.
+  * Bits `0x0F` (lower 4 bits): Light state and color preset index:
+    * `0x00`: OFF
+    * `0x01`: auto
+    * `0x02`: red
+    * `0x03`: green
+    * `0x04`: yellow
+    * `0x05`: blue
+    * `0x06`: purple
+    * `0x07`: cyan
+    * `0x08`: white
