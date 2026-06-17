@@ -9,14 +9,12 @@ from types import SimpleNamespace
 
 from homeassistant.components.light import (
     ATTR_EFFECT,
-    ATTR_HS_COLOR,
     ColorMode,
 )
 from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.joyonway.light import (
     JoyonwayLight,
-    map_hs_to_preset,
 )
 from custom_components.joyonway.adapters.p25 import P25B37Adapter, P25B85Adapter
 
@@ -62,20 +60,6 @@ def entry() -> SimpleNamespace:
     )
 
 
-def test_map_hs_to_preset() -> None:
-    # Test Saturation < 15
-    assert map_hs_to_preset((100, 10)) == "white"
-
-    # Test hue presets
-    assert map_hs_to_preset((5, 100)) == "red"
-    assert map_hs_to_preset((355, 100)) == "red"
-    assert map_hs_to_preset((55, 100)) == "yellow"
-    assert map_hs_to_preset((115, 100)) == "green"
-    assert map_hs_to_preset((175, 100)) == "cyan"
-    assert map_hs_to_preset((245, 100)) == "blue"
-    assert map_hs_to_preset((295, 100)) == "purple"
-
-
 @pytest.mark.asyncio
 async def test_light_on_off_only_properties(entry) -> None:
     adapter = P25B85Adapter()  # Doesn't support colors
@@ -100,8 +84,8 @@ async def test_light_color_properties(entry) -> None:
 
     entity = JoyonwayLight(coordinator, entry)
 
-    assert entity.color_mode == ColorMode.HS
-    assert entity.supported_color_modes == {ColorMode.HS}
+    assert entity.color_mode == ColorMode.ONOFF
+    assert entity.supported_color_modes == {ColorMode.ONOFF}
     assert entity.effect_list == [
         "auto",
         "red",
@@ -113,7 +97,6 @@ async def test_light_color_properties(entry) -> None:
         "white",
     ]
     assert entity.effect == "red"
-    assert entity.hs_color == (0.0, 100.0)
     assert entity.is_on is True
 
 
@@ -154,27 +137,6 @@ async def test_light_turn_on_effect(entry) -> None:
     coordinator.async_send_command.assert_awaited_once_with(expected_frame)
     assert entity._pending_state is True
     assert entity._pending_color_index == 3
-    entity._cancel_pending_timeout()
-
-
-@pytest.mark.asyncio
-async def test_light_turn_on_hs_color(entry) -> None:
-    adapter = P25B37Adapter()
-    coordinator = DummyCoordinator(data={"light": False}, adapter=adapter)
-
-    entity = JoyonwayLight(coordinator, entry)
-    entity.hass = DummyHass()
-    entity.async_write_ha_state = lambda: None
-
-    # Blue is 240
-    await entity.async_turn_on(**{ATTR_HS_COLOR: (242.0, 100.0)})
-    await asyncio.sleep(0)
-
-    # Should map to blue (index 5)
-    expected_frame = adapter.build_light_command(on=True, color="blue")
-    coordinator.async_send_command.assert_awaited_once_with(expected_frame)
-    assert entity._pending_state is True
-    assert entity._pending_color_index == 5
     entity._cancel_pending_timeout()
 
 
