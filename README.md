@@ -19,7 +19,7 @@
 
 This integration brings **local monitoring and control** of **Joyonway** spa controllers into Home Assistant. Communication is purely local via RS485, bridged to your home network through any standard RS485-to-IP Ethernet or WiFi bridge (operating in TCP server mode). No cloud connection, no internet required.
 
-The integration is built with a **modular adapter pattern**, allowing community members to extend support for different controller models (like the P25B85, P25B37, P23B32, P20B29, and others) by defining their specific byte maps and command frame formats.
+The integration is built with a **modular adapter pattern**, allowing community members to extend support for different controller models (like the P20B29, P23B32, P25B37, P25B85, and others) by defining their specific byte maps and command frame formats.
 
 > **Discussion thread:** [JoyOnWay Spa Control — Home Assistant Community](https://community.home-assistant.io/t/joyonway-spa-control/582344)
 
@@ -33,10 +33,10 @@ Based on community reverse-engineering efforts and sibling codebases, we have ma
 
 | Controller Model | Touchpad Panel | UART Config | Support Status | Integration Difficulty & Assessment |
 |---|---|---|---|---|
-| **Joyonway P25B85** | PB554 (Colour) | 38400 8N1 | ✅ Supported | **Verified Reference Case:** 100% of read and write commands (pumps, blower, light, heater, setpoint, ozone, datetime schedules) are fully implemented and tested. |
-| **Joyonway P25B37** | PB554 (Colour) | 38400 8N1 | ✅ Supported | **Supported:** Shares the P25 family broadcast layout, but utilizes discrete light controls and a variant command context byte. 80 % implemented and tested. |
-| **Joyonway P23B32** | PB554 (Colour) | 38400 8N1 | ✅ Supported | **Supported:** P23 family adapter. All read and write commands (independent single-speed pumps, blower, light, heater, setpoint, ozone, datetime schedules) are fully implemented. *Note: Verified via unit tests. Any community live testing is highly appreciated!* |
 | **Joyonway P20B29** | PB555 (Segment) | 38400 8N1 | ✅ Supported | **Supported:** P20 family adapter. All read and write commands (independent single-speed pumps, blower, light with colors, ozone toggle, heater, setpoint, datetime schedules) are fully implemented. Manual mode switches (Manual Ozone / Manual Heating) are disabled due to an unresolved byte 13 encoding anomaly — Ozone and Heater switches are always available instead. *Note: Verified via unit tests. Any community live testing is highly appreciated!* |
+| **Joyonway P23B32** | PB554 (Colour) | 38400 8N1 | ✅ Supported | **Supported:** P23 family adapter. All read and write commands (independent single-speed pumps, blower, light, heater, setpoint, ozone, datetime schedules) are fully implemented. *Note: Verified via unit tests. Any community live testing is highly appreciated!* |
+| **Joyonway P25B37** | PB554 (Colour) | 38400 8N1 | ✅ Supported | **Supported:** Shares the P25 family broadcast layout, but utilizes discrete light controls and a variant command context byte. 80 % implemented and tested. |
+| **Joyonway P25B85** | PB554 (Colour) | 38400 8N1 | ✅ Supported | **Verified Reference Case:** 100% of read and write commands (pumps, blower, light, heater, setpoint, ozone, datetime schedules) are fully implemented and tested. |
 | **Joyonway P69B133** | PB562/PB563/PB565 | 38400 8N1 | ⏳ High Effort | **High Effort:** Advanced high-performance controller supporting up to four pumps. Uses a completely distinct framing structure, packet layout, timing boundaries, and command builder. |
 
 ### Verified Reference Configuration
@@ -48,7 +48,7 @@ For a detailed, step-by-step guide on how to wire the RS485 bridge and configure
 - **Current temperature** monitoring (°C)
 - **Setpoint temperature** monitoring (°C)
 - **Thermostat control** (10°C to 40°C) with fast debounced slider writes, supporting HVAC modes (`HEAT`/`OFF`) to enable/disable the heater directly
-- **Jets/pumps control** — supports speed percentage control (0% / 50% / 100%) for dual-speed pumps (e.g. P25B85) or standard ON/OFF controls for models with independent single-speed pumps (e.g. P23B32, P20B29)
+- **Jets/pumps control** — supports speed percentage control (0% / 50% / 100%) for dual-speed pumps (e.g. P25B85) or standard ON/OFF controls for models with independent single-speed pumps (e.g. P20B29, P23B32)
 - **Manual ozone** switch (CONFIG category) to toggle between Auto and Manual ozone mode, unlocking the **Ozone** ON/OFF switch
 - **Manual heating** switch (CONFIG category) to toggle between Auto and Manual heating mode, unlocking the **Heating** ON/OFF switch
 - **Light** on/off control

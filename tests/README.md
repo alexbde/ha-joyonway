@@ -4,7 +4,10 @@ This repository now uses `pytest` as the default test runner.
 
 ## Test tiers
 
-- `tests/test_p25b85_adapter.py`: protocol + adapter unit tests that run without Home Assistant runtime.
+- `tests/test_p20b29_adapter.py`: P20B29 model adapter unit tests that run without Home Assistant runtime.
+- `tests/test_p23b32_adapter.py`: P23B32 model adapter unit tests that run without Home Assistant runtime.
+- `tests/test_p25b37_adapter.py`: P25B37 model adapter unit tests that run without Home Assistant runtime.
+- `tests/test_p25b85_adapter.py`: protocol + reference P25B85 adapter unit tests that run without Home Assistant runtime.
 - `tests/test_frame_protocol.py`: frame parser regression tests for analysis tooling.
 - `tests/test_fan_entity_runtime.py`: optional HA-runtime regression checks for fan features and power actions.
 - `tests/test_entities_runtime.py`: optional HA-runtime tests for sensor, binary sensor, switch, fan, and climate entity logic.

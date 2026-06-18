@@ -40,7 +40,7 @@ We use [Ruff](https://docs.astral.sh/ruff/) for linting and formatting:
 
 New controller models are supported by adding an adapter under `custom_components/joyonway/adapters/`.
 
-1. Create or extend `custom_components/joyonway/adapters/<family>.py` (e.g. `p25.py` or `p23.py`).
+1. Create or extend `custom_components/joyonway/adapters/<family>.py` (e.g. `p20.py`, `p23.py`, or `p25.py`).
 2. Implement the `ModelAdapter` interface from `adapters/base.py`:
    - `parse_status(frame: bytes) -> dict | None` — extract state dict from broadcast frame
    - `entity_descriptions() -> list[SpaEntityDescription]` — define exposed entities
@@ -102,7 +102,7 @@ Below are the core architectural patterns and design decisions implemented in th
 - **Grace-mode availability:** Entities stay available for 10s after disconnect to avoid UI flicker on brief interruptions (propagated by `JoyonwayCoordinatorEntity`).
 - **Strict connectivity diagnostic:** `bridge_connectivity` uses raw TCP state (`coordinator.is_connected`), not grace-mode.
 - **Schedule command split:** Schedule writes use two flag modes: `write_mode="state"` for enables (`0xAA/0x62/0x9A/0x52`) and `write_mode="time"` for time edits (`0xAA/0x6A/0x9A/0x5A`). Prevents write refusal issues when slot 2 is disabled.
-- **Ozone control & Heater control availability:** Both Ozone and Heater main switches are linked to their respective configuration switches. SpaOzoneSwitch and SpaHeaterSwitch are only available when the corresponding config switch (SpaManualOzoneSwitch / SpaManualHeaterSwitch) is enabled (meaning the spa is in Manual mode).
+- **Ozone control & Heater control availability:** Both Ozone and Heater main switches are linked to their respective configuration switches. SpaOzoneSwitch and SpaHeaterSwitch are only available when the corresponding config switch (SpaManualOzoneSwitch / SpaManualHeaterSwitch) is enabled (meaning the spa is in Manual mode), or always available if manual configuration modes are not supported by the model adapter.
 - **Auto clock sync:** Drift-triggered (>30s) sync with a 1-hour cooldown (cooldown applies to both success and failure to prevent log spam), managed via a standard native CONFIG switch entity.
 - **Diagnostics support:** Added entry diagnostics via `diagnostics.py` to redact sensitive fields (IP/Port) and export raw byte states (`heater_byte_raw`, `jets_byte_raw`, etc.) for easier troubleshooting.
 
