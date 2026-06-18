@@ -40,13 +40,18 @@ async def async_setup_entry(
             else []
         ),
         SpaAutoClockSyncSwitch(coordinator, entry),
-        SpaManualOzoneSwitch(coordinator, entry),
-        SpaManualHeaterSwitch(coordinator, entry),
         SpaScheduleSlotSwitch(coordinator, entry, "heat", 1),
         SpaScheduleSlotSwitch(coordinator, entry, "heat", 2),
         SpaScheduleSlotSwitch(coordinator, entry, "filter", 1),
         SpaScheduleSlotSwitch(coordinator, entry, "filter", 2),
     ]
+    if coordinator.adapter.model != "P20B29":
+        entities.extend(
+            [
+                SpaManualOzoneSwitch(coordinator, entry),
+                SpaManualHeaterSwitch(coordinator, entry),
+            ]
+        )
     async_add_entities(entities)
 
 
@@ -135,8 +140,11 @@ class SpaHeaterSwitch(_SpaTargetStateSwitch):
 
     @property
     def available(self) -> bool:
-        """Only available when manual heating is ON."""
-        return super().available and self.coordinator.heater_mode == "manual"
+        """Only available when manual heating is ON (or always available if no mode support)."""
+        mode = self.coordinator.heater_mode
+        if mode is None:
+            return super().available
+        return super().available and mode == "manual"
 
     def _get_coordinator_heater_state(self) -> bool | None:
         return self.coordinator.adapter.is_heater_enabled(self.coordinator.data)
@@ -259,8 +267,11 @@ class SpaOzoneSwitch(_SpaTargetStateSwitch):
 
     @property
     def available(self) -> bool:
-        """Only available when ozone mode is Manual."""
-        return super().available and self.coordinator.ozone_mode == OZONE_MODE_MANUAL
+        """Only available when ozone mode is Manual (or always available if no mode support)."""
+        mode = self.coordinator.ozone_mode
+        if mode is None:
+            return super().available
+        return super().available and mode == OZONE_MODE_MANUAL
 
     @property
     def is_on(self) -> bool | None:

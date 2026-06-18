@@ -161,6 +161,16 @@ class P23BaseAdapter:
     supported_light_colors: list[str] = []
     has_blower: bool = False
 
+    heater_state_map = {
+        0x40: "off",
+        0x50: "standby",
+        0x51: "circulation",
+        0x55: "heating",
+        0x54: "heating",
+        0x41: "ozone",
+        0xC1: "ozone",
+    }
+
     _context_byte: ClassVar[int] = 0x04
 
     def parse_status(self, frame: bytes) -> dict | None:
@@ -178,7 +188,7 @@ class P23BaseAdapter:
         activity_byte = frame[IDX_ACTIVITY_FLAG]
 
         heater_base = heater_byte & ~MASK_HEATER_BLOWER
-        status = HEATER_STATE_MAP.get(heater_base, "unknown")
+        status = self.heater_state_map.get(heater_base, "unknown")
 
         heating_cycle_active = bool(light_byte & MASK_HEATING_CYCLE)
         if status in ("off", "standby") and heating_cycle_active:
@@ -193,11 +203,11 @@ class P23BaseAdapter:
             "jets_left": "on" if (jet_byte & MASK_JET_LEFT) else "off",
             "jets_right": "on" if (jet_byte & MASK_JET_RIGHT) else "off",
             "light": bool(light_byte & MASK_LIGHT),
-            "heater_active": heater_base in (HEATER_HEATING, HEATER_HEATING_ALT),
+            "heater_active": self.heater_state_map.get(heater_base) == "heating",
             "heater_enabled": bool(heater_byte & 0x10),
             "status": status,
             "heater_byte": heater_byte,
-            "ozone_active": heater_base in (HEATER_OZONE, HEATER_OZONE_ALT),
+            "ozone_active": self.heater_state_map.get(heater_base) == "ozone",
             "ozone_mode": "manual" if ozone_mode_manual else "auto",
             "heater_mode": "manual" if heater_mode_manual else "auto",
             "blower": bool(heater_byte & MASK_HEATER_BLOWER),
