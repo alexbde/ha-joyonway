@@ -29,6 +29,8 @@ unescape_frame = protocol.unescape_frame
 
 P25B37Adapter = adapters_p25.P25B37Adapter
 P25_SIGNATURE = adapters_p25.P25_SIGNATURE
+IDX_OZONE_MODE = adapters_p25.IDX_OZONE_MODE
+MASK_BLOWER_CONFIG = adapters_p25.MASK_BLOWER_CONFIG
 
 get_adapter = adapters_registry.get_adapter
 ADAPTERS = adapters_registry.ADAPTERS
@@ -107,6 +109,18 @@ def test_p25b37_parse_status(b37_adapter: P25B37Adapter, logical_frame: bytes) -
     assert isinstance(result, dict)
     assert result["current_temperature"] == 34
     assert result["setpoint"] == 40
+    assert result["blower_present"] is False
+
+
+def test_p25b37_parse_status_blower_present(
+    b37_adapter: P25B37Adapter, logical_frame: bytes
+) -> None:
+    # Set the blower configuration bit on byte 13
+    modified = bytearray(logical_frame)
+    modified[IDX_OZONE_MODE] |= MASK_BLOWER_CONFIG
+    result = b37_adapter.parse_status(bytes(modified))
+    assert isinstance(result, dict)
+    assert result["blower_present"] is True
 
 
 def test_adapter_registry() -> None:
