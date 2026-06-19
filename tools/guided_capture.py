@@ -29,7 +29,11 @@ try:
         is_broadcast,
         unescape_frame,
     )
-    from custom_components.joyonway.adapters.p25 import P25B85Adapter
+    from custom_components.joyonway.adapters.p25 import (
+        P25B85Adapter,
+        P25B37Adapter,
+        P25BaseAdapter,
+    )
 except ImportError:
     print(
         "Error: Could not import custom component. Make sure you run this script from the repository root."
@@ -41,7 +45,7 @@ except ImportError:
         is_broadcast,
         unescape_frame,
     )
-    from joyonway.adapters.p25 import P25B85Adapter  # type: ignore[import-not-found,no-redef]
+    from joyonway.adapters.p25 import P25B85Adapter, P25B37Adapter, P25BaseAdapter  # type: ignore[import-not-found,no-redef]
 
 
 # Load .env if present
@@ -94,7 +98,7 @@ def print_status(data: dict) -> None:
 
 
 def run_jets_sequence(
-    sock: socket.socket, adapter: P25B85Adapter
+    sock: socket.socket, adapter: P25BaseAdapter
 ) -> tuple[bytearray, bool]:
     """Guide the user through all jets transitions (off->low->high->low->off->high->off)."""
     print("\nStarting Jets Transition Runbook:")
@@ -226,11 +230,13 @@ def run_jets_sequence(
 
 
 def run_heating_sequence(
-    sock: socket.socket, adapter: P25B85Adapter
+    sock: socket.socket, adapter: P25BaseAdapter
 ) -> tuple[bytearray, bool]:
     """Original runbook: guide user through heating & circulation states."""
     print("\nStarting Heating & Circulation Runbook:")
-    print("  1. Enable the heater.")
+    print(
+        "  1. Enable the heater and set setpoint HIGHER than current temperature (+2°C / +4°F)."
+    )
     print("  2. Wait for circulation to start.")
     print("  3. Set jets to LOW (wait 5s).")
     print("  4. Set jets to HIGH (wait 5s).")
@@ -239,6 +245,7 @@ def run_heating_sequence(
     print("  7. Stop the heating (disable heater).")
     print("  8. Wait for circulation to show up again (postheating).")
     print("  9. Stop the jets.")
+
     print("\nPress ENTER when you are ready to start.")
     input()
 
@@ -266,7 +273,8 @@ def run_heating_sequence(
                     "Heater enabled detected! Next step: Wait for the circulation to start.",
                 )
         elif step == 2:
-            if status == "circulation" or heater_base == 0x51:
+            circ_val = 0x11 if adapter.model == "P25B37" else 0x51
+            if status == "circulation" or heater_base == circ_val:
                 return (
                     True,
                     "Circulation started detected! Next step: Set the jets to LOW speed on the panel.",
@@ -289,7 +297,8 @@ def run_heating_sequence(
                 time.sleep(5.0)
                 return True, "Next step: Wait for the heater to start (heating mode)."
         elif step == 6:
-            if status == "heating" or heater_base in (0x55, 0x54):
+            heating_vals = (0x15, 0x14) if adapter.model == "P25B37" else (0x55, 0x54)
+            if status == "heating" or heater_base in heating_vals:
                 return (
                     True,
                     "Heater is now actively heating! Next step: Stop the heating (disable the heater).",
@@ -301,7 +310,12 @@ def run_heating_sequence(
                     "Heater disabled detected! Next step: Wait for the post-heating circulation to show up (circle icon).",
                 )
         elif step == 8:
-            if status == "circulation" and heater_base == 0x40 and heating_cycle_active:
+            off_val = 0x00 if adapter.model == "P25B37" else 0x40
+            if (
+                status == "circulation"
+                and heater_base == off_val
+                and heating_cycle_active
+            ):
                 return (
                     True,
                     "Post-heating circulation detected! Next step: Stop the jets (turn them off).",
@@ -312,53 +326,86 @@ def run_heating_sequence(
 
         return False, None
 
-    print("\n[STEP 1/9] Please enable the heater on the touchpad or Home Assistant.")
+    print(
+        "\n[STEP 1/9] Please enable the heater and set the setpoint HIGHER than current water temp (+2°C / +4°F)."
+    )
 
-    try:
-        while True:
+    while current_step <= 9:
+        step_done = False
+        while not step_done:
             try:
-                chunk = sock.recv(4096)
-                if not chunk:
-                    print("\nConnection closed by bridge.")
-                    return raw_buffer, False
-                raw_buffer.extend(chunk)
-                stream_buffer.extend(chunk)
-                last_read_time = time.monotonic()
-            except BlockingIOError:
-                if time.monotonic() - last_read_time > 15.0:
-                    print("\nWarning: No data received from bridge for 15 seconds.")
+                try:
+                    chunk = sock.recv(4096)
+                    if not chunk:
+                        print("\nConnection closed by bridge.")
+                        return raw_buffer, False
+                    raw_buffer.extend(chunk)
+                    stream_buffer.extend(chunk)
                     last_read_time = time.monotonic()
-                time.sleep(0.05)
+                except BlockingIOError:
+                    if time.monotonic() - last_read_time > 15.0:
+                        print("\nWarning: No data received from bridge for 15 seconds.")
+                        last_read_time = time.monotonic()
+                    time.sleep(0.05)
 
-            frames = find_frames(bytes(stream_buffer))
-            if frames:
-                last_frame = frames[-1]
-                idx = stream_buffer.rfind(last_frame)
-                if idx != -1:
-                    del stream_buffer[: idx + len(last_frame)]
+                frames = find_frames(bytes(stream_buffer))
+                if frames:
+                    last_frame = frames[-1]
+                    idx = stream_buffer.rfind(last_frame)
+                    if idx != -1:
+                        del stream_buffer[: idx + len(last_frame)]
 
-                broadcasts = [f for f in frames if is_broadcast(f)]
-                if broadcasts:
-                    logical = unescape_frame(broadcasts[-1])
-                    parsed = adapter.parse_status(logical)
-                    if parsed:
-                        print_status(parsed)
-                        success, next_inst = check_step_transition(current_step, parsed)
-                        if success:
-                            current_step += 1
-                            if current_step <= 9:
-                                print(f"\n\n[STEP {current_step}/9] {next_inst}")
-                            else:
-                                print("\n\nRunbook completed successfully!")
-                                return raw_buffer, True
-            time.sleep(0.01)
-    except KeyboardInterrupt:
-        print("\nHeating runbook interrupted by user.")
-        return raw_buffer, False
+                    broadcasts = [f for f in frames if is_broadcast(f)]
+                    if broadcasts:
+                        logical = unescape_frame(broadcasts[-1])
+                        parsed = adapter.parse_status(logical)
+                        if parsed:
+                            print_status(parsed)
+                            success, next_inst = check_step_transition(
+                                current_step, parsed
+                            )
+                            if success:
+                                current_step += 1
+                                step_done = True
+                                if current_step <= 9:
+                                    print(f"\n\n[STEP {current_step}/9] {next_inst}")
+                                else:
+                                    print("\n\nRunbook completed successfully!")
+                                    return raw_buffer, True
+                time.sleep(0.01)
+
+            except KeyboardInterrupt:
+                print("\n  [Step Interrupted] Options:")
+                print("    s: Skip/Force-advance to next step")
+                print("    q: Abort and exit runbook")
+                choice = ""
+                while choice not in ("s", "q"):
+                    try:
+                        choice = input("  Select option [s/q]: ").strip().lower()
+                    except KeyboardInterrupt:
+                        print()
+                        choice = "q"
+                if choice == "q":
+                    print("\nRunbook aborted by user.")
+                    return raw_buffer, False
+                else:
+                    current_step += 1
+                    step_done = True
+                    if current_step <= 9:
+                        print(
+                            f"\n\n[STEP {current_step}/9] (Skipped to this step manually)"
+                        )
+                    else:
+                        print(
+                            "\n\nRunbook completed successfully (with skipped steps)!"
+                        )
+                        return raw_buffer, True
+
+    return raw_buffer, False
 
 
 def run_heater_mode_sequence(
-    sock: socket.socket, adapter: P25B85Adapter
+    sock: socket.socket, adapter: P25BaseAdapter
 ) -> tuple[bytearray, bool]:
     """Guide the user through capturing heater mode settings (auto -> manual -> auto)."""
     print("\nStarting Heater Mode Transition Runbook:")
@@ -499,7 +546,7 @@ class CaptureStep(TypedDict, total=False):
 
 
 def run_p25b37_capture(
-    sock: socket.socket, adapter: P25B85Adapter
+    sock: socket.socket, adapter: P25BaseAdapter
 ) -> tuple[bytearray, bool]:
     """Guide the user through capturing P25B37 touchpad command frames."""
     print("\nStarting P25B37 Touchpad Command Capture Runbook:")
@@ -895,7 +942,7 @@ def run_p25b37_capture(
     return raw_buffer, True
 
 
-def run_monitor(sock: socket.socket, adapter: P25B85Adapter) -> None:
+def run_monitor(sock: socket.socket, adapter: P25BaseAdapter) -> None:
     """Monitor broadcast frames continuously (no file logging)."""
     print("\nMonitoring broadcasts in real-time. Press Ctrl+C to stop.\n")
     stream_buffer = bytearray()
@@ -953,9 +1000,13 @@ def main() -> int:
         default=DEFAULT_PORT,
         help=f"Bridge port (default: {DEFAULT_PORT})",
     )
+    parser.add_argument(
+        "--model",
+        choices=["P25B85", "P25B37", "auto"],
+        default="auto",
+        help="Model family to use or auto-detect (default: auto)",
+    )
     args = parser.parse_args()
-
-    adapter = P25B85Adapter()
 
     print("=" * 80)
     print("Joyonway Guided Capture Tool")
@@ -970,9 +1021,63 @@ def main() -> int:
 
     sock.setblocking(False)
     print("Connected successfully!")
+    model_choice = args.model
+    adapter: P25BaseAdapter
+
+    if model_choice == "auto":
+        print("\nListening for broadcast frame to auto-detect model (5s timeout)...")
+        detected_adapter: P25BaseAdapter | None = None
+        start_detect = time.monotonic()
+        stream_buffer = bytearray()
+        while time.monotonic() - start_detect < 5.0:
+            try:
+                chunk = sock.recv(4096)
+                if chunk:
+                    stream_buffer.extend(chunk)
+            except BlockingIOError:
+                pass
+
+            frames = find_frames(bytes(stream_buffer))
+            if frames:
+                last_frame = frames[-1]
+                idx = stream_buffer.rfind(last_frame)
+                if idx != -1:
+                    del stream_buffer[: idx + len(last_frame)]
+
+                broadcasts = [f for f in frames if is_broadcast(f)]
+                if broadcasts:
+                    logical = unescape_frame(broadcasts[-1])
+                    if len(logical) > 14:
+                        hb = logical[14]
+                        hb_base = hb & ~0x08
+                        if hb_base in (0x00, 0x10, 0x01, 0x11, 0x14, 0x15):
+                            detected_adapter = P25B37Adapter()
+                            print(
+                                f"Auto-detected model: P25B37 (heater byte: 0x{hb:02X})"
+                            )
+                            break
+                        elif hb_base in (0x40, 0x50, 0x51, 0x54, 0x55, 0x41, 0xC1):
+                            detected_adapter = P25B85Adapter()
+                            print(
+                                f"Auto-detected model: P25B85 (heater byte: 0x{hb:02X})"
+                            )
+                            break
+            time.sleep(0.05)
+
+        if detected_adapter is not None:
+            adapter = detected_adapter
+        else:
+            print("Auto-detection timed out or inconclusive. Defaulting to P25B85.")
+            adapter = P25B85Adapter()
+    elif model_choice == "P25B37":
+        adapter = P25B37Adapter()
+        print("\nUsing configured model: P25B37")
+    else:
+        adapter = P25B85Adapter()
+        print("\nUsing configured model: P25B85")
 
     while True:
-        print("\nSelect a mode:")
+        print(f"\nSelect a mode (Active Model: {adapter.model}):")
         print(
             "  1) Capture Jets Transitions Runbook (OFF -> LOW -> HIGH -> LOW -> OFF -> HIGH -> OFF)"
         )
@@ -980,13 +1085,30 @@ def main() -> int:
         print("  3) Capture Heater Mode Runbook (MANUAL -> AUTO -> MANUAL)")
         print("  4) Monitor broadcasts in real-time (no logging)")
         print("  5) Capture P25B37 Touchpad Commands (Light & Pump)")
+        print("  m) Change active model")
         print("  0) Exit")
 
-        choice = input("Option [0-5]: ").strip()
+        choice = input("Option [0-5, m]: ").strip().lower()
         if choice == "0":
             sock.close()
             print("Exiting.")
             return 0
+        elif choice == "m":
+            print("\nChange Active Model:")
+            print("  1) P25B85")
+            print("  2) P25B37")
+            try:
+                sel = input("Select model [1-2]: ").strip()
+                if sel == "1":
+                    adapter = P25B85Adapter()
+                    print("Model changed to P25B85")
+                elif sel == "2":
+                    adapter = P25B37Adapter()
+                    print("Model changed to P25B37")
+                else:
+                    print("Invalid choice. Model unchanged.")
+            except (KeyboardInterrupt, EOFError):
+                print("\nModel unchanged.")
         elif choice == "4":
             run_monitor(sock, adapter)
         elif choice in ("1", "2", "3", "5"):
