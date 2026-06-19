@@ -655,9 +655,10 @@ class P25B37Adapter(P25BaseAdapter):
     ]
     heater_state_map = {
         0x00: "off",
-        0x01: "circulation",
-        0x04: "heating",
-        0x05: "heating",
+        0x10: "standby",
+        0x11: "circulation",
+        0x14: "heating",
+        0x15: "heating",
     }
 
 

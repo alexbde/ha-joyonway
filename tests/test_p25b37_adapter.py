@@ -31,6 +31,7 @@ P25B37Adapter = adapters_p25.P25B37Adapter
 P25_SIGNATURE = adapters_p25.P25_SIGNATURE
 IDX_OZONE_MODE = adapters_p25.IDX_OZONE_MODE
 MASK_BLOWER_CONFIG = adapters_p25.MASK_BLOWER_CONFIG
+IDX_HEATER_STATE = adapters_p25.IDX_HEATER_STATE
 
 get_adapter = adapters_registry.get_adapter
 ADAPTERS = adapters_registry.ADAPTERS
@@ -121,6 +122,31 @@ def test_p25b37_parse_status_blower_present(
     result = b37_adapter.parse_status(bytes(modified))
     assert isinstance(result, dict)
     assert result["blower_present"] is True
+
+
+@pytest.mark.parametrize(
+    ("heater_byte", "state", "active"),
+    [
+        (0x00, "off", False),
+        (0x10, "standby", False),
+        (0x11, "circulation", False),
+        (0x14, "heating", True),
+        (0x15, "heating", True),
+        (0x99, "unknown", False),
+    ],
+)
+def test_p25b37_heater_state_mapping(
+    b37_adapter: P25B37Adapter,
+    logical_frame: bytes,
+    heater_byte: int,
+    state: str,
+    active: bool,
+) -> None:
+    modified = bytearray(logical_frame)
+    modified[IDX_HEATER_STATE] = heater_byte
+    result = b37_adapter.parse_status(bytes(modified))
+    assert result["status"] == state
+    assert result["heater_active"] is active
 
 
 def test_adapter_registry() -> None:
