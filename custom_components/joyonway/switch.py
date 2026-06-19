@@ -34,11 +34,7 @@ async def async_setup_entry(
     entities: list[SwitchEntity] = [
         SpaHeaterSwitch(coordinator, entry),
         SpaOzoneSwitch(coordinator, entry),
-        *(
-            [SpaBlowerSwitch(coordinator, entry)]
-            if coordinator.adapter.has_blower
-            else []
-        ),
+        *([SpaBlowerSwitch(coordinator, entry)] if coordinator.has_blower else []),
         SpaAutoClockSyncSwitch(coordinator, entry),
         SpaScheduleSlotSwitch(coordinator, entry, "heat", 1),
         SpaScheduleSlotSwitch(coordinator, entry, "heat", 2),

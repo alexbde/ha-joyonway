@@ -33,6 +33,8 @@ IDX_ACTIVITY_FLAG = 28
 # Ozone mode mask (byte 13)
 MASK_OZONE_MODE_MANUAL = 0x80  # bit 7 set = Manual mode
 MASK_HEATER_MODE_MANUAL = 0x10  # bit 4 set = Manual mode
+MASK_BLOWER_CONFIG = 0x08  # bit 3 on byte 13 = blower hardware present (DIP switch)
+
 IDX_DATETIME_START = 53  # bytes 53-58: year, month, day, hour, minute, second
 
 # Schedule byte positions in broadcast frame
@@ -266,6 +268,7 @@ class P25BaseAdapter:
             "ozone_active": self.heater_state_map.get(heater_base) == "ozone",
             "ozone_mode": "manual" if ozone_mode_manual else "auto",
             "heater_mode": "manual" if heater_mode_manual else "auto",
+            "blower_present": bool(ozone_mode_byte & MASK_BLOWER_CONFIG),
             "blower": bool(heater_byte & MASK_HEATER_BLOWER),
             "heater_byte_raw": heater_byte,
             "jets_byte_raw": jet_byte,

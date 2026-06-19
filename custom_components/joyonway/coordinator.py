@@ -369,6 +369,13 @@ class JoyonwayCoordinator(DataUpdateCoordinator):
         return self._adapter
 
     @property
+    def has_blower(self) -> bool:
+        """Return whether the spa has a blower, from broadcast or adapter default."""
+        if self.data is not None and "blower_present" in self.data:
+            return self.data["blower_present"]
+        return self._adapter.has_blower
+
+    @property
     def ozone_mode(self) -> str:
         """Return the current ozone mode (auto or manual)."""
         if self.data is None:

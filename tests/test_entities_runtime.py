@@ -140,6 +140,10 @@ class DummyCoordinator:
         return self._available
 
     @property
+    def has_blower(self) -> bool:
+        return self.adapter.has_blower
+
+    @property
     def heater_mode(self) -> str:
         if hasattr(self, "_heater_mode"):
             return self._heater_mode

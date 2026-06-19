@@ -47,6 +47,8 @@ fahrenheit_to_celsius = adapters_p25._fahrenheit_to_celsius
 celsius_to_fahrenheit = adapters_p25._celsius_to_fahrenheit
 IDX_LIGHT_CYCLE = adapters_p25.IDX_LIGHT_CYCLE
 MASK_HEATING_CYCLE = adapters_p25.MASK_HEATING_CYCLE
+IDX_OZONE_MODE = adapters_p25.IDX_OZONE_MODE
+MASK_BLOWER_CONFIG = adapters_p25.MASK_BLOWER_CONFIG
 
 get_adapter = adapters_registry.get_adapter
 ADAPTERS = adapters_registry.ADAPTERS
@@ -119,6 +121,7 @@ def test_parse_status_core_fields(
     assert result["light"] is True
     assert result["ozone_mode"] == "manual"
     assert result["heater_mode"] == "manual"
+    assert result["blower_present"] is False
 
     # Test auto modes when bits are cleared
     modified = bytearray(logical_frame)
@@ -126,6 +129,17 @@ def test_parse_status_core_fields(
     result_auto = b85_adapter.parse_status(bytes(modified))
     assert result_auto["ozone_mode"] == "auto"
     assert result_auto["heater_mode"] == "auto"
+
+
+def test_parse_status_blower_present(
+    b85_adapter: P25B85Adapter, logical_frame: bytes
+) -> None:
+    # Set the blower configuration bit on byte 13
+    modified = bytearray(logical_frame)
+    modified[IDX_OZONE_MODE] |= MASK_BLOWER_CONFIG
+    result = b85_adapter.parse_status(bytes(modified))
+    assert isinstance(result, dict)
+    assert result["blower_present"] is True
 
 
 def test_parse_status_datetime(
