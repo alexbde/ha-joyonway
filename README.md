@@ -1,5 +1,5 @@
 <div align="center">
-<img src="custom_components/joyonway/brand/icon.png" width="128" alt="Joyonway Spa Logo" />
+<img src="https://raw.githubusercontent.com/alexbde/ha-joyonway/main/custom_components/joyonway/brand/icon.png" width="128" alt="Joyonway Spa Logo" />
 
 # Joyonway Spa for Home Assistant
 
@@ -7,7 +7,7 @@
 
 [![HA](https://img.shields.io/badge/Home%20Assistant-2026.1.0%2B-41BDF5.svg?style=for-the-badge&logo=home-assistant&logoColor=white)](https://www.home-assistant.io)
 [![HACS](https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=for-the-badge&logo=home-assistant&logoColor=white)](https://github.com/hacs/integration)
-[![License](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge&logo=open-source-initiative&logoColor=white)](LICENSE)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge&logo=open-source-initiative&logoColor=white)](https://github.com/alexbde/ha-joyonway/blob/main/LICENSE)
 <br/>
 [![Release](https://img.shields.io/github/v/release/alexbde/ha-joyonway?style=for-the-badge&color=green&logo=github)](https://github.com/alexbde/ha-joyonway/releases)
 [![Tests](https://img.shields.io/github/actions/workflow/status/alexbde/ha-joyonway/tests.yml?style=for-the-badge&label=checks&logo=github)](https://github.com/alexbde/ha-joyonway/actions/workflows/tests.yml)
