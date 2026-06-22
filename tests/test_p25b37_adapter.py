@@ -125,14 +125,16 @@ def test_p25b37_parse_status_blower_present(
 
 
 @pytest.mark.parametrize(
-    ("heater_byte", "state", "active"),
+    ("heater_byte", "state", "active", "ozone"),
     [
-        (0x00, "off", False),
-        (0x10, "standby", False),
-        (0x11, "circulation", False),
-        (0x14, "heating", True),
-        (0x15, "heating", True),
-        (0x99, "unknown", False),
+        (0x00, "off", False, False),
+        (0x10, "standby", False, False),
+        (0x11, "circulation", False, False),
+        (0x14, "heating", True, False),
+        (0x15, "heating", True, False),
+        (0x01, "ozone", False, True),
+        (0x81, "ozone", False, True),
+        (0x99, "unknown", False, False),
     ],
 )
 def test_p25b37_heater_state_mapping(
@@ -141,12 +143,14 @@ def test_p25b37_heater_state_mapping(
     heater_byte: int,
     state: str,
     active: bool,
+    ozone: bool,
 ) -> None:
     modified = bytearray(logical_frame)
     modified[IDX_HEATER_STATE] = heater_byte
     result = b37_adapter.parse_status(bytes(modified))
     assert result["status"] == state
     assert result["heater_active"] is active
+    assert result["ozone_active"] is ozone
 
 
 def test_adapter_registry() -> None:
