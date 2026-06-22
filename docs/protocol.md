@@ -39,7 +39,7 @@ To prevent payload bytes from colliding with delimiter control bytes, the protoc
 
 The unescaping behavior differs between controller firmware families, which is critical to avoid frame parsing issues:
 
-*   **P20 family (P20B29):** Assumed to follow the same tail-only unescaping policy as the P23 family (`unescape_full_frame = False`). [✨]
+*   **P20 family (P20B29):** The entire frame payload is unescaped before parsing (`unescape_full_frame = True`), just like the P25 family. This is required because status and command payloads contain escape sequences below index 55 (e.g., `1B 15` representing `0x1E` in schedule commands). [✅]
 *   **P23 family (P23B32):** Only tail bytes (indices 55 and higher) should be unescaped (`unescape_full_frame = False`). Unescaping indices 0–54 can corrupt payload parsing, because binary status bytes in the header may accidentally match escape sequences (e.g., a status byte of `0x1B` followed by `0x11` is not an escape code, but raw data). [✅]
 *   **P25 family (P25B37 / P25B85):** The entire frame payload is unescaped before parsing (`unescape_full_frame = True`). [✅]
 
@@ -191,7 +191,11 @@ This section summarizes how the CRC parameters were derived and confirmed:
     *   **Light mode (RGB vs Standard)** is not published by the controller. Instead, the touchpad's own local firmware version (`Panel Version: 1.8` vs `1.7`) determines whether to display the RGB color picker menu (`Light: RGB` on 1.8 panels) or a standard toggle (`Light: Yes` on 1.7 panels).
 *   **Heater byte base offset varies by family:** Byte 14 functions as a combined heater/blower/ozone state register. The idle base value differs: `0x20` for P20, `0x40` for P23, `0x00` for P25B37, and `0x40` for P25B85. The blower bit (`0x08`) is additive on top of the base in all families. The heater relay bit (`0x04`) and ozone relay bit (`0x01`) follow the same bit positions. The full state machine values (standby, circulation, heating, ozone) for P20 are pending capture verification. For P25B37, standby (`0x10`) and active heating (`0x14`) have been verified via capture, while circulation (`0x11` / Byte 17 dynamic promotion) and ozone (`0x01`/`0x81`) are structurally derived/inferred.
 *   **P20 ozone command differs from P23/P25:** The P20B29 manual ozone/filtration toggle uses bytes 7–8 (`0x80 0x80` ON, `0x80 0x00` OFF), whereas P23/P25 use bytes 9–10 (`0x01 0x01` ON, `0x01 0x10` OFF). This is a structural difference, not a simple byte value change.
-*   **P20 byte 13 anomaly:** All captured P20B29 broadcast frames show byte 13 as constant `0x6F` (`01101111`). This does not match the P23/P25 bit-flag pattern where bit `0x80` = ozone manual mode and bit `0x10` = heater manual mode. The P20B29 may encode configuration state differently at byte 13, or these captures may represent a single configuration snapshot. Further investigation is needed.
+*   **P20 byte 13 anomaly resolved:** All captured P20B29 broadcast frames show byte 13 as constant `0x6F` (`01101111`). This is because the P20B29 controller does not support manual/auto configuration mode toggles for heater and ozone on the RS485 bus (unlike P23/P25). Consequently, manual heating/ozone mode switches are not exposed for P20B29, and mode commands return empty payloads.
+*   **P20 virtual heating modes:** The touchpad panel UI implements virtual "Standard", "Eco", and "Stop" heating modes by sending specific schedule write commands (`0xA3` / `0xA4`) and setpoint commands under the hood, rather than setting dedicated mode registers:
+    *   **Standard Mode:** Sets heat schedule slot 1 to `05:25 - 23:30` (enabled, flags `0x62`), and disables filter schedule slots (flags `0x52`).
+    *   **Eco Mode:** Sets heat schedule slot 1 to `09:30 - 17:00` (enabled, flags `0x62`), and enables filter schedule slot 1 to `16:00 - 17:30` (flags `0x62`).
+    *   **Stop Mode:** Sets setpoint temperature to `50°F / 10°C` (the controller's minimum limit, command `0xA1` with setpoint byte `0x32`), disables heat schedules (flags `0x52`), and configures a minimal 10-minute filter schedule slot 1 of `12:50 - 13:00` (flags `0x62`).
 
 ## Appendix A: Status Legend
 
