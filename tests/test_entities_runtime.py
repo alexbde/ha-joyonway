@@ -312,6 +312,22 @@ async def test_climate_rejects_hvac_mode_in_auto_mode(entry: SimpleNamespace) ->
 
 
 @pytest.mark.asyncio
+async def test_climate_allows_hvac_mode_when_mode_is_none(
+    entry: SimpleNamespace,
+) -> None:
+    coordinator = DummyCoordinator(data={"status": "off", "heater_enabled": False})
+    coordinator.heater_mode = None
+    climate = SpaClimate(coordinator, entry)
+    climate.hass = DummyHass()
+    climate.async_write_ha_state = lambda: None
+
+    await climate.async_set_hvac_mode(HVACMode.HEAT)
+    assert climate._pending_hvac_mode == HVACMode.HEAT
+    assert climate.hvac_mode == HVACMode.HEAT
+    climate._cancel_pending_hvac_timeout()
+
+
+@pytest.mark.asyncio
 async def test_climate_hvac_mode_commands(entry: SimpleNamespace) -> None:
     coordinator = DummyCoordinator(data={"status": "off", "heater_enabled": False})
     climate = SpaClimate(coordinator, entry)

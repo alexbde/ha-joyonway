@@ -376,14 +376,14 @@ class JoyonwayCoordinator(DataUpdateCoordinator):
         return self._adapter.has_blower
 
     @property
-    def ozone_mode(self) -> str:
+    def ozone_mode(self) -> str | None:
         """Return the current ozone mode (auto or manual)."""
         if self.data is None:
             return OZONE_MODE_AUTO
         return self.data.get("ozone_mode", OZONE_MODE_AUTO)
 
     @property
-    def heater_mode(self) -> str:
+    def heater_mode(self) -> str | None:
         """Return the current heater mode (auto or manual)."""
         if self.data is None:
             return "auto"
@@ -550,6 +550,11 @@ class JoyonwayCoordinator(DataUpdateCoordinator):
             if not validate_frame(
                 raw_frame, unescape_full=self._adapter.unescape_full_frame
             ):
+                _LOGGER.debug(
+                    "Frame validation failed (unescape_full=%s): %s",
+                    self._adapter.unescape_full_frame,
+                    raw_frame.hex(),
+                )
                 continue
 
             logical = unescape_frame(

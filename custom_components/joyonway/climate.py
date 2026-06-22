@@ -224,7 +224,10 @@ class SpaClimate(JoyonwayCoordinatorEntity, ClimateEntity):
         if hvac_mode not in self._attr_hvac_modes:
             raise HomeAssistantError(f"Unsupported HVAC mode: {hvac_mode}")
 
-        if self.coordinator.heater_mode != "manual":
+        if (
+            self.coordinator.heater_mode is not None
+            and self.coordinator.heater_mode != "manual"
+        ):
             raise ManualHeatingDisabled()
 
         if hvac_mode == HVACMode.HEAT:
