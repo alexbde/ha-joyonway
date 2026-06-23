@@ -190,10 +190,10 @@ class P20BaseAdapter:
             "light": bool(light_byte & MASK_LIGHT),
             "light_color_index": light_byte & MASK_LIGHT,
             "heater_active": self.heater_state_map.get(heater_base) == "heating",
-            "heater_enabled": bool(heater_byte & 0x10),
+            "heater_enabled": bool(heater_byte & 0x20),
             "status": status,
             "heater_byte": heater_byte,
-            "ozone_active": self.heater_state_map.get(heater_base) == "ozone",
+            "ozone_active": bool(heater_byte & 0x01),
             "ozone_mode": None,  # Mode switching not supported / verified on P20
             "heater_mode": None,  # Mode switching not supported / verified on P20
             "blower": bool(heater_byte & MASK_HEATER_BLOWER),
