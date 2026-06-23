@@ -88,6 +88,7 @@ jobs:
 
       - name: Purge ephemeral pre-release branch
         if: always()
+        continue-on-error: true
         run: |
           if git ls-remote --heads origin "${{ github.ref_name }}" | grep -q "refs/heads/${{ github.ref_name }}"; then
             echo "Cleaning up remote branch ${{ github.ref_name }}..."
