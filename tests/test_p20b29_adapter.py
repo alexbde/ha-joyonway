@@ -117,6 +117,7 @@ def test_parse_status_core_fields(adapter: P20B29Adapter, logical_frame: bytes) 
     assert result["setpoint"] == 40
     assert result["status"] == "heating"
     assert result["heater_active"] is True
+    assert result["heater_enabled"] is True
     assert result["jets_left"] == "on"
     assert result["jets_right"] == "on"
     assert result["light"] is True

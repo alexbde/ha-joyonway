@@ -442,6 +442,16 @@ class JoyonwayCoordinator(DataUpdateCoordinator):
                     asyncio.open_connection(self.host, self.port),
                     timeout=TCP_TIMEOUT,
                 )
+                # Disable Nagle's algorithm to ensure immediate command transmission
+                # and prevent sync frame alignment collisions due to OS buffering.
+                writer = self._writer
+                if writer is not None:
+                    sock = writer.transport.get_extra_info("socket")
+                    if sock is not None:
+                        import socket
+
+                        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+
                 self._available = True
                 self._disconnect_ts = None
                 self._reconnect_delay = 1.0
