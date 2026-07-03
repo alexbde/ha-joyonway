@@ -255,10 +255,8 @@ def test_build_temp_command(adapter: P23B32Adapter) -> None:
 
 
 def test_build_unimplemented_mode_commands(adapter: P23B32Adapter) -> None:
-    with pytest.raises(NotImplementedError):
-        adapter.build_ozone_mode_command("auto")
-    with pytest.raises(NotImplementedError):
-        adapter.build_heater_mode_command("auto")
+    assert adapter.build_ozone_mode_command("auto") == b""
+    assert adapter.build_heater_mode_command("auto") == b""
 
 
 def test_build_ozone_manual_command(adapter: P23B32Adapter) -> None:

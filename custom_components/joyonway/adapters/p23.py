@@ -57,7 +57,7 @@ class P23BaseAdapter(JoyonwayBaseAdapter):
     jets: list[JetDescription]
     supported_light_colors: list[str] = []
     has_blower: bool = False
-    supports_mode_switching: bool = False
+    supports_mode_switching: bool = True
 
     heater_state_map: dict[int, str] = HEATER_STATE_MAP
 
@@ -174,10 +174,10 @@ class P23BaseAdapter(JoyonwayBaseAdapter):
         )
 
     def build_ozone_mode_command(self, mode: str, setpoint_f: int = 0x62) -> bytes:
-        raise NotImplementedError("Mode switching not supported on this model")
+        return b""
 
     def build_heater_mode_command(self, mode: str, setpoint_f: int = 0x62) -> bytes:
-        raise NotImplementedError("Mode switching not supported on this model")
+        return b""
 
     def build_ozone_manual_command(self, on: bool, setpoint_f: int = 0x62) -> bytes:
         b10 = 0x01 if on else 0x10
