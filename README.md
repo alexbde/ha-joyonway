@@ -165,10 +165,12 @@ For guidelines on setting up your development environment, running unit/simulati
 
 | Contributor                                                  | Contribution                                                                                     |
 |--------------------------------------------------------------|--------------------------------------------------------------------------------------------------|
-| **[KDy](https://community.home-assistant.io/u/kdy)**         | Baud rate discovery (oscilloscope), initial P25B85 byte map, pseudo-escape mechanism, CRC safety warning, RS485 bus sync/collision avoidance discovery |
+| **[c0mpleX](https://community.home-assistant.io/u/c0mplex)** | Frame samples and community discussion                                                           |
 | **[christopheknap](https://github.com/KnapTheBuilder)**      | P23B32 HACS integration, command frame captures, frame analyzer tool                             |
 | **[Gaet78](https://community.home-assistant.io/u/gaet78)**   | P69B133 integration                                                                              |
-| **[c0mpleX](https://community.home-assistant.io/u/c0mplex)** | Frame samples and community discussion                                                           |
+| **[KDy](https://community.home-assistant.io/u/kdy)**         | Baud rate discovery (oscilloscope), initial P25B85 byte map, pseudo-escape mechanism, CRC safety warning, RS485 bus sync/collision avoidance discovery |
+| **[sergiu.balota](https://community.home-assistant.io/u/sergiu.balota)** | P20B29 broadcast signature variant (`0x06`) and heater state check fix |
+| **[Yannickt26](https://community.home-assistant.io/u/yannickt26)** | Initial P20B29 control script and schedule unescaping analysis |
 
 ## Disclaimer
 

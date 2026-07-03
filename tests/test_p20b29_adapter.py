@@ -128,6 +128,81 @@ def test_parse_status_core_fields(adapter: P20B29Adapter, logical_frame: bytes) 
     assert result["heater_mode"] is None
 
 
+def test_parse_status_signature_variants(
+    adapter: P20B29Adapter, logical_frame: bytes
+) -> None:
+    # Test that 0x08 is parsed correctly (logical_frame has 0x08)
+    assert adapter.parse_status(logical_frame) is not None
+
+    # Test that 0x06 is parsed correctly
+    modified_06 = bytearray(logical_frame)
+    modified_06[7] = 0x06
+    assert adapter.parse_status(bytes(modified_06)) is not None
+
+    # Test that other bytes (e.g. 0x07) at index 7 are rejected
+    modified_invalid = bytearray(logical_frame)
+    modified_invalid[7] = 0x07
+    assert adapter.parse_status(bytes(modified_invalid)) is None
+
+
+def test_parse_status_heater_states(
+    adapter: P20B29Adapter, logical_frame: bytes
+) -> None:
+    # We clear the heating cycle active bit at index 17 (0x80) to test raw status from heater_byte
+    base_frame = bytearray(logical_frame)
+    base_frame[17] &= ~0x80
+
+    # 1. Idle/off: heater_byte = 0x20
+    frame_off = bytearray(base_frame)
+    frame_off[14] = 0x20
+    res = adapter.parse_status(bytes(frame_off))
+    assert res is not None
+    assert res["status"] == "off"
+    assert res["heater_active"] is False
+    assert res["heater_enabled"] is False
+    assert res["blower"] is False
+
+    # 2. Idle/off, blower on: heater_byte = 0x28 (0x20 | 0x08)
+    frame_blower = bytearray(base_frame)
+    frame_blower[14] = 0x28
+    res = adapter.parse_status(bytes(frame_blower))
+    assert res is not None
+    assert res["status"] == "off"
+    assert res["heater_active"] is False
+    assert res["heater_enabled"] is False
+    assert res["blower"] is True
+
+    # 3. Circulation: heater_byte = 0x21
+    frame_circ = bytearray(base_frame)
+    frame_circ[14] = 0x21
+    res = adapter.parse_status(bytes(frame_circ))
+    assert res is not None
+    assert res["status"] == "circulation"
+    assert res["heater_active"] is False
+    assert res["heater_enabled"] is True
+    assert res["blower"] is False
+
+    # 4. Heating: heater_byte = 0x24
+    frame_heat = bytearray(base_frame)
+    frame_heat[14] = 0x24
+    res = adapter.parse_status(bytes(frame_heat))
+    assert res is not None
+    assert res["status"] == "heating"
+    assert res["heater_active"] is True
+    assert res["heater_enabled"] is True
+    assert res["blower"] is False
+
+    # 5. Heating: heater_byte = 0x25
+    frame_heat2 = bytearray(base_frame)
+    frame_heat2[14] = 0x25
+    res = adapter.parse_status(bytes(frame_heat2))
+    assert res is not None
+    assert res["status"] == "heating"
+    assert res["heater_active"] is True
+    assert res["heater_enabled"] is True
+    assert res["blower"] is False
+
+
 def test_parse_rejects_wrong_signature(
     adapter: P20B29Adapter, logical_frame: bytes
 ) -> None:
