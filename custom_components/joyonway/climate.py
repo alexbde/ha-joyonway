@@ -25,7 +25,6 @@ from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature, PRECISION_W
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from .adapters.p25 import TEMP_MAX_C, TEMP_MIN_C
 from .const import OPTIMISTIC_TIMEOUT_SECONDS
 from .coordinator import JoyonwayCoordinator, JoyonwayConfigEntry
 from .entity import JoyonwayCoordinatorEntity, device_info
@@ -71,8 +70,6 @@ class SpaClimate(JoyonwayCoordinatorEntity, ClimateEntity):
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_precision = PRECISION_WHOLE
     _attr_target_temperature_step = 1.0
-    _attr_min_temp = float(TEMP_MIN_C)
-    _attr_max_temp = float(TEMP_MAX_C)
     _enable_turn_on_off_backwards_compat = False
 
     def __init__(
@@ -84,6 +81,8 @@ class SpaClimate(JoyonwayCoordinatorEntity, ClimateEntity):
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry.entry_id}_climate"
         self._attr_device_info = device_info(entry)
+        self._attr_min_temp = float(coordinator.adapter.temp_min_c)
+        self._attr_max_temp = float(coordinator.adapter.temp_max_c)
         self._debounce_task: asyncio.Task | None = None
         self._pending_temp: int | None = None
         self._pending_timeout_task: asyncio.Task | None = None
@@ -279,7 +278,10 @@ class SpaClimate(JoyonwayCoordinatorEntity, ClimateEntity):
             return
 
         target_c = int(round(temperature))
-        target_c = max(TEMP_MIN_C, min(TEMP_MAX_C, target_c))
+        target_c = max(
+            self.coordinator.adapter.temp_min_c,
+            min(self.coordinator.adapter.temp_max_c, target_c),
+        )
         self._pending_temp = target_c
         self.async_write_ha_state()
 

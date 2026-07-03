@@ -72,6 +72,17 @@ class DummyAdapter:
 
     supported_light_colors: list[str] = []
     has_blower: bool = True
+    temp_min_c: int = 10
+    temp_max_c: int = 40
+    supports_mode_switching: bool = True
+
+    @staticmethod
+    def color_index_to_name(index: int) -> str | None:
+        return None
+
+    @staticmethod
+    def color_name_to_index(name: str) -> int | None:
+        return None
 
     @staticmethod
     def is_heater_enabled(data: dict | None) -> bool | None:
@@ -499,6 +510,7 @@ def test_diagnostic_sensors_runtime(entry: SimpleNamespace) -> None:
         key="heater_byte_raw",
         name="Heater byte (raw)",
         entity_category="diagnostic",
+        format_hex=True,
     )
     entity_heater = JoyonwaySensor(coordinator, entry, desc_heater)
     assert entity_heater.native_value == "0x55"
