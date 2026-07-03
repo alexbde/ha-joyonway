@@ -8,7 +8,7 @@ from .p23 import P23B32Adapter
 from .p25 import P25B37Adapter, P25B85Adapter
 
 # Registry of available model adapters
-ADAPTERS: dict[str, type] = {
+ADAPTERS: dict[str, type] = {  # type → ModelAdapter-implementing classes
     "P20B29": P20B29Adapter,
     "P23B32": P23B32Adapter,
     "P25B37": P25B37Adapter,
