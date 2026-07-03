@@ -41,6 +41,8 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 SIGNATURE_MODEL_MAP: dict[int, str] = {
     0x01: "P20B29",
     0x02: "P23B32",
+    # P25B85 and P25B37 share signature byte 0x03; user can correct on the
+    # model confirmation step. P25B85 is the more common variant.
     0x03: "P25B85",
 }
 

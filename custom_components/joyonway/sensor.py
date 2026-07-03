@@ -61,6 +61,8 @@ class JoyonwaySensor(JoyonwayCoordinatorEntity, SensorEntity):
         self._icon_map = description.icon_map
         self._default_icon = description.icon
 
+        self._format_hex = description.format_hex
+
         if description.icon and not description.icon_map:
             self._attr_icon = description.icon
 
@@ -99,13 +101,7 @@ class JoyonwaySensor(JoyonwayCoordinatorEntity, SensorEntity):
         """Return the sensor value from coordinator data."""
         if self.coordinator.data:
             value = self.coordinator.data.get(self._key)
-            if value is not None and self._key in {
-                "heater_byte_raw",
-                "jets_byte_raw",
-                "ozone_mode_byte_raw",
-                "activity_byte_raw",
-                "light_cycle_byte_raw",
-            }:
+            if self._format_hex and value is not None:
                 return f"0x{value:02X}"
             return value
         return None

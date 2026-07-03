@@ -164,18 +164,16 @@ class JoyonwayLight(JoyonwayCoordinatorEntity, LightEntity):
             return None
 
         if self._pending_color_index is not None:
-            from .adapters.p25 import LIGHT_COLOR_INDEX_TO_NAME
-
-            return LIGHT_COLOR_INDEX_TO_NAME.get(self._pending_color_index)
+            return self.coordinator.adapter.color_index_to_name(
+                self._pending_color_index
+            )
 
         if self.coordinator.data is None:
             return None
 
         color_index = self.coordinator.data.get("light_color_index")
         if color_index is not None:
-            from .adapters.p25 import LIGHT_COLOR_INDEX_TO_NAME
-
-            return LIGHT_COLOR_INDEX_TO_NAME.get(color_index)
+            return self.coordinator.adapter.color_index_to_name(color_index)
 
         return None
 
@@ -199,9 +197,11 @@ class JoyonwayLight(JoyonwayCoordinatorEntity, LightEntity):
             coordinator = self.coordinator
 
             if target_effect is not None:
-                from .adapters.p25 import LIGHT_COLOR_NAME_TO_INDEX
-
-                target_idx = LIGHT_COLOR_NAME_TO_INDEX[target_effect]
+                target_idx = coordinator.adapter.color_name_to_index(target_effect)
+                if target_idx is None:
+                    raise HomeAssistantError(
+                        f"Unsupported effect on this adapter: {target_effect}"
+                    )
                 self._set_pending_state(state=True, color_index=target_idx)
 
                 def _build_light_color(

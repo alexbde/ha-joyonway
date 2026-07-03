@@ -9,7 +9,6 @@ from typing import Any
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import OZONE_MODE_MANUAL, OPTIMISTIC_TIMEOUT_SECONDS, OPT_AUTO_SYNC_CLOCK
@@ -18,7 +17,7 @@ from .coordinator import (
     JoyonwayCoordinator,
     JoyonwayConfigEntry,
 )
-from .entity import JoyonwayCoordinatorEntity, device_info
+from .entity import JoyonwayCoordinatorEntity, device_info, validate_schedule_data
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -41,7 +40,7 @@ async def async_setup_entry(
         SpaScheduleSlotSwitch(coordinator, entry, "filter", 1),
         SpaScheduleSlotSwitch(coordinator, entry, "filter", 2),
     ]
-    if coordinator.adapter.model != "P20B29":
+    if coordinator.adapter.supports_mode_switching:
         entities.extend(
             [
                 SpaManualOzoneSwitch(coordinator, entry),
@@ -359,25 +358,7 @@ class SpaScheduleSlotSwitch(_SpaTargetStateSwitch):
 
     def _validate_schedule_data_available(self) -> None:
         """Raise explicit error when schedule payload prerequisites are missing."""
-        data = self.coordinator.data
-        if data is None:
-            raise HomeAssistantError("No data available from spa")
-
-        prefix = self._schedule_type
-        required_keys = [
-            f"{prefix}_slot1_start",
-            f"{prefix}_slot1_end",
-            f"{prefix}_slot2_start",
-            f"{prefix}_slot2_end",
-            f"{prefix}_slot1_enabled",
-            f"{prefix}_slot2_enabled",
-        ]
-        missing = [k for k in required_keys if k not in data]
-        if missing:
-            raise HomeAssistantError(
-                f"Cannot send schedule: missing data keys {missing}. "
-                "Wait for the spa to report a full broadcast before toggling."
-            )
+        validate_schedule_data(self.coordinator.data, self._schedule_type)
 
     def _submit_schedule_intent(self, enabled: bool) -> None:
         """Submit schedule enable/disable intent to the queue (coalesces with siblings)."""

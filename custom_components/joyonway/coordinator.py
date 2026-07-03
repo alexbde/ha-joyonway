@@ -32,7 +32,6 @@ from .const import (
     DOMAIN,
     INTENT_COALESCE_SECONDS,
     OPT_AUTO_SYNC_CLOCK,
-    OZONE_MODE_AUTO,
     RX_STALE_SECONDS,
     SCAN_INTERVAL,
     TCP_TIMEOUT,
@@ -379,15 +378,15 @@ class JoyonwayCoordinator(DataUpdateCoordinator):
     def ozone_mode(self) -> str | None:
         """Return the current ozone mode (auto or manual)."""
         if self.data is None:
-            return OZONE_MODE_AUTO
-        return self.data.get("ozone_mode", OZONE_MODE_AUTO)
+            return None
+        return self.data.get("ozone_mode")
 
     @property
     def heater_mode(self) -> str | None:
         """Return the current heater mode (auto or manual)."""
         if self.data is None:
-            return "auto"
-        return self.data.get("heater_mode", "auto")
+            return None
+        return self.data.get("heater_mode")
 
     @property
     def auto_sync_clock(self) -> bool:
