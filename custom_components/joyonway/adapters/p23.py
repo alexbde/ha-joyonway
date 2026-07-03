@@ -57,6 +57,7 @@ class P23BaseAdapter(JoyonwayBaseAdapter):
     jets: list[JetDescription]
     supported_light_colors: list[str] = []
     has_blower: bool = False
+    supports_mode_switching: bool = False
 
     heater_state_map: dict[int, str] = HEATER_STATE_MAP
 
