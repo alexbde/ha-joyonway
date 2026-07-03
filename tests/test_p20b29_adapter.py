@@ -124,8 +124,8 @@ def test_parse_status_core_fields(adapter: P20B29Adapter, logical_frame: bytes) 
     assert result["light_color_index"] == 3
     assert result["blower"] is True
     assert result["ozone_active"] is False
-    assert result["ozone_mode"] is None
-    assert result["heater_mode"] is None
+    assert "ozone_mode" not in result
+    assert "heater_mode" not in result
 
 
 def test_parse_status_signature_variants(
@@ -367,8 +367,10 @@ def test_build_temp_command(adapter: P20B29Adapter) -> None:
 
 
 def test_build_unimplemented_mode_commands(adapter: P20B29Adapter) -> None:
-    assert adapter.build_ozone_mode_command("auto") == b""
-    assert adapter.build_heater_mode_command("auto") == b""
+    with pytest.raises(NotImplementedError):
+        adapter.build_ozone_mode_command("auto")
+    with pytest.raises(NotImplementedError):
+        adapter.build_heater_mode_command("auto")
 
 
 def test_build_ozone_manual_command(adapter: P20B29Adapter) -> None:
