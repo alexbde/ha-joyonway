@@ -15,7 +15,6 @@ import logging
 
 from homeassistant.components.time import TimeEntity
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -25,7 +24,7 @@ from .coordinator import (
     JoyonwayCoordinator,
     JoyonwayConfigEntry,
 )
-from .entity import JoyonwayCoordinatorEntity, device_info
+from .entity import JoyonwayCoordinatorEntity, device_info, validate_schedule_data
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -235,22 +234,4 @@ class SpaScheduleTime(JoyonwayCoordinatorEntity, TimeEntity):
 
     def _validate_schedule_data_available(self) -> None:
         """Raise explicit error when schedule payload prerequisites are missing."""
-        data = self.coordinator.data
-        if data is None:
-            raise HomeAssistantError("No data available from spa")
-
-        prefix = self._schedule_type
-        required_keys = [
-            f"{prefix}_slot1_start",
-            f"{prefix}_slot1_end",
-            f"{prefix}_slot2_start",
-            f"{prefix}_slot2_end",
-            f"{prefix}_slot1_enabled",
-            f"{prefix}_slot2_enabled",
-        ]
-        missing = [k for k in required_keys if k not in data]
-        if missing:
-            raise HomeAssistantError(
-                f"Cannot send schedule: missing data keys {missing}. "
-                "Wait for the spa to report a full broadcast before changing times."
-            )
+        validate_schedule_data(self.coordinator.data, self._schedule_type)

@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -13,6 +14,28 @@ from .const import CONF_MODEL, DEFAULT_MODEL, DOMAIN
 
 if TYPE_CHECKING:
     from .coordinator import JoyonwayCoordinator  # noqa: F401
+
+
+def validate_schedule_data(data: dict | None, schedule_type: str) -> None:
+    """Raise HomeAssistantError if schedule prerequisite data is missing."""
+    if data is None:
+        raise HomeAssistantError("No data available from spa")
+
+    prefix = schedule_type
+    required_keys = [
+        f"{prefix}_slot1_start",
+        f"{prefix}_slot1_end",
+        f"{prefix}_slot2_start",
+        f"{prefix}_slot2_end",
+        f"{prefix}_slot1_enabled",
+        f"{prefix}_slot2_enabled",
+    ]
+    missing = [k for k in required_keys if k not in data]
+    if missing:
+        raise HomeAssistantError(
+            f"Cannot send schedule: missing data keys {missing}. "
+            "Wait for the spa to report a full broadcast."
+        )
 
 
 def device_info(entry: ConfigEntry) -> DeviceInfo:
