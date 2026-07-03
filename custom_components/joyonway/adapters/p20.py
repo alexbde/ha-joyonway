@@ -164,7 +164,13 @@ class P20BaseAdapter:
     def parse_status(self, frame: bytes) -> dict | None:
         if len(frame) < 30:
             return None
-        if frame[: len(self.broadcast_signature)] != self.broadcast_signature:
+        # The broadcast signature for P20B29 can have 0x06 or 0x08 at index 7.
+        # Format: 1A FF 01 3C D2 B4 FF [06|08] 01
+        if (
+            frame[0:7] != b"\x1a\xff\x01\x3c\xd2\xb4\xff"
+            or frame[7] not in (0x06, 0x08)
+            or frame[8] != 0x01
+        ):
             return None
 
         current_temp_f = frame[IDX_CURRENT_TEMP]
@@ -190,7 +196,7 @@ class P20BaseAdapter:
             "light": bool(light_byte & MASK_LIGHT),
             "light_color_index": light_byte & MASK_LIGHT,
             "heater_active": self.heater_state_map.get(heater_base) == "heating",
-            "heater_enabled": bool(heater_byte & 0x20),
+            "heater_enabled": heater_base in (0x21, 0x24, 0x25),
             "status": status,
             "heater_byte": heater_byte,
             "ozone_active": bool(heater_byte & 0x01),

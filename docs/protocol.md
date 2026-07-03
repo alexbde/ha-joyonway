@@ -86,7 +86,7 @@ wire = 0x1A + escaped + 0x1D
 
 The controller sends periodic broadcast frames (~2/sec) to report the spa state to the touchpad display. Broadcast frames are prefixed with destination address `0xFF` and the family ID signature byte at index 8.
 
-*   **P20 family Header Signature:** `1A FF 01 3C D2 B4 FF 08 01` (Family ID `0x01` at index 8) [✅]
+*   **P20 family Header Signature:** `1A FF 01 3C D2 B4 FF 08 01` or `1A FF 01 3C D2 B4 FF 06 01` depending on hardware revision (Family ID `0x01` at index 8) [✅]
 *   **P23 family Header Signature:** `1A FF 01 3C D2 B4 FF 08 02` (Family ID `0x02` at index 8) [✅]
 *   **P25 family Header Signature:** `1A FF 01 3C D2 B4 FF 08 03` (Family ID `0x03` at index 8) [✅]
 
@@ -103,7 +103,7 @@ The controller sends periodic broadcast frames (~2/sec) to report the spa state 
 | **Blower State** | Byte 14, bit `0x08` [✅] | Byte 14, bit `0x08` [✅] | Byte 14, bit `0x08` [✅] | Blower ON/OFF. P25 also mirrors at Byte 28 bit 3. |
 | **Heater Byte Base** | `0x20` [✅] | `0x40` [✅] | `0x40` [✅]. P25B37: `0x00` [✅] | Idle base value of byte 14 (with blower bit `0x08` masked out). Each family uses a different base offset. |
 | **Heater Active (Heating)** | Byte 14, bit `0x04` [✅] | Byte 14, bit `0x04` (states `0x54`/`0x55`/`0xD4`/`0xD5`) [✨] | Byte 14, bit `0x04` (states `0x54`/`0x55`/`0xD4`/`0xD5`) [✅]. P25B37: states `0x14`/`0x15` [✅] | Heating element is actively ON. P20 bit-level check confirmed via working production script; full-byte state values pending capture. P25B37 standby and active heating states (state `0x14`) confirmed via captures. |
-| **Heater Enabled (Armed)** | Byte 14, bit `0x20` [✅] | Byte 14, bit `0x10` (states `0x50`/`0x54`/`0xD0`/`0xD4`) [✅] | Byte 14, bit `0x10` (states `0x50`/`0x54`/`0xD0`/`0xD4`) [✅]. P25B37: states `0x10`/`0x14` [✅], states `0x11`/`0x15` [✨] | Heater thermostat is armed/enabled. Note: Bit `0x10` is NOT set when ozone state is active. P20 uses bit `0x20` (the base offset) as the armed indicator. P25B37: base offset `0x00` means standby/heating state codes differ from P25B85 (standby state `0x10` and active heating state `0x14` confirmed via captures). |
+| **Heater Enabled (Armed)** | States `0x21`/`0x24`/`0x25` [✅] | Byte 14, bit `0x10` (states `0x50`/`0x54`/`0xD0`/`0xD4`) [✅] | Byte 14, bit `0x10` (states `0x50`/`0x54`/`0xD0`/`0xD4`) [✅]. P25B37: states `0x10`/`0x14` [✅], states `0x11`/`0x15` [✨] | Heater thermostat is armed/enabled. Note: Bit `0x10` is NOT set when ozone state is active. P20 uses active state codes (excluding base idle `0x20`) as the armed indicator to prevent false armed state when idle/off. P25B37: base offset `0x00` means standby/heating state codes differ from P25B85 (standby state `0x10` and active heating state `0x14` confirmed via captures). |
 | **Circulation Pump** | Byte 17, bit `0x80` [✅] | Byte 17, bit `0x80` [✅] | Byte 17, bit `0x80` [✅] | Circle icon on touchpad. Set during heating & filtration/ozone cycles. |
 | **Blower Config Mode** | [❓] | [❓] | Byte 13, bit `0x08` [✅] | Blower present/enabled flag: `1` = Yes, `0` = No (DIP switch setting). |
 | **Ozone Config Mode** | [❓] | Byte 13, bit `0x80` [✨] | Byte 13, bit `0x80` [✅] | Lock flag: `1` = Manual, `0` = Auto. P20 byte 13 is constant `0x6F` across all captures — bit mapping may differ. |
