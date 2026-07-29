@@ -34,29 +34,53 @@ from custom_components.joyonway.coordinator import JoyonwayCoordinator
 from custom_components.joyonway.protocol import (
     SYNC_FRAME,
     build_frame,
-    find_frames_with_indices,
     is_broadcast,
     unescape_frame,
+    validate_frame,
 )
 
-CAPTURE = ROOT / "tools" / "captures" / "baseline" / "00_baseline_before.bin"
+# Synthetic P25 broadcast payload (frame body without start byte, CRC and end
+# byte). Frame index i maps to payload index i - 1. Datetime bytes are left
+# zeroed so the frame carries no date information.
+_PAYLOAD_LENGTH = 60
+_IDX_CURRENT_TEMP = 9
+_IDX_JET_BYTE = 12
+_IDX_HEATER_STATE = 14
+_IDX_SETPOINT = 16
+_IDX_LIGHT_CYCLE = 17
+
+
+def _build_broadcast(**overrides: int) -> bytes:
+    """Build a wire-ready, CRC-valid P25B85 broadcast frame.
+
+    Built from scratch rather than a capture file so the test is hermetic
+    (``tools/captures/`` is gitignored and absent in CI).
+    """
+    payload = bytearray(_PAYLOAD_LENGTH)
+    # Bytes 1..8 of the frame make up the P25 family signature.
+    payload[0:8] = bytes([0xFF, 0x01, 0x3C, 0xD2, 0xB4, 0xFF, 0x08, 0x03])
+    payload[_IDX_CURRENT_TEMP - 1] = 0x63  # 99 F
+    payload[_IDX_JET_BYTE - 1] = 0x00
+    payload[_IDX_HEATER_STATE - 1] = 0x40  # P25B85 "off"
+    payload[_IDX_SETPOINT - 1] = 0x64  # 100 F
+    payload[_IDX_LIGHT_CYCLE - 1] = 0x00
+    for frame_index, value in overrides.items():
+        payload[int(frame_index) - 1] = value
+    return build_frame(bytes(payload))
 
 
 def _reference_broadcast() -> bytes:
-    """Return the first real P25B85 broadcast frame from the baseline capture."""
-    data = CAPTURE.read_bytes()
-    for frame, _ in find_frames_with_indices(data):
-        if is_broadcast(frame):
-            return frame
-    raise AssertionError("no broadcast frame in capture")
+    """Return a valid P25B85 broadcast frame."""
+    return _build_broadcast()
 
 
 def _variant_broadcast(index: int = 7, value: int = 0x09) -> bytes:
-    """Build a CRC-valid broadcast frame with an unknown header byte."""
-    logical = unescape_frame(_reference_broadcast(), unescape_full=True)
-    payload = bytearray(logical[1:-5])
-    payload[index - 1] = value  # frame index -> payload index
-    return build_frame(bytes(payload))
+    """Build a CRC-valid broadcast frame with an unknown header byte.
+
+    Models the issue #80 failure mode: a genuine frame from an unsupported
+    firmware/board revision that passes CRC but matches no adapter signature.
+    """
+    return _build_broadcast(**{str(index): value})
 
 
 class FakeHass:
@@ -115,14 +139,33 @@ def test_p20_accepts_both_length_bytes() -> None:
         assert adapter.matches_signature(header) is expected
 
 
-def test_reference_capture_still_parses() -> None:
-    """Real P25B85 broadcast frames are unaffected by the signature refactor."""
+def test_reference_broadcast_still_parses() -> None:
+    """A well-formed P25B85 broadcast is unaffected by the signature refactor."""
     adapter = get_adapter("P25B85")
-    frames = [f for f, _ in find_frames_with_indices(CAPTURE.read_bytes())]
-    broadcasts = [f for f in frames if is_broadcast(f)]
-    assert broadcasts
-    for frame in broadcasts:
-        assert adapter.parse_status(unescape_frame(frame, unescape_full=True))
+    frame = _reference_broadcast()
+    assert is_broadcast(frame)
+    assert validate_frame(frame, unescape_full=True)
+
+    logical = unescape_frame(frame, unescape_full=True)
+    data = adapter.parse_status(logical)
+    assert data is not None
+    assert data["current_temperature"] == 37  # 99 F
+    assert data["setpoint"] == 38  # 100 F
+    assert data["status"] == "off"
+
+
+def test_variant_broadcast_is_valid_but_unparseable() -> None:
+    """The issue #80 frame passes CRC yet matches no adapter.
+
+    This is what made the failure invisible: transport-level checks all pass.
+    """
+    frame = _variant_broadcast()
+    assert is_broadcast(frame)
+    assert validate_frame(frame, unescape_full=True)
+
+    logical = unescape_frame(frame, unescape_full=True)
+    assert logical[:9].hex(" ") == "1a ff 01 3c d2 b4 ff 09 03"
+    assert get_adapter("P25B85").parse_status(logical) is None
 
 
 # ── Config flow / runtime agreement ──────────────────────────────────
