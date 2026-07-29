@@ -90,6 +90,20 @@ The controller sends periodic broadcast frames (~2/sec) to report the spa state 
 *   **P23 family Header Signature:** `1A FF 01 3C D2 B4 FF 08 02` (Family ID `0x02` at index 8) [✅]
 *   **P25 family Header Signature:** `1A FF 01 3C D2 B4 FF 08 03` (Family ID `0x03` at index 8) [✅]
 
+**The full 9-byte header must be matched, not just the family ID.** Byte 7 is known to vary between hardware revisions (the P20 family uses `0x06` or `0x08`), so a frame can carry a familiar family ID at index 8 while still being an unsupported layout. Model detection and runtime parsing therefore both go through the adapter's `matches_signature()` so they can never disagree: a frame accepted during setup is guaranteed to be accepted by the reader loop.
+
+A broadcast frame whose CRC is valid but whose header matches no adapter is logged as a throttled `WARNING` containing the full frame hex, and is counted under `unrecognized` in the `rx_frame_stats` diagnostics. A correct CRC proves the bridge, wiring and serial settings are fine, so this always indicates an unsupported controller firmware/board revision rather than a transport problem.
+
+### 4.0. Bus Polling Cycle
+
+One full cycle repeats roughly every second and contains exactly **one** sync frame and **one** state broadcast, surrounded by per-peripheral unicast polls:
+
+```
+<unicast> BROADCAST <unicast> SYNC <unicast x10>
+```
+
+Observed unicast destinations are `0x10`–`0x13`, `0x20`–`0x23`, `0x30`, `0x40` and `0x50` (18–19 bytes each). These are normal traffic and carry no state for this integration, but their presence confirms the bus is alive; a stream containing only sync/unicast frames and no broadcast indicates a wiring or model-selection problem.
+
 ### 4.1. Broadcast State Map (0-indexed logical frame positions)
 
 | Functionality / Sensor | P20 Family | P23 Family | P25 Family | Notes |

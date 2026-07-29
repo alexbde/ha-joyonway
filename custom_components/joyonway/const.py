@@ -26,6 +26,10 @@ DEFAULT_NAME: str = "Joyonway Spa"
 # RS485 behaviour
 TCP_TIMEOUT: float = 5.0
 
+# Throttle for the "unrecognized broadcast frame" warning (seconds).
+# The spa broadcasts ~2x/sec, so this must be generous to avoid log spam.
+UNRECOGNIZED_FRAME_LOG_INTERVAL: float = 300.0
+
 # Intent queue
 INTENT_COALESCE_SECONDS: float = 0.3  # coalesce window for rapid intents
 INTENT_RETRY_COUNT: int = 1  # retry once on send failure
