@@ -25,6 +25,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt as dt_util
 
 from .adapters import get_adapter, ModelAdapter
+from .adapters.base import MIN_SIGNATURE_LENGTH
 from .const import (
     AVAILABILITY_GRACE_SECONDS,
     CLOCK_SYNC_COOLDOWN,
@@ -35,6 +36,7 @@ from .const import (
     RX_STALE_SECONDS,
     SCAN_INTERVAL,
     TCP_TIMEOUT,
+    UNRECOGNIZED_FRAME_LOG_INTERVAL,
 )
 from .protocol import (
     SYNC_FRAME,
@@ -333,6 +335,19 @@ class JoyonwayCoordinator(DataUpdateCoordinator):
         self._disconnect_ts: float | None = None
         self._first_data_event = asyncio.Event()
 
+        # RS485 frame accounting — surfaced in diagnostics and in the
+        # UpdateFailed message so "no data" is always explainable.
+        self._rx_frame_stats: dict[str, int] = {
+            "sync": 0,
+            "unicast": 0,
+            "broadcast": 0,
+            "crc_error": 0,
+            "unrecognized": 0,
+            "parsed": 0,
+        }
+        self._last_unrecognized_frame: str | None = None
+        self._last_unrecognized_log_ts: float | None = None
+
         # Command pacing & synchronization
         self._sync_frame_event = asyncio.Event()
         self._sync_timeout = 2.0
@@ -366,6 +381,16 @@ class JoyonwayCoordinator(DataUpdateCoordinator):
     def adapter(self) -> ModelAdapter:
         """Return the model adapter."""
         return self._adapter
+
+    @property
+    def rx_frame_stats(self) -> dict[str, int]:
+        """Return a copy of the RS485 frame accounting counters."""
+        return dict(self._rx_frame_stats)
+
+    @property
+    def last_unrecognized_frame(self) -> str | None:
+        """Return the hex of the last broadcast frame the adapter could not parse."""
+        return self._last_unrecognized_frame
 
     @property
     def has_blower(self) -> bool:
@@ -510,9 +535,13 @@ class JoyonwayCoordinator(DataUpdateCoordinator):
                     break
                 buf.extend(chunk)
 
+                # Any inbound byte proves the TCP link is healthy. Tracking this
+                # separately from a successful parse avoids pointless reconnect
+                # loops when the bus is alive but frames are not parseable.
+                self._last_rx_ts = time.monotonic()
+
                 result, consumed = self._try_parse_buffer(buf)
                 if result is not None:
-                    self._last_rx_ts = time.monotonic()
                     self._disconnect_ts = None
                     self._first_data_event.set()
 
@@ -539,6 +568,41 @@ class JoyonwayCoordinator(DataUpdateCoordinator):
         _LOGGER.debug("RS485 sync frame received")
         self._sync_frame_event.set()
 
+    def _log_unrecognized_broadcast(self, logical: bytes) -> None:
+        """Warn (throttled) about a CRC-valid broadcast the adapter cannot parse.
+
+        This is the failure mode where the bridge, wiring and baud rate are all
+        correct but the controller firmware/board revision emits a header this
+        adapter does not know. Without this log the frame would be dropped
+        silently and the integration would only report "No data".
+        """
+        self._last_unrecognized_frame = logical.hex()
+
+        now = time.monotonic()
+        if (
+            self._last_unrecognized_log_ts is not None
+            and now - self._last_unrecognized_log_ts < UNRECOGNIZED_FRAME_LOG_INTERVAL
+        ):
+            return
+        self._last_unrecognized_log_ts = now
+
+        expected = getattr(self._adapter, "broadcast_signature", b"")
+        _LOGGER.warning(
+            "Received a valid RS485 broadcast frame that the '%s' adapter cannot "
+            "parse. The CRC is correct, so the bridge, wiring and baud rate are "
+            "fine — only the frame layout is unknown. Expected header %s, got %s "
+            "(frame length %d, minimum %d). Frame stats: %s. "
+            "Please report the following frame at "
+            "https://github.com/alexbde/ha-joyonway/issues → %s",
+            self.model,
+            expected.hex(" ") or "<none>",
+            logical[:MIN_SIGNATURE_LENGTH].hex(" "),
+            len(logical),
+            MIN_SIGNATURE_LENGTH,
+            self._rx_frame_stats,
+            logical.hex(),
+        )
+
     def _try_parse_buffer(self, buf: bytes | bytearray) -> tuple[dict | None, int]:
         """Return (parsed_data, consumed_bytes)."""
         frames = find_frames_with_indices(bytes(buf))
@@ -551,14 +615,21 @@ class JoyonwayCoordinator(DataUpdateCoordinator):
         latest_data: dict | None = None
         for raw_frame, _ in frames:
             if raw_frame == SYNC_FRAME:
+                self._rx_frame_stats["sync"] += 1
                 self._handle_sync_frame()
                 continue
 
             if not is_broadcast(raw_frame):
+                # Expected bus traffic: the controller polls each peripheral
+                # individually (~11 unicast frames per broadcast cycle).
+                self._rx_frame_stats["unicast"] += 1
                 continue
+
+            self._rx_frame_stats["broadcast"] += 1
             if not validate_frame(
                 raw_frame, unescape_full=self._adapter.unescape_full_frame
             ):
+                self._rx_frame_stats["crc_error"] += 1
                 _LOGGER.debug(
                     "Frame validation failed (unescape_full=%s): %s",
                     self._adapter.unescape_full_frame,
@@ -575,8 +646,13 @@ class JoyonwayCoordinator(DataUpdateCoordinator):
             except (IndexError, ValueError, KeyError):
                 _LOGGER.exception("Adapter parse failed for frame: %s", logical.hex())
                 continue
-            if data is not None:
-                latest_data = data
+            if data is None:
+                self._rx_frame_stats["unrecognized"] += 1
+                self._log_unrecognized_broadcast(logical)
+                continue
+
+            self._rx_frame_stats["parsed"] += 1
+            latest_data = data
 
         return latest_data, last_end
 
@@ -640,8 +716,39 @@ class JoyonwayCoordinator(DataUpdateCoordinator):
         if not self._available:
             await self._connect()
         if self.data is None:
-            raise UpdateFailed("No data from RS485 bridge")
+            raise UpdateFailed(self._no_data_reason())
         return self.data
+
+    def _no_data_reason(self) -> str:
+        """Build an actionable message explaining why no data was parsed."""
+        stats = self._rx_frame_stats
+        if stats["unrecognized"]:
+            return (
+                f"No data from RS485 bridge: received {stats['unrecognized']} valid "
+                f"broadcast frame(s) that the '{self.model}' adapter cannot parse. "
+                "The wiring and bridge are fine — the controller model is likely "
+                "wrong or its firmware revision is unsupported. "
+                "Check the warning above for the raw frame"
+            )
+        if stats["crc_error"]:
+            return (
+                f"No data from RS485 bridge: {stats['crc_error']} broadcast frame(s) "
+                "failed CRC validation. This usually means corrupted serial data — "
+                "verify the bridge baud rate (38400), data bits, parity and stop bits"
+            )
+        if stats["broadcast"]:
+            return (
+                "No data from RS485 bridge: broadcast frames were received but none "
+                "could be parsed"
+            )
+        if stats["sync"] or stats["unicast"]:
+            return (
+                f"No data from RS485 bridge: bus traffic is flowing "
+                f"(sync={stats['sync']}, unicast={stats['unicast']}) but no broadcast "
+                "frames arrived. Verify the RS485 A/B lines are connected to the "
+                "controller bus and that the selected model is correct"
+            )
+        return "No data from RS485 bridge: no RS485 frames received at all"
 
     # ── Clock drift check ────────────────────────────────────────────
 

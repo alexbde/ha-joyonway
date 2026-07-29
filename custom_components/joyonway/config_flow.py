@@ -19,7 +19,7 @@ from homeassistant.helpers.selector import (
     SelectSelectorMode,
 )
 
-from .adapters import ADAPTERS
+from .adapters import ADAPTERS, get_adapter
 from .const import (
     CONF_MODEL,
     DEFAULT_HOST,
@@ -27,7 +27,7 @@ from .const import (
     DEFAULT_PORT,
     DOMAIN,
 )
-from .protocol import find_frames_with_indices
+from .protocol import find_frames_with_indices, is_broadcast, unescape_frame
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -38,13 +38,10 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
     }
 )
 
-SIGNATURE_MODEL_MAP: dict[int, str] = {
-    0x01: "P20B29",
-    0x02: "P23B32",
-    # P25B85 and P25B37 share signature byte 0x03; user can correct on the
-    # model confirmation step. P25B85 is the more common variant.
-    0x03: "P25B85",
-}
+# Order in which adapters are probed against an observed broadcast frame.
+# P25B85 and P25B37 share the same broadcast signature, so the more common
+# P25B85 is tried first; the user can correct this on the confirmation step.
+DETECTION_PRIORITY: tuple[str, ...] = ("P25B85", "P25B37", "P23B32", "P20B29")
 
 
 def _model_schema(default: str | None = None) -> vol.Schema:
@@ -62,6 +59,23 @@ def _model_schema(default: str | None = None) -> vol.Schema:
         else vol.Required(CONF_MODEL)
     )
     return vol.Schema({field: selector})
+
+
+def _match_model(raw_frame: bytes) -> str | None:
+    """Return the model whose adapter claims this raw broadcast frame.
+
+    Uses each adapter's own ``matches_signature`` so that config-flow detection
+    and runtime frame parsing can never disagree.
+    """
+    for model in (*DETECTION_PRIORITY, *sorted(ADAPTERS)):
+        try:
+            adapter = get_adapter(model)
+        except ValueError:  # pragma: no cover - registry mismatch
+            continue
+        logical = unescape_frame(raw_frame, unescape_full=adapter.unescape_full_frame)
+        if adapter.matches_signature(logical):
+            return model
+    return None
 
 
 async def _detect_model(host: str, port: int, timeout: float = 5.0) -> str | None:
@@ -93,13 +107,21 @@ async def _detect_model(host: str, port: int, timeout: float = 5.0) -> str | Non
             buf.extend(chunk)
             frames = find_frames_with_indices(bytes(buf))
             for raw_frame, _ in frames:
-                # Need at least 9 bytes to read index 8
-                if len(raw_frame) > 8 and raw_frame[1] == 0xFF:
-                    sig = raw_frame[8]
-                    detected_model = SIGNATURE_MODEL_MAP.get(sig, "")
-                    writer.close()
-                    await writer.wait_closed()
-                    return detected_model
+                if not is_broadcast(raw_frame):
+                    continue
+                detected_model = _match_model(raw_frame)
+                if detected_model is None:
+                    _LOGGER.warning(
+                        "Received an RS485 broadcast frame from %s:%s that matches "
+                        "no known controller model. Please report this frame at "
+                        "https://github.com/alexbde/ha-joyonway/issues → %s",
+                        host,
+                        port,
+                        raw_frame.hex(),
+                    )
+                writer.close()
+                await writer.wait_closed()
+                return detected_model if detected_model is not None else ""
 
         writer.close()
         await writer.wait_closed()

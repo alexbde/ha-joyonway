@@ -74,6 +74,14 @@ class ModelAdapter(Protocol):
         """Map color name to index."""
         ...
 
+    def matches_signature(self, frame: bytes) -> bool:
+        """Return True if the unescaped frame header matches this model.
+
+        Header-only check (no length or CRC requirement) so that model
+        detection and runtime parsing always agree on the same criteria.
+        """
+        ...
+
     def parse_status(self, frame: bytes) -> dict | None:
         """Extract state dict from an unescaped broadcast frame.
 
@@ -184,6 +192,11 @@ class ModelAdapter(Protocol):
 
 
 # Logical indices and masks for RS485 payload parsing
+# Number of header bytes required before a model signature can be evaluated.
+MIN_SIGNATURE_LENGTH = 9
+# Shortest unescaped broadcast frame that carries a full status payload.
+MIN_BROADCAST_FRAME_LENGTH = 30
+
 IDX_CURRENT_TEMP = 9
 IDX_JET_BYTE = 12
 IDX_OZONE_MODE = 13
@@ -311,6 +324,17 @@ class JoyonwayBaseAdapter:
             return False
         return True
 
+    def matches_signature(self, frame: bytes) -> bool:
+        """Return True if the unescaped frame header matches this model.
+
+        Public, length-safe wrapper around ``_check_signature``. Model
+        detection (config flow) and runtime parsing both go through this so
+        they can never disagree about which frames belong to a model.
+        """
+        if len(frame) < MIN_SIGNATURE_LENGTH:
+            return False
+        return self._check_signature(frame)
+
     def _post_parse_status(
         self,
         result: dict,
@@ -324,9 +348,9 @@ class JoyonwayBaseAdapter:
 
     def parse_status(self, frame: bytes) -> dict | None:
         """Extract state dict from an unescaped broadcast frame."""
-        if len(frame) < 30:
+        if len(frame) < MIN_BROADCAST_FRAME_LENGTH:
             return None
-        if not self._check_signature(frame):
+        if not self.matches_signature(frame):
             return None
 
         current_temp_f = frame[IDX_CURRENT_TEMP]
