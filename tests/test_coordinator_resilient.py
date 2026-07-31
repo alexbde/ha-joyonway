@@ -24,6 +24,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from homeassistant.const import CONF_HOST, CONF_PORT
+from homeassistant.exceptions import ConfigEntryError
+
 from custom_components.joyonway.const import (
     AVAILABILITY_GRACE_SECONDS,
     RX_STALE_SECONDS,
@@ -185,6 +187,48 @@ async def test_stale_rx_triggers_reconnect(coordinator, hass):
     coordinator._connect.assert_awaited_once()
     # Data is still returned (cached) since it's not None
     assert result == {"test": 1}
+
+
+@pytest.mark.asyncio
+async def test_unsupported_board_version_bypasses_cached_data_fast_path(coordinator):
+    """An unsupported board version fails permanently, even with fresh cached data.
+
+    Regression test: previously the "connection alive" fast path returned
+    cached data before checking _unsupported_board_version, so a controller
+    that switched to an unsupported version mid-session (after already
+    having parsed valid data once) would keep serving stale state forever.
+    """
+    coordinator._available = True
+    coordinator.data = {"test": 1}
+    coordinator._last_rx_ts = time.monotonic()
+    coordinator._unsupported_board_version = 0x09
+
+    with pytest.raises(ConfigEntryError):
+        await coordinator._async_update_data()
+
+
+def test_unrecognized_broadcast_schedules_reload_on_transition(coordinator, hass):
+    """First detection of an unsupported board version schedules an entry reload."""
+    coordinator._adapter.unsupported_board_version = MagicMock(return_value=0x09)
+
+    coordinator._log_unrecognized_broadcast(b"\x1a\xff\x00\x00\x00\x00\x00\x00\x00\x1d")
+
+    assert coordinator._unsupported_board_version == 0x09
+    hass.config_entries.async_schedule_reload.assert_called_once_with(
+        coordinator.entry.entry_id
+    )
+
+
+def test_unrecognized_broadcast_does_not_reload_repeatedly(coordinator, hass):
+    """Subsequent unrecognized broadcasts with the same version don't reschedule."""
+    coordinator._adapter.unsupported_board_version = MagicMock(return_value=0x09)
+
+    coordinator._log_unrecognized_broadcast(b"\x1a\xff\x00\x00\x00\x00\x00\x00\x00\x1d")
+    coordinator._log_unrecognized_broadcast(b"\x1a\xff\x00\x00\x00\x00\x00\x00\x00\x1d")
+
+    hass.config_entries.async_schedule_reload.assert_called_once_with(
+        coordinator.entry.entry_id
+    )
 
 
 # ── Command send tests ───────────────────────────────────────────────

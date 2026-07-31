@@ -590,9 +590,23 @@ class JoyonwayCoordinator(DataUpdateCoordinator):
         integration would only report "No data".
         """
         self._last_unrecognized_frame = logical.hex()
+        was_supported = self._unsupported_board_version is None
         self._unsupported_board_version = self._adapter.unsupported_board_version(
             logical
         )
+
+        if was_supported and self._unsupported_board_version is not None:
+            # The controller just started broadcasting an unverified board
+            # version mid-session (e.g. after a firmware update). Reload the
+            # entry immediately so first-refresh permanently fails it rather
+            # than silently continuing to serve stale/parsed state or
+            # building writes from it.
+            _LOGGER.error(
+                "Controller board version changed to an unsupported version "
+                "mid-session; reloading the config entry to fail it out of "
+                "service"
+            )
+            self.hass.config_entries.async_schedule_reload(self.entry.entry_id)
 
         now = time.monotonic()
         if (
@@ -746,6 +760,11 @@ class JoyonwayCoordinator(DataUpdateCoordinator):
     async def _async_update_data(self) -> dict:
         """Fallback: if persistent connection is alive, return cached data."""
         now_ts = time.monotonic()
+        if self._unsupported_board_version is not None:
+            # A same-family unsupported board version was observed — never
+            # keep serving cached/stale data or masking this behind the
+            # "connection alive" fast path below. Fail permanently.
+            raise ConfigEntryError(self._no_data_reason())
         if self._available and self.data is not None:
             if now_ts - self._last_rx_ts > RX_STALE_SECONDS:
                 _LOGGER.warning(
@@ -761,8 +780,6 @@ class JoyonwayCoordinator(DataUpdateCoordinator):
         if not self._available:
             await self._connect()
         if self.data is None:
-            if self._unsupported_board_version is not None:
-                raise ConfigEntryError(self._no_data_reason())
             raise UpdateFailed(self._no_data_reason())
         return self.data
 
