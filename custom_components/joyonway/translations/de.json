@@ -36,7 +36,8 @@
     },
     "abort": {
       "already_configured": "Diese Brücke ist bereits konfiguriert.",
-      "reconfigure_successful": "Modell erfolgreich aktualisiert."
+      "reconfigure_successful": "Modell erfolgreich aktualisiert.",
+      "unsupported_board_version": "⚠️ Nicht unterstützte Platinen-Version **{version}**.\n\nIhre **{model}**-Steuerung wurde erkannt, und Verkabelung, Brücke und Baudrate funktionieren einwandfrei — diese Platinen-Version wurde jedoch nie verifiziert, sodass ihr Datenlayout unbekannt ist und das Auslesen unsicher sein könnte.\n\nBitte [eröffnen Sie ein GitHub-Issue]({issues_url}) mit Ihrer Platinen- und Panel-Version (Touchpad: **Menu** > **Set** > **About**), damit Unterstützung ergänzt werden kann. Der Rohdaten-Frame wurde in das Home-Assistant-Protokoll geschrieben."
     }
   },
 

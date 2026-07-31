@@ -24,6 +24,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: JoyonwayConfigEntry) -> 
     model = entry.data.get(CONF_MODEL, DEFAULT_MODEL)
 
     coordinator = JoyonwayCoordinator(hass, host, port, model, entry)
+    # Register cleanup with the config entry immediately: if the first
+    # refresh below raises ConfigEntryError (permanent unsupported-hardware
+    # failure), Home Assistant processes on_unload callbacks even though
+    # async_unload_entry is never called for an entry that never loaded.
+    # This guarantees the TCP reader/reconnect task and periodic clock
+    # callback are always torn down.
+    entry.async_on_unload(coordinator.async_shutdown)
     await coordinator.async_setup()
     entry.runtime_data = coordinator
 
@@ -36,8 +43,4 @@ async def async_setup_entry(hass: HomeAssistant, entry: JoyonwayConfigEntry) -> 
 
 async def async_unload_entry(hass: HomeAssistant, entry: JoyonwayConfigEntry) -> bool:
     """Unload a config entry."""
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-    if unload_ok:
-        coordinator = entry.runtime_data
-        await coordinator.async_shutdown()
-    return unload_ok
+    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

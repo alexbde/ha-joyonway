@@ -16,6 +16,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from custom_components.joyonway.config_flow import (
+    DetectionResult,
     JoyonwayConfigFlow,
     _detect_model,
 )
@@ -42,7 +43,7 @@ async def test_detect_model_success() -> None:
         "asyncio.open_connection", return_value=(mock_reader, mock_writer)
     ) as mock_open:
         result = await _detect_model("127.0.0.1", 8899)
-        assert result == "P25B85"
+        assert result.model == "P25B85"
         mock_open.assert_called_once_with("127.0.0.1", 8899)
         mock_writer.close.assert_called_once()
         mock_writer.wait_closed.assert_awaited_once()
@@ -55,7 +56,7 @@ async def test_detect_model_failure() -> None:
         "asyncio.open_connection", side_effect=OSError("connection refused")
     ) as mock_open:
         result = await _detect_model("127.0.0.1", 8899)
-        assert result is None
+        assert result.connected is False
         mock_open.assert_called_once_with("127.0.0.1", 8899)
 
 
@@ -72,7 +73,7 @@ async def test_detect_model_empty_stream() -> None:
         "asyncio.open_connection", return_value=(mock_reader, mock_writer)
     ) as mock_open:
         result = await _detect_model("127.0.0.1", 8899)
-        assert result is None
+        assert result.connected is False
         mock_open.assert_called_once_with("127.0.0.1", 8899)
         mock_writer.close.assert_called_once()
         mock_writer.wait_closed.assert_awaited_once()
@@ -107,7 +108,7 @@ async def test_config_flow_user_step_success() -> None:
 
     with patch(
         "custom_components.joyonway.config_flow._detect_model",
-        return_value="P25B85",
+        return_value=DetectionResult(connected=True, model="P25B85"),
     ) as mock_test:
         result = await flow.async_step_user(user_input)
 
@@ -146,7 +147,7 @@ async def test_config_flow_user_step_cannot_connect() -> None:
 
     with patch(
         "custom_components.joyonway.config_flow._detect_model",
-        return_value=None,
+        return_value=DetectionResult(connected=False),
     ):
         result = await flow.async_step_user(user_input)
 
@@ -170,7 +171,7 @@ async def test_detect_model_p23b32() -> None:
         "asyncio.open_connection", return_value=(mock_reader, mock_writer)
     ) as mock_open:
         result = await _detect_model("127.0.0.1", 8899)
-        assert result == "P23B32"
+        assert result.model == "P23B32"
         mock_open.assert_called_once_with("127.0.0.1", 8899)
         mock_writer.close.assert_called_once()
         mock_writer.wait_closed.assert_awaited_once()
@@ -191,7 +192,9 @@ async def test_detect_model_unknown_signature() -> None:
         "asyncio.open_connection", return_value=(mock_reader, mock_writer)
     ) as mock_open:
         result = await _detect_model("127.0.0.1", 8899)
-        assert result == ""
+        assert result.connected is True
+        assert result.model is None
+        assert result.board_version is None
         mock_open.assert_called_once_with("127.0.0.1", 8899)
         mock_writer.close.assert_called_once()
         mock_writer.wait_closed.assert_awaited_once()
@@ -236,7 +239,7 @@ async def test_config_flow_model_confirm_unknown_signature() -> None:
 
     with patch(
         "custom_components.joyonway.config_flow._detect_model",
-        return_value="",
+        return_value=DetectionResult(connected=True),
     ) as mock_detect:
         result = await flow.async_step_user(user_input)
 

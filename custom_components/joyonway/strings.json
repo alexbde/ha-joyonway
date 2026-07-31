@@ -36,7 +36,8 @@
     },
     "abort": {
       "already_configured": "This bridge is already configured.",
-      "reconfigure_successful": "Model updated successfully."
+      "reconfigure_successful": "Model updated successfully.",
+      "unsupported_board_version": "⚠️ Unsupported controller board version **{version}**.\n\nYour **{model}** controller was recognised and your wiring, bridge and baud rate are all working correctly — but this board version has never been verified, so its data layout is unknown and reading it could be unsafe.\n\nPlease [open a GitHub issue]({issues_url}) with your board and panel version (touchpad: **Menu** > **Set** > **About**) so support can be added. The raw frame has been written to the Home Assistant log."
     }
   },
 

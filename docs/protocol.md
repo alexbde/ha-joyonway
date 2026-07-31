@@ -84,13 +84,37 @@ wire = 0x1A + escaped + 0x1D
 
 ## 4. Broadcast Frames (State Bytes)
 
-The controller sends periodic broadcast frames (~2/sec) to report the spa state to the touchpad display. Broadcast frames are prefixed with destination address `0xFF` and the family ID signature byte at index 8.
+The controller sends periodic broadcast frames (~2/sec) to report the spa state to the touchpad display. The 9-byte broadcast header is:
 
-*   **P20 family Header Signature:** `1A FF 01 3C D2 B4 FF 08 01` or `1A FF 01 3C D2 B4 FF 06 01` depending on hardware revision (Family ID `0x01` at index 8) [✅]
-*   **P23 family Header Signature:** `1A FF 01 3C D2 B4 FF 08 02` (Family ID `0x02` at index 8) [✅]
-*   **P25 family Header Signature:** `1A FF 01 3C D2 B4 FF 08 03` (Family ID `0x03` at index 8) [✅]
+```
+1A FF 01 3C D2 B4 FF <board_version> <family>
+```
 
-**The full 9-byte header must be matched, not just the family ID.** Byte 7 is known to vary between hardware revisions (the P20 family uses `0x06` or `0x08`), so a frame can carry a familiar family ID at index 8 while still being an unsupported layout. Model detection and runtime parsing therefore both go through the adapter's `matches_signature()` so they can never disagree: a frame accepted during setup is guaranteed to be accepted by the reader loop.
+| Bytes | Value | Meaning |
+| :--- | :--- | :--- |
+| 0-6 | `1A FF 01 3C D2 B4 FF` | Invariant prefix (start byte, broadcast destination address `0xFF`). Must match exactly. [✅] |
+| 7 | `0x08` or `0x06` | **Controller board firmware version**, minor digit only: `0x08` = v1.8, `0x06` = v1.6. Matched against the set of known values. [✅] |
+| 8 | `0x01` / `0x02` / `0x03` | Model family: P20 / P23 / P25. Must match exactly. [✅] |
+
+*   **Board version byte (index 7):** the value tracks the **Board Version** shown on the touchpad under **Settings → About**, encoded as the minor digit of the `1.x` version string. Correlated on two independent P25 units:
+
+    | Unit | Board Version | Panel Version | Byte 7 |
+    | :--- | :--- | :--- | :--- |
+    | Reference (PCB `P2325B0003 R05`) | `1.8` | `1.7` | `0x08` [✅] |
+    | Community unit (issue #80) | `1.6` | `1.6` | `0x06` [✅] |
+
+    The reference unit disambiguates *which* version it reports: its panel is `1.7` while its board is `1.8`, and byte 7 is `0x08` — so this is the **controller board** version, not the touchpad panel version. That is consistent with the frame originating from the controller. The P20 family shows the same `0x06`/`0x08` split across hardware revisions [✅].
+
+    It does **not** identify the model and does **not** encode the frame length — the v1.6 unit broadcasts a 66-byte frame that is byte-for-byte layout-identical to the reference unit's v1.8 frame (5778 captured broadcasts, all `0x08`). The state byte map has therefore been stable across at least two board versions.
+
+*   **P20 family Header Signature:** `1A FF 01 3C D2 B4 FF [08|06] 01` (Family ID `0x01` at index 8) [✅]
+*   **P23 family Header Signature:** `1A FF 01 3C D2 B4 FF [08|06] 02` (Family ID `0x02` at index 8) [✅]
+*   **P25 family Header Signature:** `1A FF 01 3C D2 B4 FF [08|06] 03` (Family ID `0x03` at index 8) [✅]
+
+**Bytes 0-6 and byte 8 must be matched exactly; byte 7 is matched against the set of known board versions.** Matching the family ID alone is not sufficient, and matching all 9 bytes verbatim is too strict — it locks out valid board versions. The relaxed byte is safe because the family ID at index 8 still separates the models, so no adapter can claim another family's frames. Model detection and runtime parsing both go through the adapter's `matches_signature()` so they can never disagree: a frame accepted during setup is guaranteed to be accepted by the reader loop.
+
+> [!NOTE]
+> Because byte 7 is a version number, a future board (v1.9, v2.0, …) will emit a value that is not in the known set and is **rejected**. This is a deliberate trade-off: the payload layout is only *known* to be stable for v1.6 and v1.8, and silently parsing an unverified layout could feed wrong state into write commands. The failure is loud rather than silent — setup aborts with a user-facing message naming the unsupported version, an `ERROR` with the full frame is logged, and adding a newly confirmed version is a one-line change to `KNOWN_BOARD_VERSIONS` in `adapters/base.py`.
 
 A broadcast frame whose CRC is valid but whose header matches no adapter is logged as a throttled `WARNING` containing the full frame hex, and is counted under `unrecognized` in the `rx_frame_stats` diagnostics. A correct CRC proves the bridge, wiring and serial settings are fine, so this always indicates an unsupported controller firmware/board revision rather than a transport problem.
 
