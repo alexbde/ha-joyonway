@@ -70,12 +70,13 @@ For a detailed, step-by-step guide on how to wire the RS485 bridge and configure
 ### Via HACS (recommended)
 
 1. Open **HACS** in Home Assistant
-2. Click ⋮ (top right) → **Custom repositories**
-3. Repository URL: `https://github.com/alexbde/ha-joyonway`
-4. Category: **Integration**
-5. Click **Add**, then find **Joyonway Spa** and install
-6. **Restart Home Assistant**
-7. Go to **Settings → Devices & Services → Add Integration → "Joyonway Spa"**
+2. Search for **Joyonway Spa** and select it
+3. Click ⋮ (top right) → **Download**
+4. Click **Download** again in the confirmation dialog
+5. **Restart Home Assistant**
+6. Go to **Settings → Devices & Services → Add Integration → "Joyonway Spa"**
+
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=alexbde&repository=ha-joyonway&category=integration)
 
 ### Manual
 
