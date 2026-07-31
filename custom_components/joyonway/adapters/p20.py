@@ -20,9 +20,9 @@ from .base import (
     celsius_to_fahrenheit,
 )
 
-# Invariant common prefix of the signature (bytes 0-6).
-# The byte at index 7 can be 0x06 or 0x08, and index 8 is 0x01.
-P20B29_SIGNATURE = bytes([0x1A, 0xFF, 0x01, 0x3C, 0xD2, 0xB4, 0xFF])
+# Broadcast header for P20 (bytes 0-8). Byte 7 is the board version, byte 8
+# (0x01) is the family ID.
+P20B29_SIGNATURE = bytes([0x1A, 0xFF, 0x01, 0x3C, 0xD2, 0xB4, 0xFF, 0x08, 0x01])
 
 MASK_JET_LEFT = 0x04
 MASK_JET_RIGHT = 0x10
@@ -70,19 +70,6 @@ class P20BaseAdapter(JoyonwayBaseAdapter):
     def color_name_to_index(self, name: str) -> int | None:
         """Map color name to index."""
         return LIGHT_COLOR_NAME_TO_INDEX.get(name)
-
-    def _check_signature(self, frame: bytes) -> bool:
-        """The broadcast signature for P20B29 can have 0x06 or 0x08 at index 7.
-
-        Format: 1A FF 01 3C D2 B4 FF [06|08] 01
-        """
-        if (
-            frame[:7] != self.broadcast_signature
-            or frame[7] not in (0x06, 0x08)
-            or frame[8] != 0x01
-        ):
-            return False
-        return True
 
     def _post_parse_status(
         self,

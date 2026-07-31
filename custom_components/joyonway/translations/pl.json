@@ -36,7 +36,8 @@
     },
     "abort": {
       "already_configured": "Ten mostek jest już skonfigurowany.",
-      "reconfigure_successful": "Model zaktualizowany pomyślnie."
+      "reconfigure_successful": "Model zaktualizowany pomyślnie.",
+      "unsupported_board_version": "⚠️ Nieobsługiwana wersja płyty sterownika **{version}**.\n\nTwój sterownik **{model}** został rozpoznany, a okablowanie, mostek i prędkość transmisji działają prawidłowo — ale ta wersja płyty nigdy nie została zweryfikowana, więc układ jej danych jest nieznany, a odczyt może być niebezpieczny.\n\n[Zgłoś problem na GitHubie]({issues_url}), podając wersję płyty i panelu (panel dotykowy: **Menu** > **Set** > **About**), aby można było dodać obsługę. Surowa ramka została zapisana w dzienniku Home Assistant."
     }
   },
 

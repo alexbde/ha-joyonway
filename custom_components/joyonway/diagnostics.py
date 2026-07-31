@@ -39,6 +39,7 @@ async def async_get_config_entry_diagnostics(
         "model": coordinator.model,
         "rx_frame_stats": coordinator.rx_frame_stats,
         "last_unrecognized_frame": coordinator.last_unrecognized_frame,
+        "unsupported_board_version": coordinator.unsupported_board_version,
         "adapter_broadcast_signature": getattr(
             coordinator.adapter, "broadcast_signature", b""
         ).hex(" "),

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 import logging
 from typing import Any
 
@@ -20,6 +21,7 @@ from homeassistant.helpers.selector import (
 )
 
 from .adapters import ADAPTERS, get_adapter
+from .adapters.base import format_board_version
 from .const import (
     CONF_MODEL,
     DEFAULT_HOST,
@@ -78,14 +80,32 @@ def _match_model(raw_frame: bytes) -> str | None:
     return None
 
 
-async def _detect_model(host: str, port: int, timeout: float = 5.0) -> str | None:
-    """Test TCP connection and auto-detect the controller model from a broadcast frame.
+def _match_unsupported_board_version(raw_frame: bytes) -> tuple[str, str] | None:
+    """Return (model, board version) for a known model on an unverified board."""
+    for model in (*DETECTION_PRIORITY, *sorted(ADAPTERS)):
+        try:
+            adapter = get_adapter(model)
+        except ValueError:  # pragma: no cover - registry mismatch
+            continue
+        logical = unescape_frame(raw_frame, unescape_full=adapter.unescape_full_frame)
+        version = adapter.unsupported_board_version(logical)
+        if version is not None:
+            return model, format_board_version(version)
+    return None
 
-    Returns:
-    - str (model name hint) if connected and signature recognized
-    - "" (empty string) if connected but signature unknown
-    - None if connection failed or times out
-    """
+
+@dataclass(frozen=True)
+class DetectionResult:
+    """Outcome of probing the bridge for a broadcast frame."""
+
+    connected: bool
+    model: str | None = None
+    unsupported_model: str | None = None
+    board_version: str | None = None
+
+
+async def _detect_model(host: str, port: int, timeout: float = 5.0) -> DetectionResult:
+    """Probe the bridge and identify the controller from a broadcast frame."""
     try:
         reader, writer = await asyncio.wait_for(
             asyncio.open_connection(host, port), timeout=timeout
@@ -110,25 +130,46 @@ async def _detect_model(host: str, port: int, timeout: float = 5.0) -> str | Non
                 if not is_broadcast(raw_frame):
                     continue
                 detected_model = _match_model(raw_frame)
+                result = DetectionResult(connected=True, model=detected_model)
                 if detected_model is None:
-                    _LOGGER.warning(
-                        "Received an RS485 broadcast frame from %s:%s that matches "
-                        "no known controller model. Please report this frame at "
-                        "https://github.com/alexbde/ha-joyonway/issues → %s",
-                        host,
-                        port,
-                        raw_frame.hex(),
-                    )
+                    unsupported = _match_unsupported_board_version(raw_frame)
+                    if unsupported is not None:
+                        model, version = unsupported
+                        _LOGGER.error(
+                            "Unsupported controller board version %s on a '%s' from "
+                            "%s:%s. Please open an issue at "
+                            "https://github.com/alexbde/ha-joyonway/issues "
+                            "including this frame → %s",
+                            version,
+                            model,
+                            host,
+                            port,
+                            raw_frame.hex(),
+                        )
+                        result = DetectionResult(
+                            connected=True,
+                            unsupported_model=model,
+                            board_version=version,
+                        )
+                    else:
+                        _LOGGER.warning(
+                            "Received an RS485 broadcast frame from %s:%s that matches "
+                            "no known controller model. Please report this frame at "
+                            "https://github.com/alexbde/ha-joyonway/issues → %s",
+                            host,
+                            port,
+                            raw_frame.hex(),
+                        )
                 writer.close()
                 await writer.wait_closed()
-                return detected_model if detected_model is not None else ""
+                return result
 
         writer.close()
         await writer.wait_closed()
-        return None
+        return DetectionResult(connected=False)
     except (OSError, asyncio.TimeoutError) as err:
         _LOGGER.debug("Connection test and detect %s:%s failed: %s", host, port, err)
-        return None
+        return DetectionResult(connected=False)
 
 
 class JoyonwayConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -155,12 +196,21 @@ class JoyonwayConfigFlow(ConfigFlow, domain=DOMAIN):
             await self.async_set_unique_id(f"{host}:{port}")
             self._abort_if_unique_id_configured()
 
-            detected_model_raw = await _detect_model(host, port)
-            if detected_model_raw is not None:
+            detection = await _detect_model(host, port)
+            if detection.board_version is not None:
+                return self.async_abort(
+                    reason="unsupported_board_version",
+                    description_placeholders={
+                        "model": detection.unsupported_model or "",
+                        "version": detection.board_version,
+                        "issues_url": "https://github.com/alexbde/ha-joyonway/issues",
+                    },
+                )
+            if detection.connected:
                 self._host = host
                 self._port = port
-                if detected_model_raw in ADAPTERS:
-                    self._detected_model = detected_model_raw
+                if detection.model in ADAPTERS:
+                    self._detected_model = detection.model
                     return await self.async_step_model_confirm()
                 self._detected_model = None
                 return await self.async_step_model_confirm_manual()

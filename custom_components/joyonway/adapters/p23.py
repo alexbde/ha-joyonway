@@ -22,6 +22,8 @@ from .base import (
     MASK_HEATER_MODE_MANUAL,
 )
 
+# Broadcast header for P23 (bytes 0-8). Byte 7 is the board version, byte 8
+# (0x02) is the family ID.
 P23B32_SIGNATURE = bytes([0x1A, 0xFF, 0x01, 0x3C, 0xD2, 0xB4, 0xFF, 0x08, 0x02])
 
 MASK_JET_LEFT = 0x04

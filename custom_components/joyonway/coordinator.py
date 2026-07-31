@@ -21,11 +21,18 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
+from homeassistant.exceptions import ConfigEntryError
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
 from .adapters import get_adapter, ModelAdapter
-from .adapters.base import MIN_SIGNATURE_LENGTH
+from .adapters.base import (
+    IDX_BOARD_VERSION,
+    IDX_MODEL_FAMILY,
+    KNOWN_BOARD_VERSIONS,
+    MIN_SIGNATURE_LENGTH,
+    format_board_version,
+)
 from .const import (
     AVAILABILITY_GRACE_SECONDS,
     CLOCK_SYNC_COOLDOWN,
@@ -347,6 +354,7 @@ class JoyonwayCoordinator(DataUpdateCoordinator):
         }
         self._last_unrecognized_frame: str | None = None
         self._last_unrecognized_log_ts: float | None = None
+        self._unsupported_board_version: int | None = None
 
         # Command pacing & synchronization
         self._sync_frame_event = asyncio.Event()
@@ -391,6 +399,13 @@ class JoyonwayCoordinator(DataUpdateCoordinator):
     def last_unrecognized_frame(self) -> str | None:
         """Return the hex of the last broadcast frame the adapter could not parse."""
         return self._last_unrecognized_frame
+
+    @property
+    def unsupported_board_version(self) -> str | None:
+        """Return the controller board version if it is not supported."""
+        if self._unsupported_board_version is None:
+            return None
+        return format_board_version(self._unsupported_board_version)
 
     @property
     def has_blower(self) -> bool:
@@ -571,12 +586,13 @@ class JoyonwayCoordinator(DataUpdateCoordinator):
     def _log_unrecognized_broadcast(self, logical: bytes) -> None:
         """Warn (throttled) about a CRC-valid broadcast the adapter cannot parse.
 
-        This is the failure mode where the bridge, wiring and baud rate are all
-        correct but the controller firmware/board revision emits a header this
-        adapter does not know. Without this log the frame would be dropped
-        silently and the integration would only report "No data".
+        Without this log the frame would be dropped silently and the
+        integration would only report "No data".
         """
         self._last_unrecognized_frame = logical.hex()
+        self._unsupported_board_version = self._adapter.unsupported_board_version(
+            logical
+        )
 
         now = time.monotonic()
         if (
@@ -586,7 +602,31 @@ class JoyonwayCoordinator(DataUpdateCoordinator):
             return
         self._last_unrecognized_log_ts = now
 
+        if self._unsupported_board_version is not None:
+            _LOGGER.error(
+                "Unsupported controller board version %s (byte 0x%02x). Your '%s' "
+                "controller is recognized, but this integration has only been "
+                "verified against board versions %s. The bridge, wiring and baud "
+                "rate are fine. Please open an issue at "
+                "https://github.com/alexbde/ha-joyonway/issues including your board "
+                "and panel version (touchpad: Settings → About) and this frame → %s",
+                format_board_version(self._unsupported_board_version),
+                self._unsupported_board_version,
+                self.model,
+                self._known_board_versions_text(),
+                logical.hex(),
+            )
+            return
+
         expected = getattr(self._adapter, "broadcast_signature", b"")
+        if len(expected) > IDX_MODEL_FAMILY:
+            versions = "|".join(f"{b:02x}" for b in KNOWN_BOARD_VERSIONS)
+            expected_text = (
+                f"{expected[:IDX_BOARD_VERSION].hex(' ')} "
+                f"[{versions}] {expected[IDX_MODEL_FAMILY]:02x}"
+            )
+        else:  # pragma: no cover - defensive, all adapters ship a 9-byte header
+            expected_text = expected.hex(" ") or "<none>"
         _LOGGER.warning(
             "Received a valid RS485 broadcast frame that the '%s' adapter cannot "
             "parse. The CRC is correct, so the bridge, wiring and baud rate are "
@@ -595,13 +635,18 @@ class JoyonwayCoordinator(DataUpdateCoordinator):
             "Please report the following frame at "
             "https://github.com/alexbde/ha-joyonway/issues → %s",
             self.model,
-            expected.hex(" ") or "<none>",
+            expected_text,
             logical[:MIN_SIGNATURE_LENGTH].hex(" "),
             len(logical),
             MIN_SIGNATURE_LENGTH,
             self._rx_frame_stats,
             logical.hex(),
         )
+
+    @staticmethod
+    def _known_board_versions_text() -> str:
+        """Human-readable list of the board versions this integration supports."""
+        return ", ".join(format_board_version(b) for b in KNOWN_BOARD_VERSIONS)
 
     def _try_parse_buffer(self, buf: bytes | bytearray) -> tuple[dict | None, int]:
         """Return (parsed_data, consumed_bytes)."""
@@ -716,18 +761,31 @@ class JoyonwayCoordinator(DataUpdateCoordinator):
         if not self._available:
             await self._connect()
         if self.data is None:
+            if self._unsupported_board_version is not None:
+                raise ConfigEntryError(self._no_data_reason())
             raise UpdateFailed(self._no_data_reason())
         return self.data
 
     def _no_data_reason(self) -> str:
         """Build an actionable message explaining why no data was parsed."""
         stats = self._rx_frame_stats
+        if self._unsupported_board_version is not None:
+            return (
+                f"Unsupported controller board version "
+                f"{format_board_version(self._unsupported_board_version)} "
+                f"(byte 0x{self._unsupported_board_version:02x}). Your "
+                f"'{self.model}' controller was recognized, but only board "
+                f"versions {self._known_board_versions_text()} have been verified. "
+                "Your wiring and bridge are fine. Please open an issue at "
+                "https://github.com/alexbde/ha-joyonway/issues so support can be "
+                "added — the raw frame is in the error above"
+            )
         if stats["unrecognized"]:
             return (
                 f"No data from RS485 bridge: received {stats['unrecognized']} valid "
                 f"broadcast frame(s) that the '{self.model}' adapter cannot parse. "
                 "The wiring and bridge are fine — the controller model is likely "
-                "wrong or its firmware revision is unsupported. "
+                "wrong or its frame layout is unknown. "
                 "Check the warning above for the raw frame"
             )
         if stats["crc_error"]:

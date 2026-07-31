@@ -36,7 +36,8 @@
     },
     "abort": {
       "already_configured": "Ce pont est déjà configuré.",
-      "reconfigure_successful": "Modèle mis à jour avec succès."
+      "reconfigure_successful": "Modèle mis à jour avec succès.",
+      "unsupported_board_version": "⚠️ Version de carte contrôleur non prise en charge : **{version}**.\n\nVotre contrôleur **{model}** a été reconnu et votre câblage, votre pont et votre débit en bauds fonctionnent correctement — mais cette version de carte n'a jamais été vérifiée, sa structure de données est donc inconnue et sa lecture pourrait ne pas être fiable.\n\nVeuillez [ouvrir un ticket GitHub]({issues_url}) en indiquant vos versions de carte et de panneau (écran tactile : **Menu** > **Set** > **About**) afin que la prise en charge puisse être ajoutée. La trame brute a été écrite dans le journal de Home Assistant."
     }
   },
 

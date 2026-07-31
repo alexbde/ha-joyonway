@@ -82,6 +82,10 @@ class ModelAdapter(Protocol):
         """
         ...
 
+    def unsupported_board_version(self, frame: bytes) -> int | None:
+        """Return byte 7 if this is our model but its board version is unknown."""
+        ...
+
     def parse_status(self, frame: bytes) -> dict | None:
         """Extract state dict from an unescaped broadcast frame.
 
@@ -196,6 +200,20 @@ class ModelAdapter(Protocol):
 MIN_SIGNATURE_LENGTH = 9
 # Shortest unescaped broadcast frame that carries a full status payload.
 MIN_BROADCAST_FRAME_LENGTH = 30
+
+# Broadcast header: 1A FF 01 3C D2 B4 FF <board_version> <family>
+# Byte 7 is the controller board version shown on the touchpad under
+# Settings -> About (minor digit only: 0x08 = v1.8, 0x06 = v1.6).
+IDX_BOARD_VERSION = 7
+IDX_MODEL_FAMILY = 8
+# Board versions whose payload layout is confirmed on real hardware.
+KNOWN_BOARD_VERSIONS: tuple[int, ...] = (0x06, 0x08)
+
+
+def format_board_version(value: int) -> str:
+    """Render byte 7 the way the touchpad displays it."""
+    return f"1.{value:d}"
+
 
 IDX_CURRENT_TEMP = 9
 IDX_JET_BYTE = 12
@@ -320,9 +338,29 @@ class JoyonwayBaseAdapter:
 
     def _check_signature(self, frame: bytes) -> bool:
         """Check if frame matches adapter broadcast signature."""
-        if frame[: len(self.broadcast_signature)] != self.broadcast_signature:
-            return False
-        return True
+        signature = self.broadcast_signature
+        return (
+            frame[:IDX_BOARD_VERSION] == signature[:IDX_BOARD_VERSION]
+            and frame[IDX_BOARD_VERSION] in KNOWN_BOARD_VERSIONS
+            and frame[IDX_MODEL_FAMILY] == signature[IDX_MODEL_FAMILY]
+        )
+
+    def unsupported_board_version(self, frame: bytes) -> int | None:
+        """Return byte 7 if this is our model but its board version is unknown.
+
+        Distinguishes "supported model, untested board version" from a frame
+        that belongs to a different model family entirely.
+        """
+        if len(frame) < MIN_SIGNATURE_LENGTH:
+            return None
+        signature = self.broadcast_signature
+        if (
+            frame[:IDX_BOARD_VERSION] != signature[:IDX_BOARD_VERSION]
+            or frame[IDX_MODEL_FAMILY] != signature[IDX_MODEL_FAMILY]
+        ):
+            return None
+        version = frame[IDX_BOARD_VERSION]
+        return None if version in KNOWN_BOARD_VERSIONS else version
 
     def matches_signature(self, frame: bytes) -> bool:
         """Return True if the unescaped frame header matches this model.

@@ -25,6 +25,7 @@ The **Joyonway P25B85** (typically paired with the **PB554** color screen touchp
 *   **Spa Model Example:** Home Deluxe White Marble (outdoor rigid/hardshell hot tub)
 *   **Touchpad:** PB554 color touchscreen
 *   **Controller Pack:** Joyonway P25B85 (PCB `P2325B0003 R05`, sticker says "P25B85-2022")
+*   **Firmware Versions:** Board Version `1.8`, Panel Version `1.7` (read on the touchpad under **Settings → About**)
 *   **Heater:** 2 kW resistive, thermostat-controlled
 *   **Pumps & Blowers:** 1× dual-speed pump (Massage jets + filtration), optional air blower
 *   **Ozone/UV:** Auto or Manual mode via COM port

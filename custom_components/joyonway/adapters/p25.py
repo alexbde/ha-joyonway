@@ -46,8 +46,9 @@ HEATER_HEATING_ALT = 0x54
 HEATER_OZONE = 0x41
 HEATER_OZONE_ALT = 0xC1
 
-# Broadcast frame header signature for P25 (bytes 0-8)
-# Both P25B85 and P25B37 broadcast 0x03 at index 8
+# Broadcast header for P25 (bytes 0-8). Byte 7 is the board version and is
+# matched against KNOWN_BOARD_VERSIONS; byte 8 (0x03) is the family ID,
+# shared by P25B85 and P25B37.
 P25_SIGNATURE = bytes([0x1A, 0xFF, 0x01, 0x3C, 0xD2, 0xB4, 0xFF, 0x08, 0x03])
 
 # Jet masks
