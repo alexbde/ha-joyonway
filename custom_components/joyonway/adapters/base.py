@@ -57,7 +57,6 @@ class ModelAdapter(Protocol):
 
     model: str
     broadcast_signature: bytes
-    unescape_full_frame: bool
     supports_writes: bool
     jets: list[JetDescription]
     supported_light_colors: list[str]
@@ -299,7 +298,6 @@ class JoyonwayBaseAdapter:
 
     model: str
     broadcast_signature: bytes
-    unescape_full_frame: bool = True
     supports_writes: bool = True
     jets: list[JetDescription]
     supported_light_colors: list[str] = []

@@ -92,22 +92,9 @@ def pseudo_unescape(data: bytes) -> bytes:
     return bytes(result)
 
 
-def unescape_frame(frame: bytes, unescape_full: bool = True) -> bytes:
-    """Apply unescape policy to a raw frame.
-
-    Args:
-        frame: Raw frame including start/end delimiters.
-        unescape_full: If True, unescape entire payload (P25B85 policy).
-                       If False, unescape only tail bytes 55+ (P23B32 policy).
-    """
-    if unescape_full:
-        # Unescape everything between start and end delimiters
-        return frame[:1] + pseudo_unescape(frame[1:-1]) + frame[-1:]
-    else:
-        # Tail-only: unescape bytes 55+ (for P23B32 datetime zone)
-        if len(frame) > 55:
-            return frame[:55] + pseudo_unescape(frame[55:-1]) + frame[-1:]
-        return frame
+def unescape_frame(frame: bytes) -> bytes:
+    """Reverse pseudo-escape encoding for a complete frame between 0x1A and 0x1D."""
+    return frame[:1] + pseudo_unescape(frame[1:-1]) + frame[-1:]
 
 
 def is_broadcast(frame: bytes) -> bool:
@@ -115,7 +102,7 @@ def is_broadcast(frame: bytes) -> bool:
     return len(frame) > 1 and frame[1] == 0xFF
 
 
-def validate_frame(frame: bytes, unescape_full: bool = True) -> bool:
+def validate_frame(frame: bytes) -> bool:
     """Conservative frame validation.
 
     Checks delimiters and minimum size. Also validates CRC-32 if the frame
@@ -129,7 +116,7 @@ def validate_frame(frame: bytes, unescape_full: bool = True) -> bool:
         return False
 
     # CRC validation for frames with enough payload (minimum 16 bytes payload + 4 bytes CRC)
-    unescaped = unescape_frame(frame, unescape_full=unescape_full)
+    unescaped = unescape_frame(frame)
     inner = unescaped[1:-1]
     if len(inner) >= 20:
         payload = inner[:-4]

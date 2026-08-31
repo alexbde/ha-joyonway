@@ -35,13 +35,15 @@ To prevent payload bytes from colliding with delimiter control bytes, the protoc
 
 **Decoding Order:** Frame boundaries are processed on the raw wire bytes first by identifying the `0x1A` start delimiter and scanning for the `0x1D` end delimiter. Once the raw frame is isolated, escape decoding is applied to the payload.
 
-## 2. Unescaping Policies
+## 2. Unescaping Protocol
 
-The unescaping behavior differs between controller firmware families, which is critical to avoid frame parsing issues:
+All Joyonway PB55x controller families (P20, P23, P25) use universal full-frame unescaping across the entire payload:
 
-*   **P20 family (P20B29):** The entire frame payload is unescaped before parsing (`unescape_full_frame = True`), just like the P25 family. This is required because status and command payloads contain escape sequences below index 55 (e.g., `1B 15` representing `0x1E` in schedule commands). [✅]
-*   **P23 family (P23B32):** Only tail bytes (indices 55 and higher) should be unescaped (`unescape_full_frame = False`). Unescaping indices 0–54 can corrupt payload parsing, because binary status bytes in the header may accidentally match escape sequences (e.g., a status byte of `0x1B` followed by `0x11` is not an escape code, but raw data). [✅]
-*   **P25 family (P25B37 / P25B85):** The entire frame payload is unescaped before parsing (`unescape_full_frame = True`). [✅]
+1. **Frame Delimitation:** Frames are delimited by start byte `0x1A` and end byte `0x1D`.
+2. **Payload Unescaping:** All bytes between `0x1A` and `0x1D` are processed with `pseudo_unescape()` before register parsing and CRC validation.
+3. **CRC-32 Scope:** The CRC-32 checksum is verified over the unescaped payload excluding the trailing 4-byte CRC field.
+
+> **Historical Note:** Early reverse-engineering in upstream forks accessed fixed raw byte offsets without unescaping, applying unescaping only to the tail for datetime. With CRC-32 discovery and captures featuring 30-minute schedule intervals (`0x1B 0x15` -> `0x1E`), full-frame unescaping was proven mathematically across all models. [✅]
 
 ## 3. CRC-32 Specification
 

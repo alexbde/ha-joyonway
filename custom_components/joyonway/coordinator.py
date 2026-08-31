@@ -685,20 +685,15 @@ class JoyonwayCoordinator(DataUpdateCoordinator):
                 continue
 
             self._rx_frame_stats["broadcast"] += 1
-            if not validate_frame(
-                raw_frame, unescape_full=self._adapter.unescape_full_frame
-            ):
+            if not validate_frame(raw_frame):
                 self._rx_frame_stats["crc_error"] += 1
                 _LOGGER.debug(
-                    "Frame validation failed (unescape_full=%s): %s",
-                    self._adapter.unescape_full_frame,
+                    "Frame validation failed: %s",
                     raw_frame.hex(),
                 )
                 continue
 
-            logical = unescape_frame(
-                raw_frame, unescape_full=self._adapter.unescape_full_frame
-            )
+            logical = unescape_frame(raw_frame)
 
             try:
                 data = self._adapter.parse_status(logical)

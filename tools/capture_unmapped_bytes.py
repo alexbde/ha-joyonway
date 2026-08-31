@@ -113,7 +113,7 @@ async def main():
             buffer += chunk
             frames = find_frames(buffer)
             for raw_frame in frames:
-                unescaped = unescape_frame(raw_frame, full=True)
+                unescaped = unescape_frame(raw_frame)
                 if not is_broadcast(unescaped) or len(unescaped) < 30:
                     continue
 

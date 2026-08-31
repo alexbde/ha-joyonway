@@ -74,7 +74,7 @@ def _match_model(raw_frame: bytes) -> str | None:
             adapter = get_adapter(model)
         except ValueError:  # pragma: no cover - registry mismatch
             continue
-        logical = unescape_frame(raw_frame, unescape_full=adapter.unescape_full_frame)
+        logical = unescape_frame(raw_frame)
         if adapter.matches_signature(logical):
             return model
     return None
@@ -87,7 +87,7 @@ def _match_unsupported_board_version(raw_frame: bytes) -> tuple[str, str] | None
             adapter = get_adapter(model)
         except ValueError:  # pragma: no cover - registry mismatch
             continue
-        logical = unescape_frame(raw_frame, unescape_full=adapter.unescape_full_frame)
+        logical = unescape_frame(raw_frame)
         version = adapter.unsupported_board_version(logical)
         if version is not None:
             return model, format_board_version(version)

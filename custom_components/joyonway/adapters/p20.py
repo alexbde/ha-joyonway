@@ -48,9 +48,6 @@ class P20BaseAdapter(JoyonwayBaseAdapter):
 
     model: str
     broadcast_signature: bytes = P20B29_SIGNATURE
-    unescape_full_frame: bool = (
-        True  # Full-frame unescape verified on community captures
-    )
     supports_writes: bool = True
     jets: list[JetDescription]
     supported_light_colors: list[str] = []
@@ -227,7 +224,6 @@ class P20B29Adapter(P20BaseAdapter):
 
     model: str = "P20B29"
     broadcast_signature: bytes = P20B29_SIGNATURE
-    unescape_full_frame: bool = True
     supports_writes: bool = True
     has_blower: bool = True
     jets: list[JetDescription] = [

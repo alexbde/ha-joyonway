@@ -416,19 +416,16 @@ class DryRunSimulator:
         inner = payload + struct.pack("<I", crc)
 
         # Add frame delimiters and apply escape policy
-        if self.model in ("P23B32", "P20B29"):
-            escaped = inner[:54] + pseudo_escape(inner[54:])
-        else:
-            escaped = pseudo_escape(inner)
+        escaped = pseudo_escape(inner)
         frame = b"\x1a" + escaped + b"\x1d"
         return frame
 
     def handle_write(self, data: bytes):
         raw_frames = find_frames(data)
         for rf in raw_frames:
-            if not validate_frame(rf, unescape_full=True):
+            if not validate_frame(rf):
                 continue
-            logical = unescape_frame(rf, unescape_full=True)
+            logical = unescape_frame(rf)
             if len(logical) < 10:
                 continue
             cmd_type = logical[5]
@@ -572,10 +569,7 @@ async def open_spa_connection() -> (
                 buf.extend(chunk)
                 raw_frames = find_frames(bytes(buf))
                 for rf in raw_frames:
-                    if not (
-                        validate_frame(rf, unescape_full=True)
-                        or validate_frame(rf, unescape_full=False)
-                    ):
+                    if not validate_frame(rf):
                         continue
                     if not is_broadcast(rf):
                         continue
@@ -653,15 +647,13 @@ async def read_broadcast(
             buf = buf[last_end + 1 :]
 
         for raw_frame in raw_frames:
-            if not validate_frame(raw_frame, unescape_full=adapter.unescape_full_frame):
+            if not validate_frame(raw_frame):
                 continue
             if not is_broadcast(raw_frame):
                 _log_event("non_broadcast_frame", raw_hex=raw_frame.hex())
                 continue
             try:
-                logical = unescape_frame(
-                    raw_frame, unescape_full=adapter.unescape_full_frame
-                )
+                logical = unescape_frame(raw_frame)
                 result = adapter.parse_status(logical)
                 if result is not None:
                     latest_result = result
@@ -1857,7 +1849,7 @@ async def test_intent_queue(
 
     def is_jets_command(f: bytes) -> bool:
         try:
-            logical = unescape_frame(f, unescape_full=True)
+            logical = unescape_frame(f)
             if MODEL in ("P23B32", "P20B29"):
                 return (
                     len(logical) > 8
@@ -1871,7 +1863,7 @@ async def test_intent_queue(
 
     def is_light_command(f: bytes) -> bool:
         try:
-            logical = unescape_frame(f, unescape_full=True)
+            logical = unescape_frame(f)
             if MODEL in ("P23B32", "P20B29"):
                 return (
                     len(logical) > 12

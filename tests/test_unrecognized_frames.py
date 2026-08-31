@@ -192,9 +192,9 @@ _ISSUE_80_FRAME = bytes.fromhex(
 def test_issue_88_frame_parses_with_p25_byte_map() -> None:
     """The reported board-v1.5 frame parses correctly with the P25 byte map."""
     assert is_broadcast(_ISSUE_88_FRAME)
-    assert validate_frame(_ISSUE_88_FRAME, unescape_full=True)
+    assert validate_frame(_ISSUE_88_FRAME)
 
-    logical = unescape_frame(_ISSUE_88_FRAME, unescape_full=True)
+    logical = unescape_frame(_ISSUE_88_FRAME)
     data = get_adapter("P25B37").parse_status(logical)
 
     assert data is not None
@@ -217,9 +217,9 @@ def test_issue_88_frame_is_detected_as_p25() -> None:
 def test_issue_80_frame_parses_with_p25_byte_map() -> None:
     """The reported board-v1.6 frame parses correctly with the P25 byte map."""
     assert is_broadcast(_ISSUE_80_FRAME)
-    assert validate_frame(_ISSUE_80_FRAME, unescape_full=True)
+    assert validate_frame(_ISSUE_80_FRAME)
 
-    logical = unescape_frame(_ISSUE_80_FRAME, unescape_full=True)
+    logical = unescape_frame(_ISSUE_80_FRAME)
     data = get_adapter("P25B85").parse_status(logical)
 
     assert data is not None
@@ -244,9 +244,9 @@ def test_reference_broadcast_still_parses() -> None:
     adapter = get_adapter("P25B85")
     frame = _reference_broadcast()
     assert is_broadcast(frame)
-    assert validate_frame(frame, unescape_full=True)
+    assert validate_frame(frame)
 
-    logical = unescape_frame(frame, unescape_full=True)
+    logical = unescape_frame(frame)
     data = adapter.parse_status(logical)
     assert data is not None
     assert data["current_temperature"] == 37  # 99 F
@@ -261,9 +261,9 @@ def test_variant_broadcast_is_valid_but_unparseable() -> None:
     """
     frame = _variant_broadcast()
     assert is_broadcast(frame)
-    assert validate_frame(frame, unescape_full=True)
+    assert validate_frame(frame)
 
-    logical = unescape_frame(frame, unescape_full=True)
+    logical = unescape_frame(frame)
     assert logical[:9].hex(" ") == "1a ff 01 3c d2 b4 ff 09 03"
     assert get_adapter("P25B85").parse_status(logical) is None
     assert get_adapter("P25B85").unsupported_board_version(logical) == 0x09
@@ -271,7 +271,7 @@ def test_variant_broadcast_is_valid_but_unparseable() -> None:
 
 def test_foreign_family_is_not_reported_as_board_version() -> None:
     """A different model family must not be blamed on the board version."""
-    logical = unescape_frame(_foreign_broadcast(), unescape_full=True)
+    logical = unescape_frame(_foreign_broadcast())
     assert get_adapter("P25B85").unsupported_board_version(logical) is None
 
 
@@ -410,7 +410,7 @@ async def test_unsupported_board_version_raises_config_entry_error(
 
 def test_unrecognized_broadcast_warning_is_throttled(coordinator, caplog) -> None:
     """The spa broadcasts ~2x/sec — the warning must not spam the log."""
-    logical = unescape_frame(_foreign_broadcast(), unescape_full=True)
+    logical = unescape_frame(_foreign_broadcast())
     with caplog.at_level("WARNING"):
         for _ in range(50):
             coordinator._log_unrecognized_broadcast(logical)

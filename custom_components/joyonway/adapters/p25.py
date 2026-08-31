@@ -81,7 +81,6 @@ class P25BaseAdapter(JoyonwayBaseAdapter):
 
     model: str
     broadcast_signature: bytes = P25_SIGNATURE
-    unescape_full_frame: bool = True
     supports_writes: bool = True
     jets: list[JetDescription] = [
         JetDescription(id="jets", name="Jets", type=JetType.DUAL),
