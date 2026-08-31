@@ -68,7 +68,7 @@ DEFAULT_PORT = int(os.environ.get("SPA_BRIDGE_PORT", "8899"))
 
 def is_sync_frame(frame: bytes) -> bool:
     """Check if this is a sync frame."""
-    unescaped = unescape_frame(frame, unescape_full=True)
+    unescaped = unescape_frame(frame)
     if len(unescaped) < 9:
         return False
     return unescaped[1:9] == b"\x01\x20\x08\x3c\xaa\x10\x00\x00"
@@ -744,16 +744,14 @@ def run_p25b37_capture(
 
                         for frame in frames:
                             if is_broadcast(frame):
-                                logical = unescape_frame(frame, unescape_full=True)
+                                logical = unescape_frame(frame)
                                 parsed = adapter.parse_status(logical)
                                 if parsed:
                                     last_parsed = parsed
                             else:
                                 # Non-broadcast (command frame)
                                 if is_command_frame(frame) and not is_sync_frame(frame):
-                                    unescaped = unescape_frame(
-                                        frame, unescape_full=True
-                                    )
+                                    unescaped = unescape_frame(frame)
                                     inner = unescaped[1:-1]
                                     payload = inner[:-4] if len(inner) >= 4 else inner
                                     crc_bytes = inner[-4:] if len(inner) >= 4 else b""
@@ -857,7 +855,7 @@ def run_p25b37_capture(
 
                         for frame in frames:
                             if is_broadcast(frame):
-                                logical = unescape_frame(frame, unescape_full=True)
+                                logical = unescape_frame(frame)
                                 parsed = adapter.parse_status(logical)
                                 if parsed:
                                     if last_parsed is not None:
@@ -870,9 +868,7 @@ def run_p25b37_capture(
                             else:
                                 # Non-broadcast (command frame)
                                 if is_command_frame(frame) and not is_sync_frame(frame):
-                                    unescaped = unescape_frame(
-                                        frame, unescape_full=True
-                                    )
+                                    unescaped = unescape_frame(frame)
                                     inner = unescaped[1:-1]
                                     payload = inner[:-4] if len(inner) >= 4 else inner
                                     crc_bytes = inner[-4:] if len(inner) >= 4 else b""

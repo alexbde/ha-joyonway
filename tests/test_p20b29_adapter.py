@@ -89,12 +89,11 @@ def adapter() -> P20B29Adapter:
 
 @pytest.fixture
 def logical_frame() -> bytes:
-    return unescape_frame(MOCK_P20_RAW, unescape_full=True)
+    return unescape_frame(MOCK_P20_RAW)
 
 
 def test_adapter_properties(adapter: P20B29Adapter, logical_frame: bytes) -> None:
     assert adapter.model == "P20B29"
-    assert adapter.unescape_full_frame is True
     assert adapter.supports_writes is True
     assert adapter.has_blower is True
     assert adapter.supported_light_colors == [

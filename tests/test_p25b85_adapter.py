@@ -69,7 +69,7 @@ def b85_adapter() -> P25B85Adapter:
 
 @pytest.fixture
 def logical_frame() -> bytes:
-    return unescape_frame(KDY_RAW, unescape_full=True)
+    return unescape_frame(KDY_RAW)
 
 
 def test_find_frames_and_broadcast_validation() -> None:
@@ -94,14 +94,13 @@ def test_pseudo_unescape(raw: bytes, expected: bytes) -> None:
 
 
 def test_unescape_preserves_frame_delimiters() -> None:
-    logical = unescape_frame(KDY_RAW, unescape_full=True)
+    logical = unescape_frame(KDY_RAW)
     assert logical[0] == FRAME_START
     assert logical[-1] == FRAME_END
 
 
 def test_adapter_properties(b85_adapter: P25B85Adapter, logical_frame: bytes) -> None:
     assert b85_adapter.model == "P25B85"
-    assert b85_adapter.unescape_full_frame is True
     assert b85_adapter.supports_writes is True
     assert b85_adapter.has_blower is True
     assert logical_frame[: len(P25_SIGNATURE)] == P25_SIGNATURE
@@ -255,7 +254,7 @@ def test_parse_schedule_from_live_frame(b85_adapter: P25B85Adapter) -> None:
         "0000004b000c00510012000000064d0000000000000000000000"
         "001a0517160e2506009db678a21d"
     )
-    unescaped = unescape_frame(frame, unescape_full=True)
+    unescaped = unescape_frame(frame)
     result = b85_adapter.parse_status(unescaped)
 
     assert result["heat_slot1_start"] == (11, 0)

@@ -307,7 +307,6 @@ def test_parse_buffer_multiple_broadcasts(coordinator):
         side_effect=[{"status": "heating"}, {"status": "circulation"}]
     )
     coordinator._adapter.parse_status = mock_parse
-    coordinator._adapter.unescape_full_frame = True
 
     result, consumed = coordinator._try_parse_buffer(bytearray(frame1 + frame2))
     assert result == {"status": "circulation"}  # the latest parsed broadcast
@@ -323,7 +322,6 @@ def test_parse_buffer_exception_handling(coordinator):
     # First frame raises IndexError, second succeeds
     mock_parse = MagicMock(side_effect=[IndexError("too short"), {"status": "standby"}])
     coordinator._adapter.parse_status = mock_parse
-    coordinator._adapter.unescape_full_frame = True
 
     result, consumed = coordinator._try_parse_buffer(bytearray(frame1 + frame2))
     assert result == {"status": "standby"}  # first skipped, second returned

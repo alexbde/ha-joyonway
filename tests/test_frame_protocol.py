@@ -93,17 +93,9 @@ def test_pseudo_unescape_handles_unknown_or_malformed_sequences() -> None:
     assert pseudo_unescape(bytes([0x1B, 0xFF])) == bytes([0x1B, 0xFF])
 
 
-def test_unescape_policy_full() -> None:
+def test_unescape_frame() -> None:
     frame = bytes([0x1A, 0x1B, 0x11, 0x1D])
-    assert unescape_frame(frame, "full") == bytes([0x1A, 0x1A, 0x1D])
-
-
-def test_unescape_policy_tail() -> None:
-    frame = bytes([0x1A] + [0x00] * 54 + [0x1B, 0x11, 0x1D])
-    result = unescape_frame(frame, "tail")
-    assert result[:55] == frame[:55]
-    assert result[55] == 0x1A
-    assert result[-1] == 0x1D
+    assert unescape_frame(frame) == bytes([0x1A, 0x1A, 0x1D])
 
 
 @pytest.fixture
@@ -153,7 +145,7 @@ def test_model_detection(frame: bytes, expected: str | None) -> None:
 
 def test_unescape_policy_mapping() -> None:
     assert get_unescape_policy("P25B85") == "full"
-    assert get_unescape_policy("P23B32") == "tail"
+    assert get_unescape_policy("P23B32") == "full"
     assert get_unescape_policy(None) == "none"
 
 

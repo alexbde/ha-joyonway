@@ -90,14 +90,10 @@ def pseudo_unescape(data: bytes) -> bytes:
     return bytes(result)
 
 
-def unescape_frame(frame: bytes, policy: str) -> bytes:
+def unescape_frame(frame: bytes, policy: str = "full") -> bytes:
     """Apply unescape policy to a frame."""
-    if policy == "full":
+    if policy in ("full", "tail"):
         return frame[:1] + pseudo_unescape(frame[1:-1]) + frame[-1:]
-    elif policy == "tail":
-        if len(frame) > 55:
-            return frame[:55] + pseudo_unescape(frame[55:-1]) + frame[-1:]
-        return frame
     return frame
 
 
@@ -108,11 +104,9 @@ def detect_model(frame: bytes) -> str | None:
 
 
 def get_unescape_policy(model: str | None) -> str:
-    if model == "P25B85":
+    if model in ("P25B85", "P23B32", "P20B29", "P25B37"):
         return "full"
-    elif model == "P23B32":
-        return "tail"
-    return "none"
+    return "full" if model else "none"
 
 
 def fahrenheit_to_celsius(f: int) -> float | None:

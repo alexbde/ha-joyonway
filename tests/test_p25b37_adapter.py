@@ -52,7 +52,7 @@ def b37_adapter() -> P25B37Adapter:
 
 @pytest.fixture
 def logical_frame() -> bytes:
-    return unescape_frame(KDY_RAW, unescape_full=True)
+    return unescape_frame(KDY_RAW)
 
 
 def _frame_payload(frame: bytes) -> bytes:
@@ -62,7 +62,6 @@ def _frame_payload(frame: bytes) -> bytes:
 def test_p25b37_adapter_properties(b37_adapter: P25B37Adapter) -> None:
     assert b37_adapter.model == "P25B37"
     assert b37_adapter._context_byte == 0x40
-    assert b37_adapter.unescape_full_frame is True
     assert b37_adapter.supports_writes is True
     assert b37_adapter.has_blower is False
 

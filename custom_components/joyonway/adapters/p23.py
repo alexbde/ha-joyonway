@@ -1,7 +1,6 @@
 """P23B32 / P20B29 model adapter — byte map and entity definitions.
 
 Protocol differences from P25B85:
-- Unescape policy: Tail-only (full payload unescape corrupts data).
 - Broadcast signature byte: 0x02.
 - Panel prefix for commands: 0x30 instead of 0x20.
 - Independent single-speed pumps instead of one dual-speed pump.
@@ -54,7 +53,6 @@ class P23BaseAdapter(JoyonwayBaseAdapter):
 
     model: str
     broadcast_signature: bytes = P23B32_SIGNATURE
-    unescape_full_frame: bool = False  # Tail-only (full payload unescape corrupts data)
     supports_writes: bool = True
     jets: list[JetDescription]
     supported_light_colors: list[str] = []
@@ -194,7 +192,6 @@ class P23B32Adapter(P23BaseAdapter):
 
     model: str = "P23B32"
     broadcast_signature: bytes = P23B32_SIGNATURE
-    unescape_full_frame: bool = False
     supports_writes: bool = True
     has_blower: bool = True
     jets: list[JetDescription] = [

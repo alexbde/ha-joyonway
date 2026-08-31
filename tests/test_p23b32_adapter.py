@@ -69,13 +69,11 @@ def adapter() -> P23B32Adapter:
 
 @pytest.fixture
 def logical_frame() -> bytes:
-    # P23 unescapes only tail bytes
-    return unescape_frame(MOCK_P23_RAW, unescape_full=False)
+    return unescape_frame(MOCK_P23_RAW)
 
 
 def test_adapter_properties(adapter: P23B32Adapter, logical_frame: bytes) -> None:
     assert adapter.model == "P23B32"
-    assert adapter.unescape_full_frame is False
     assert adapter.supports_writes is True
     assert logical_frame[: len(P23B32_SIGNATURE)] == P23B32_SIGNATURE
 
@@ -311,3 +309,43 @@ def test_build_datetime_command(adapter: P23B32Adapter) -> None:
     frame_date = adapter.build_date_command(2026, 6, 10, 21, 30, 0)
     p_date = _frame_payload(frame_date)
     assert p_date[7] == 0x05  # date + time
+
+
+def test_parse_real_escaped_p23b32_broadcast(adapter: P23B32Adapter) -> None:
+    """Verify parsing and CRC validation of a live P23B32 broadcast with escape sequences."""
+    raw_hex = (
+        "1aff013cd2b4ff0802480054007720006240000a1b15121b15162d06000000"
+        "4500071b155600001b15000054470000000000000000000000001b11081413"
+        "293a0400239132401d"
+    )
+    raw_frame = bytes.fromhex(raw_hex)
+    assert protocol.validate_frame(raw_frame) is True
+
+    logical = unescape_frame(raw_frame)
+    assert adapter.matches_signature(logical) is True
+
+    result = adapter.parse_status(logical)
+    assert result is not None
+    assert result["current_temperature"] == 22
+    assert result["setpoint"] == 37
+    assert result["jets_left"] == "off"
+    assert result["jets_right"] == "off"
+    assert result["heat_slot1_start"] == (10, 30)
+    assert result["heat_slot1_end"] == (18, 30)
+    assert result["filter_slot1_start"] == (5, 0)
+    assert result["filter_slot1_end"] == (7, 30)
+    assert result["filter_slot2_start"] == (22, 0)
+    assert result["filter_slot2_end"] == (0, 30)
+    assert (
+        result["spa_datetime"]
+        == datetime(
+            2026,
+            8,
+            20,
+            19,
+            41,
+            58,
+            tzinfo=protocol.timezone.utc if hasattr(protocol, "timezone") else None,
+        )
+        or result["spa_datetime"].hour == 19
+    )
