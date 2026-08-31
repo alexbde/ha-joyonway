@@ -203,11 +203,11 @@ MIN_BROADCAST_FRAME_LENGTH = 30
 
 # Broadcast header: 1A FF 01 3C D2 B4 FF <board_version> <family>
 # Byte 7 is the controller board version shown on the touchpad under
-# Settings -> About (minor digit only: 0x08 = v1.8, 0x06 = v1.6).
+# Settings -> About (minor digit only: 0x05 = v1.5, 0x06 = v1.6, 0x08 = v1.8).
 IDX_BOARD_VERSION = 7
 IDX_MODEL_FAMILY = 8
 # Board versions whose payload layout is confirmed on real hardware.
-KNOWN_BOARD_VERSIONS: tuple[int, ...] = (0x06, 0x08)
+KNOWN_BOARD_VERSIONS: tuple[int, ...] = (0x05, 0x06, 0x08)
 
 
 def format_board_version(value: int) -> str:

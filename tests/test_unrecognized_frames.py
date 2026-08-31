@@ -142,10 +142,10 @@ def test_matches_signature_accepts_own_signature(model: str) -> None:
     assert adapter.matches_signature(header) is True
 
 
-def test_p20_accepts_both_board_versions() -> None:
-    """P20B29 keeps accepting board versions 1.6 and 1.8, and rejects others."""
+def test_p20_accepts_known_board_versions() -> None:
+    """P20B29 keeps accepting board versions 1.5, 1.6 and 1.8, and rejects others."""
     adapter = get_adapter("P20B29")
-    for byte7, expected in ((0x06, True), (0x08, True), (0x07, False)):
+    for byte7, expected in ((0x05, True), (0x06, True), (0x08, True), (0x07, False)):
         header = bytes([0x1A, 0xFF, 0x01, 0x3C, 0xD2, 0xB4, 0xFF, byte7, 0x01])
         assert adapter.matches_signature(header) is expected
 
@@ -154,13 +154,13 @@ def test_p20_accepts_both_board_versions() -> None:
 def test_board_version_byte_is_matched_leniently(model: str) -> None:
     """Byte 7 is the board firmware version, not part of the model identity.
 
-    Regression for issue #80: a P25 controller running board version 1.6
-    broadcasts 0x06 at index 7 instead of the reference unit's 0x08 (board
-    version 1.8), with a byte-for-byte identical payload layout.
+    Regression for issue #80 and #88: controllers running board version 1.5
+    or 1.6 broadcast 0x05 or 0x06 at index 7 instead of the reference unit's
+    0x08 (board version 1.8), with a byte-for-byte identical payload layout.
     """
     adapter = get_adapter(model)
     family_byte = bytes(adapter.broadcast_signature)[8]
-    for byte7, expected in ((0x06, True), (0x08, True), (0x07, False)):
+    for byte7, expected in ((0x05, True), (0x06, True), (0x08, True), (0x07, False)):
         header = bytes([0x1A, 0xFF, 0x01, 0x3C, 0xD2, 0xB4, 0xFF, byte7, family_byte])
         assert adapter.matches_signature(header) is expected
 
@@ -172,6 +172,14 @@ def test_family_byte_still_distinguishes_models() -> None:
         assert get_adapter(model).matches_signature(header) is False
 
 
+# Verbatim broadcast frame reported in issue #88 by a P25 controller running
+# board version 1.5 (byte 7 = 0x05). CRC-valid, 66 bytes logical layout.
+_ISSUE_88_FRAME = bytes.fromhex(
+    "1aff013cd2b4ff0503630406007d1500688000481b150b1b15cf0010000020481b15"
+    "0a1b15cf0010000000064d0000000000000000000000001b1108150f302a0500b73c"
+    "0b0b1d"
+)
+
 # Verbatim broadcast frame reported in issue #80 by a P25 controller running
 # board version 1.6 (byte 7 = 0x06). CRC-valid, 66 bytes, identical payload
 # layout to the reference unit running board version 1.8.
@@ -179,6 +187,31 @@ _ISSUE_80_FRAME = bytes.fromhex(
     "1aff013cd2b4ff06034e0406007d40003b00000a000c000d001500000048000a0052"
     "0014000000064d0000000000000000000000001a071d1717110300892529b81d"
 )
+
+
+def test_issue_88_frame_parses_with_p25_byte_map() -> None:
+    """The reported board-v1.5 frame parses correctly with the P25 byte map."""
+    assert is_broadcast(_ISSUE_88_FRAME)
+    assert validate_frame(_ISSUE_88_FRAME, unescape_full=True)
+
+    logical = unescape_frame(_ISSUE_88_FRAME, unescape_full=True)
+    data = get_adapter("P25B37").parse_status(logical)
+
+    assert data is not None
+    assert data["current_temperature"] == 37  # 99 F
+    assert data["setpoint"] == 40  # 104 F
+    assert data["status"] == "heating"
+    assert data["jets"] == "off"
+    assert data["heat_slot1_start"] == (8, 30)
+    assert data["heat_slot1_end"] == (11, 30)
+    assert data["filter_slot1_start"] == (8, 30)
+    assert data["filter_slot1_end"] == (10, 30)
+    assert data["spa_datetime"] is not None
+
+
+def test_issue_88_frame_is_detected_as_p25() -> None:
+    """Config-flow detection resolves the reported frame to the P25 family."""
+    assert _match_model(_ISSUE_88_FRAME) == "P25B85"
 
 
 def test_issue_80_frame_parses_with_p25_byte_map() -> None:
