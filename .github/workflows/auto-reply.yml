@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Send acknowledgment reply
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const sender = context.payload.sender;
