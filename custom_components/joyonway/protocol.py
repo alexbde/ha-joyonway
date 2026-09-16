@@ -146,7 +146,7 @@ def _word32_swap(data: bytes) -> bytes:
         chunk = data[i : i + 4]
         if len(chunk) < 4:
             chunk = chunk + b"\x00" * (4 - len(chunk))
-        result.extend(reversed(chunk))
+        result.extend(chunk[::-1])
     return bytes(result)
 
 
