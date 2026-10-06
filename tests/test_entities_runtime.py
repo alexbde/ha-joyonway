@@ -173,6 +173,12 @@ class DummyHass:
         return asyncio.create_task(coro)
 
 
+async def async_drain_tasks(ticks: int = 3) -> None:
+    """Let lightweight scheduled test tasks run without real delays."""
+    for _ in range(ticks):
+        await asyncio.sleep(0)
+
+
 @pytest.fixture
 def entry() -> SimpleNamespace:
     return SimpleNamespace(entry_id="entry_1", data={CONF_HOST: "127.0.0.1"})
@@ -421,6 +427,89 @@ async def test_climate_debounced_set_temperature_sends_command(
     assert climate._pending_temp == 32
     climate._cancel_pending_timeout()
 
+
+@pytest.mark.asyncio
+async def test_climate_set_temperature_with_hvac_mode_delegates_to_hvac_handler(
+    entry: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression for issue #95: set_temperature must not ignore hvac_mode."""
+    coordinator = DummyCoordinator(data={"setpoint": 30, "current_temperature": 29})
+    climate = SpaClimate(coordinator, entry)
+    climate.hass = DummyHass()
+
+    import custom_components.joyonway.climate as climate_module
+
+    monkeypatch.setattr(climate_module, "TEMP_DEBOUNCE_SECONDS", 0)
+    monkeypatch.setattr(climate, "async_write_ha_state", lambda: None)
+    climate.async_set_hvac_mode = AsyncMock()
+
+    await climate.async_set_temperature(temperature=22, hvac_mode=HVACMode.HEAT)
+    await async_drain_tasks()
+
+    climate.async_set_hvac_mode.assert_awaited_once_with(HVACMode.HEAT)
+    coordinator.async_send_command.assert_awaited_once_with(b"\xaa")
+    assert climate._pending_temp == 22
+    climate._cancel_pending_timeout()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("hvac_mode", "expected_command"),
+    [
+        (HVACMode.HEAT, CMD_HEATER_ON),
+        (HVACMode.OFF, CMD_HEATER_OFF),
+    ],
+)
+async def test_climate_set_temperature_with_hvac_mode_sends_both_commands(
+    entry: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    hvac_mode: HVACMode,
+    expected_command: bytes,
+) -> None:
+    coordinator = DummyCoordinator(
+        data={
+            "setpoint": 30,
+            "current_temperature": 29,
+            "heater_enabled": hvac_mode == HVACMode.OFF,
+        }
+    )
+    climate = SpaClimate(coordinator, entry)
+    climate.hass = DummyHass()
+
+    import custom_components.joyonway.climate as climate_module
+
+    monkeypatch.setattr(climate_module, "TEMP_DEBOUNCE_SECONDS", 0)
+    monkeypatch.setattr(climate, "async_write_ha_state", lambda: None)
+
+    await climate.async_set_temperature(temperature=22, hvac_mode=hvac_mode)
+    await async_drain_tasks()
+
+    sent = [call.args[0] for call in coordinator.async_send_command.await_args_list]
+    assert expected_command in sent
+    assert b"\xaa" in sent
+    assert climate._pending_hvac_mode == hvac_mode
+    assert climate._pending_temp == 22
+    climate._cancel_pending_hvac_timeout()
+    climate._cancel_pending_timeout()
+
+
+@pytest.mark.asyncio
+async def test_climate_set_temperature_accepts_hvac_mode_without_temperature(
+    entry: SimpleNamespace,
+) -> None:
+    coordinator = DummyCoordinator(data={"heater_enabled": False})
+    climate = SpaClimate(coordinator, entry)
+    climate.hass = DummyHass()
+    climate.async_write_ha_state = lambda: None
+
+    await climate.async_set_temperature(hvac_mode=HVACMode.HEAT)
+    await async_drain_tasks()
+
+    coordinator.async_send_command.assert_awaited_once_with(CMD_HEATER_ON)
+    assert climate._pending_hvac_mode == HVACMode.HEAT
+    assert climate._pending_temp is None
+    assert climate._debounce_task is None
+    climate._cancel_pending_hvac_timeout()
 
 @pytest.mark.asyncio
 async def test_light_double_click_blocked(entry: SimpleNamespace) -> None:

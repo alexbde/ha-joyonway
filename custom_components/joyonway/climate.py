@@ -267,13 +267,15 @@ class SpaClimate(JoyonwayCoordinatorEntity, ClimateEntity):
         )
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
-        """Set target temperature with debouncing for slider support.
-
-        When the slider is dragged, this gets called many times rapidly.
-        We debounce: wait TEMP_DEBOUNCE_SECONDS after the last call, then
-        send only the final value. This prevents flooding the RS485 bus.
-        """
+        """Set target temperature and optionally HVAC mode."""
         temperature = kwargs.get(ATTR_TEMPERATURE)
+        hvac_mode = kwargs.get("hvac_mode")
+
+        # Handle an optional HVAC mode supplied with climate.set_temperature.
+        if hvac_mode is not None:
+            await self.async_set_hvac_mode(hvac_mode)
+
+        # A temperature is optional when only the HVAC mode is being changed.
         if temperature is None:
             return
 
